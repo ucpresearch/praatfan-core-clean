@@ -1,0 +1,23 @@
+[build-system]
+requires = ["setuptools>=61.0"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "praatfan"
+version = "0.1.0"
+description = "Clean room reimplementation of Praat's acoustic analysis algorithms"
+requires-python = ">=3.9"
+dependencies = [
+    "numpy>=1.20",
+    "soundfile>=0.10",
+]
+
+[project.optional-dependencies]
+dev = [
+    "praat-parselmouth",
+    "matplotlib",
+    "pytest",
+]
+
+[tool.setuptools.packages.find]
+where = ["."]

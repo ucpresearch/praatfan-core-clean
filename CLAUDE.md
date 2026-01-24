@@ -1,0 +1,440 @@
+# CLAUDE.md - praatfan-core-clean
+
+## Project Overview
+
+**praatfan-core-clean** - A clean room reimplementation of Praat's core acoustic analysis algorithms.
+
+---
+
+## ⚠️ CRITICAL: Clean Room Constraints
+
+This is a **clean room implementation**. The entire point is to create a non-GPL implementation by working ONLY from public documentation.
+
+### You must NOT:
+- Read, reference, or examine any GPL-licensed Praat source code
+- Copy algorithms from the existing `praatfan-core-rs` implementation
+- Use any information that could only be obtained from Praat's source code
+- Include specific numeric constants that aren't documented (find them via black-box testing instead)
+
+### You MAY use:
+- Published academic papers (see `docs/RESOURCES.md`)
+- Praat's official user-facing documentation (manual pages)
+- Standard signal processing textbooks
+- **Black-box testing against Praat/parselmouth output** - this is the primary validation method
+
+### Why this matters:
+The goal is a **non-GPL license** (MIT or Apache-2.0). This requires that the implementation be based solely on:
+- Published academic papers describing the algorithms
+- Praat's public documentation (which describes behavior, not implementation)
+- Standard signal processing techniques from textbooks
+
+If we use GPL source code, the result must also be GPL.
+
+---
+
+## 🎯 Mono Audio Only
+
+This implementation supports **mono audio only**.
+
+- Multi-channel files should error or require explicit channel selection
+- This eliminates undocumented multi-channel handling concerns
+- Simplifies the implementation significantly
+
+---
+
+## 📚 Documentation Categories
+
+When implementing, every formula/constant falls into one of three categories:
+
+### ✅ DOCUMENTED
+Explicitly stated in papers or Praat manual. Use directly.
+
+Examples:
+- HNR formula: `10 × log₁₀(r / (1-r))` (Boersma 1993, Eq. 4)
+- Pre-emphasis: `α = exp(-2π × F × Δt)` (Praat manual)
+- Window length = 2× the parameter value (Praat manual: "actual length is twice this value")
+
+### 🔬 DETERMINE via Black-Box Testing
+Has a specification but not an exact value. Test options against parselmouth.
+
+Examples:
+- "Gaussian window with sidelobes below -120 dB" → find the coefficient that achieves this
+- "Kaiser-20" → β ≈ 20, verify via FFT of window
+- Frame timing (t1) → test left-aligned, centered, right-aligned options
+- DC removal method → test weighted vs unweighted mean
+
+### 📚 STANDARD (from cited references)
+When Praat cites a reference, standard techniques from that reference are implicitly available.
+
+Examples:
+- Root finding via companion matrix eigenvalues (Numerical Recipes Ch. 9.5)
+- Root polishing via Newton-Raphson (Numerical Recipes)
+- Burg's LPC algorithm (Childers 1978, pp. 252-255)
+- Bessel function series expansion (standard numerical analysis)
+
+---
+
+## 🔍 Validation Methodology
+
+### Step 1: Match the Count FIRST
+
+Before comparing values, ensure you produce the **same number of
+frames** as parselmouth, and they should have the same duration. 
+
+```
+Your implementation: 158 frames
+Parselmouth: 159 frames
+→ STOP. Fix frame timing before proceeding.
+```
+
+If counts don't match, your frame timing formula is wrong. Do not proceed to value comparison.
+
+
+### Step 2: Verify intermediate values before final outputs
+
+Multi-step algorithms should be debugged layer by layer. When parselmouth exposes intermediate values, verify those BEFORE debugging the final output.
+
+#### Algorithm Dependencies
+
+Implement in dependency order. If algorithm A depends on B, validate B first.
+
+```
+Spectrum (foundation) ──┬──► Spectral Moments
+                        └──► Spectrogram (windowed Spectrum)
+
+Intensity (independent)
+
+Pitch (foundation) ─────┬──► Harmonicity AC (derived from Pitch AC strength)
+                        └──► Harmonicity CC (derived from Pitch CC strength)
+
+Formant (independent, but complex)
+```
+
+**Critical:** Harmonicity is computed directly from Pitch correlation strength.
+- If your Pitch implementation is correct, Harmonicity follows automatically
+- The formula (from Praat manual, Harmonicity.html): `HNR = 10 × log₁₀(r / (1-r))` where r is the normalized autocorrelation at the pitch period
+- Do NOT attempt Harmonicity until Pitch is fully validated
+
+#### Verification Order by Algorithm
+
+**Pitch Analysis** (test in this order):
+1. Frame count and times (Step 1)
+2. Voicing decisions per frame (`Get value in frame` returns 0 for unvoiced)
+3. Candidate strengths via `Get strength in frame` - these are correlation values r
+4. Final F0 frequencies
+
+**Formant Analysis** (test in this order):
+1. Frame count and times (Step 1)
+2. Number of formants per frame (`Get number of formants`)
+3. Individual formant frequencies F1, F2, F3 separately
+4. Individual bandwidths B1, B2, B3 separately
+
+**Harmonicity** (derived from Pitch):
+1. Validate Pitch first (same method: AC→AC, CC→CC)
+2. HNR is computed from pitch strength r: `10 × log₁₀(r / (1-r))` (Praat manual, Harmonicity.html)
+3. If Pitch strengths match, HNR will match automatically
+
+**Spectrum** (test in this order):
+1. Number of bins and frequency resolution (dx)
+2. Band energies for specific frequency ranges
+3. Spectral moments (CoG, std dev, skewness, kurtosis)
+
+**Spectrogram** (windowed Spectrum):
+1. Validate Spectrum first (single-frame FFT)
+2. Frame count and time/frequency grid dimensions
+3. Power values at specific time-frequency points
+
+**Intensity** (relatively simple):
+1. Frame count and times (Step 1)
+2. Individual frame values in dB
+
+#### Why This Matters
+
+If your F1 values are wrong, the bug could be in:
+- Frame timing (wrong samples selected)
+- LPC coefficient calculation (Burg algorithm)
+- Root finding (companion matrix eigenvalues)
+- Root-to-frequency conversion
+
+By checking formant count per frame first, you narrow down where the bug is. If count matches but values don't, the bug is in later stages.
+
+Similarly, if HNR is wrong but Pitch F0 is correct, check if Pitch *strength* values match—the HNR formula is trivial, so the bug is likely in how strength is computed.
+
+### Step 3: Values should match frame by frame, the averages matter less
+
+Precision means **each frame** should match, not just the average.
+
+**✅ Correct validation:**
+```
+Frame 47 at t=0.125s: your F1=523.4 Hz, parselmouth F1=523.5 Hz → error: 0.1 Hz ✓
+Frame 48 at t=0.135s: your F1=531.2 Hz, parselmouth F1=531.1 Hz → error: 0.1 Hz ✓
+```
+
+**❌ Wrong validation:**
+```
+"Average F1 error across all frames is 0.5 Hz"
+→ This hides systematic errors! Some frames could be way off while others compensate.
+```
+
+### Step 4: Investigate Outliers
+
+If 95% of frames match but 5% have large errors, those outliers reveal edge cases:
+- Frames near signal boundaries
+- Frames during unvoiced regions
+- Frames at phoneme transitions
+- Numerical edge cases (division by near-zero, etc.)
+
+These can follow from:
+
+- Window selection
+- Normalization
+- Quantization
+- Sampling
+- Other factors
+
+### Target Tolerances
+
+| Algorithm | Target |
+|-----------|--------|
+| Formant | F1, F2, F3 within 1 Hz |
+| Pitch | Within 0.01 Hz |
+| Intensity | Within 0.001 dB |
+| Spectrum | Relative error < 1e-10 |
+| Spectral moments | Exact match |
+| HNR | Within 0.01 dB |
+
+---
+
+## 📖 Key Documentation Sources
+
+### Boersma (1993) - Primary source for Pitch and HNR
+- Location: `~/Downloads/boersma-pitchtracking.pdf`
+- Online: https://www.fon.hum.uva.nl/paul/papers/Proceedings_1993.pdf
+- Contains: Complete pitch algorithm, HNR formula, sinc interpolation, Viterbi costs, Gaussian window
+
+### Praat Manual
+- Location: `/tmp/praat.github.io/docs/manual/`
+- Key pages: `Sound__To_Formant__burg____.html`, `Sound__To_Intensity___.html`, etc.
+- See `docs/RESOURCES.md` for full list
+
+### Childers (1978) - Burg's Algorithm
+- "Modern Spectrum Analysis", IEEE Press, pp. 252-255
+- Explicitly cited by Praat manual for formant analysis
+
+### Numerical Recipes - Root Finding
+- Press et al., "Numerical Recipes in C", Chapter 9.5
+- Explicitly cited by Praat manual
+
+---
+
+## 🛠️ Implementation Order
+
+Start with the most documented algorithms:
+
+1. **Spectrum** - Standard FFT, fully documented
+2. **Spectral Moments** - 100% documented formulas
+3. **Intensity** - Mostly documented (some black-box testing needed)
+4. **Pitch** - Boersma (1993) is comprehensive
+5. **Harmonicity** - Derives from pitch
+6. **Formant** - Burg LPC + root finding
+7. **Spectrogram** - Standard STFT
+
+See `docs/RECIPE.md` for detailed implementation guidance.
+
+---
+
+## 🐍 Python-First Development Approach
+
+For clean-room reimplementation, **develop in Python first**, then port to Rust.
+
+### Why Python First?
+
+1. **Algorithm correctness is the hard part** - Once Python works, Rust port is mechanical
+2. **Direct comparison with parselmouth** - Same language, easy to compare intermediate values
+3. **Faster iteration** - No compile cycle, interactive debugging, Jupyter notebooks
+4. **More experimentation** - Without source code access, you need to probe parselmouth behavior extensively
+
+### Workflow
+
+1. **Python clean-room implementation** using NumPy (no looking at Praat source)
+2. **Validate against parselmouth** until frame-by-frame accuracy achieved
+3. **Port to Rust** module by module, using Python as reference
+4. **Same tests** comparing Rust output vs Python output (should be identical)
+
+### Keep Python "Rust-Shaped"
+
+Write Python that translates easily to Rust:
+- Avoid list comprehensions with complex logic
+- Use explicit loops where Rust would need them
+- Use NumPy arrays (map to `ndarray` in Rust)
+- Avoid dynamic typing tricks
+
+### Project Structure
+
+```
+src/
+├── python/           # Python implementation (develop here first)
+│   ├── spectrum.py
+│   ├── pitch.py
+│   ├── formant.py
+│   └── ...
+└── rust/             # Rust port (after Python is validated)
+    └── (later)
+```
+
+---
+
+## 🔧 Development Environment
+
+**Python with parselmouth** (for validation):
+```bash
+source . .venv
+```
+
+**Getting ground truth:**
+```python
+import parselmouth
+from parselmouth.praat import call
+
+snd = parselmouth.Sound("audio.wav")
+formant = call(snd, "To Formant (burg)", 0.01, 5, 5500, 0.025, 50)
+n_frames = call(formant, "Get number of frames")
+
+for i in range(1, n_frames + 1):
+    t = call(formant, "Get time from frame number", i)
+    f1 = call(formant, "Get value at time", 1, t, "Hertz", "Linear")
+    print(f"t={t:.3f}: F1={f1:.1f} Hz")
+```
+
+See `scripts/README.md` for more validation examples.
+
+---
+
+## 📁 Project Structure
+
+```
+praatfan-core-clean/
+├── CLAUDE.md              # This file - project instructions
+├── PLAN.md                # Black-box testing decisions and debugging log (gitignored)
+├── PROGRESS.md            # Session progress notes (gitignored)
+├── docs/
+│   ├── RESOURCES.md       # Available documentation sources
+│   ├── RECIPE.md          # Step-by-step implementation guide
+│   └── API.md             # Target API specification
+├── tests/
+│   └── fixtures/          # Test audio files (mono WAV only)
+├── scripts/
+│   ├── README.md          # Validation script instructions
+│   └── compare_*.py       # Comparison scripts against parselmouth
+├── src/
+│   └── praatfan/          # Python implementation (develop here first)
+│       ├── __init__.py
+│       ├── sound.py       # Sound loading and basic operations
+│       ├── spectrum.py    # FFT and spectral moments
+│       ├── intensity.py   # Intensity analysis
+│       ├── pitch.py       # Pitch detection (AC and CC methods)
+│       ├── harmonicity.py # HNR (wraps pitch)
+│       ├── formant.py     # Formant analysis (Burg LPC)
+│       └── spectrogram.py # STFT spectrogram
+└── rust/                  # Rust port (after Python validated)
+    └── (later)
+```
+
+---
+
+## 📋 Working Files (gitignored)
+
+### PLAN.md
+Tracks black-box testing decisions for 🔬 DETERMINE items. Contains:
+- Identified discrepancies between RECIPE and implementation
+- Testing strategy and phases
+- Black-box testing log with dates and results
+- Quick reference for debugging specific symptoms
+
+**Update PLAN.md when:**
+- Trying a new option for an undocumented constant
+- Discovering a discrepancy
+- Recording test results
+
+### PROGRESS.md
+
+Detailed session-by-session progress log. This file documents the clean-room implementation journey for potential publication or case study.
+
+**Format for each session:**
+
+```markdown
+## Session: YYYY-MM-DD
+
+### Algorithm: [Algorithm Name]
+
+#### Objective
+What was the goal for this session?
+
+#### Approach
+- Method 1 tried: [description]
+- Method 2 tried: [description]
+
+#### Accuracy Assessment
+
+| Metric | Value |
+|--------|-------|
+| Total frames | N |
+| Voiced frames tested | M |
+| Frames within tolerance | X |
+| Accuracy | X/M (Y%) |
+| Mean error | Z |
+| Max error | W |
+| Outlier count (>threshold) | K |
+
+#### Histogram (when relevant)
+
+```
+Error distribution (Hz):
+  0.0-0.1:  ████████████████████████ 142 (89.9%)
+  0.1-0.5:  ███                       12 (7.6%)
+  0.5-1.0:  █                          3 (1.9%)
+  1.0+:     ▏                          1 (0.6%)
+```
+
+#### Findings
+- What worked / what didn't
+- Decision points resolved (DPn)
+- Remaining issues
+
+#### Next Steps
+- What to try next
+```
+
+**Guidelines:**
+
+1. **Log every substantive session** - Not just successes, but failed approaches too
+2. **Quantify accuracy explicitly** - Use frame counts, percentages, histograms
+3. **Document decision points** - When a 🔬 DETERMINE item is resolved, record the winning option
+4. **Note what was tried and why** - For publication, the reasoning matters
+5. **Include error distributions** - Histograms reveal patterns that averages hide
+6. **Track algorithm dependency** - If debugging Harmonicity, note if Pitch was re-validated
+
+---
+
+## ⚡ Quick Reference: What to Do When Stuck
+
+| Situation | Action |
+|-----------|--------|
+| Don't know the exact formula | Check `docs/RESOURCES.md` for documentation sources |
+| Formula documented but constant unknown | Black-box test: try options, compare to parselmouth |
+| Need standard algorithm (FFT, LPC, etc.) | Use cited references (Numerical Recipes, Childers) |
+| Frame count doesn't match | Fix frame timing first (test left/center/right alignment) |
+| Values don't match but count is right | Compare frame-by-frame, find the outliers |
+| Tempted to look at Praat source | **DON'T.** Find it in documentation or determine via testing |
+
+---
+
+## 🚫 Common Mistakes to Avoid
+
+1. **Looking at Praat source code** - Violates clean room principle
+2. **Copying from praatfan-core-rs** - Same problem
+3. **Using undocumented constants directly** - Must derive via black-box testing
+4. **Validating with averages** - Compare individual frames
+5. **Proceeding when frame counts don't match** - Fix timing first
+6. **Assuming multi-channel works** - We only support mono
+7. **Guessing at formulas** - If not documented, test options systematically
