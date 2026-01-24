@@ -142,8 +142,8 @@ class Sound:
         Returns:
             Spectrum object
         """
-        from .spectrum import Spectrum
-        raise NotImplementedError("Spectrum not yet implemented")
+        from .spectrum import sound_to_spectrum
+        return sound_to_spectrum(self, fast=fast)
 
     def to_intensity(self, min_pitch: float = 100.0, time_step: float = 0.0) -> "Intensity":
         """
@@ -156,8 +156,8 @@ class Sound:
         Returns:
             Intensity object
         """
-        from .intensity import Intensity
-        raise NotImplementedError("Intensity not yet implemented")
+        from .intensity import sound_to_intensity
+        return sound_to_intensity(self, min_pitch=min_pitch, time_step=time_step)
 
     def to_pitch(
         self,
@@ -176,8 +176,9 @@ class Sound:
         Returns:
             Pitch object
         """
-        from .pitch import Pitch
-        raise NotImplementedError("Pitch not yet implemented")
+        from .pitch import sound_to_pitch
+        return sound_to_pitch(self, time_step=time_step,
+                             pitch_floor=pitch_floor, pitch_ceiling=pitch_ceiling)
 
     def to_harmonicity_ac(
         self,
