@@ -151,12 +151,59 @@ class Formant:
             formant_number: Formant number (1-based)
             time: Time in seconds
             unit: Unit for result ("Hertz", "Bark")
-            interpolation: Interpolation method
+            interpolation: Interpolation method ("linear", "nearest")
 
         Returns:
             Formant frequency, or None if not present
         """
-        raise NotImplementedError()
+        if self.n_frames == 0:
+            return None
+
+        # Find position in frame array
+        t0 = self._frames[0].time
+        idx_float = (time - t0) / self._time_step
+
+        if idx_float < -0.5 or idx_float > self.n_frames - 0.5:
+            return None
+
+        if interpolation == "nearest":
+            idx = int(round(idx_float))
+            idx = max(0, min(self.n_frames - 1, idx))
+            fp = self._frames[idx].get_formant(formant_number)
+            if fp is None:
+                return None
+            value = fp.frequency
+
+        elif interpolation == "linear":
+            idx = int(np.floor(idx_float))
+            frac = idx_float - idx
+
+            i1 = max(0, min(self.n_frames - 1, idx))
+            i2 = max(0, min(self.n_frames - 1, idx + 1))
+
+            fp1 = self._frames[i1].get_formant(formant_number)
+            fp2 = self._frames[i2].get_formant(formant_number)
+
+            # Handle missing formants
+            if fp1 is None and fp2 is None:
+                return None
+            elif fp1 is None:
+                value = fp2.frequency
+            elif fp2 is None:
+                value = fp1.frequency
+            else:
+                value = fp1.frequency * (1 - frac) + fp2.frequency * frac
+        else:
+            raise ValueError(f"Unknown interpolation method: {interpolation}")
+
+        # Convert units if needed
+        if unit.lower() == "hertz":
+            return float(value)
+        elif unit.lower() == "bark":
+            # Bark scale conversion
+            return float(7.0 * np.log(value / 650.0 + np.sqrt(1 + (value / 650.0) ** 2)))
+        else:
+            return float(value)
 
     def get_bandwidth_at_time(
         self,
@@ -172,12 +219,50 @@ class Formant:
             formant_number: Formant number (1-based)
             time: Time in seconds
             unit: Unit for result
-            interpolation: Interpolation method
+            interpolation: Interpolation method ("linear", "nearest")
 
         Returns:
             Bandwidth, or None if not present
         """
-        raise NotImplementedError()
+        if self.n_frames == 0:
+            return None
+
+        # Find position in frame array
+        t0 = self._frames[0].time
+        idx_float = (time - t0) / self._time_step
+
+        if idx_float < -0.5 or idx_float > self.n_frames - 0.5:
+            return None
+
+        if interpolation == "nearest":
+            idx = int(round(idx_float))
+            idx = max(0, min(self.n_frames - 1, idx))
+            fp = self._frames[idx].get_formant(formant_number)
+            if fp is None:
+                return None
+            return float(fp.bandwidth)
+
+        elif interpolation == "linear":
+            idx = int(np.floor(idx_float))
+            frac = idx_float - idx
+
+            i1 = max(0, min(self.n_frames - 1, idx))
+            i2 = max(0, min(self.n_frames - 1, idx + 1))
+
+            fp1 = self._frames[i1].get_formant(formant_number)
+            fp2 = self._frames[i2].get_formant(formant_number)
+
+            # Handle missing formants
+            if fp1 is None and fp2 is None:
+                return None
+            elif fp1 is None:
+                return float(fp2.bandwidth)
+            elif fp2 is None:
+                return float(fp1.bandwidth)
+            else:
+                return float(fp1.bandwidth * (1 - frac) + fp2.bandwidth * frac)
+        else:
+            raise ValueError(f"Unknown interpolation method: {interpolation}")
 
 
 def _gaussian_window(n: int) -> np.ndarray:

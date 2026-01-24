@@ -143,14 +143,69 @@ class Pitch:
         Args:
             time: Time in seconds
             unit: Unit for result ("Hertz", "semitones", etc.)
-            interpolation: Interpolation method
+            interpolation: Interpolation method ("linear", "nearest")
 
         Returns:
-            Pitch value, or None if unvoiced
+            Pitch value, or None if unvoiced or outside range
         """
-        raise NotImplementedError()
+        if self.n_frames == 0:
+            return None
 
-    def get_strength_at_time(self, time: float) -> Optional[float]:
+        # Find position in frame array
+        t0 = self._frames[0].time
+        idx_float = (time - t0) / self._time_step
+
+        if idx_float < -0.5 or idx_float > self.n_frames - 0.5:
+            return None
+
+        if interpolation == "nearest":
+            idx = int(round(idx_float))
+            idx = max(0, min(self.n_frames - 1, idx))
+            frame = self._frames[idx]
+            if not frame.voiced:
+                return None
+            value = frame.frequency
+
+        elif interpolation == "linear":
+            idx = int(np.floor(idx_float))
+            frac = idx_float - idx
+
+            # Get surrounding frames
+            i1 = max(0, min(self.n_frames - 1, idx))
+            i2 = max(0, min(self.n_frames - 1, idx + 1))
+
+            f1, f2 = self._frames[i1], self._frames[i2]
+
+            # Both frames must be voiced for interpolation
+            if not f1.voiced or not f2.voiced:
+                # Fall back to nearest voiced
+                if frac < 0.5 and f1.voiced:
+                    value = f1.frequency
+                elif f2.voiced:
+                    value = f2.frequency
+                elif f1.voiced:
+                    value = f1.frequency
+                else:
+                    return None
+            else:
+                value = f1.frequency * (1 - frac) + f2.frequency * frac
+        else:
+            raise ValueError(f"Unknown interpolation method: {interpolation}")
+
+        # Convert units if needed
+        if unit.lower() == "hertz":
+            return float(value)
+        elif unit.lower() == "semitones":
+            # Semitones relative to 100 Hz
+            return float(12.0 * np.log2(value / 100.0))
+        elif unit.lower() == "mel":
+            return float(1127.0 * np.log(1.0 + value / 700.0))
+        elif unit.lower() == "erb":
+            return float(21.4 * np.log10(0.00437 * value + 1.0))
+        else:
+            return float(value)
+
+    def get_strength_at_time(self, time: float, interpolation: str = "linear") -> Optional[float]:
         """
         Get pitch strength at a specific time.
 
@@ -158,11 +213,39 @@ class Pitch:
 
         Args:
             time: Time in seconds
+            interpolation: Interpolation method ("linear", "nearest")
 
         Returns:
             Strength value (0-1), or None if outside range
         """
-        raise NotImplementedError()
+        if self.n_frames == 0:
+            return None
+
+        # Find position in frame array
+        t0 = self._frames[0].time
+        idx_float = (time - t0) / self._time_step
+
+        if idx_float < -0.5 or idx_float > self.n_frames - 0.5:
+            return None
+
+        if interpolation == "nearest":
+            idx = int(round(idx_float))
+            idx = max(0, min(self.n_frames - 1, idx))
+            return float(self._frames[idx].strength)
+
+        elif interpolation == "linear":
+            idx = int(np.floor(idx_float))
+            frac = idx_float - idx
+
+            i1 = max(0, min(self.n_frames - 1, idx))
+            i2 = max(0, min(self.n_frames - 1, idx + 1))
+
+            s1 = self._frames[i1].strength
+            s2 = self._frames[i2].strength
+
+            return float(s1 * (1 - frac) + s2 * frac)
+        else:
+            raise ValueError(f"Unknown interpolation method: {interpolation}")
 
 
 def _hanning_window(n: int) -> np.ndarray:

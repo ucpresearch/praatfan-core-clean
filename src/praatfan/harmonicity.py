@@ -90,12 +90,62 @@ class Harmonicity:
 
         Args:
             time: Time in seconds
-            interpolation: Interpolation method
+            interpolation: Interpolation method ("cubic", "linear", "nearest")
 
         Returns:
-            HNR in dB, or None if outside range or unvoiced
+            HNR in dB, or None if outside range
         """
-        raise NotImplementedError()
+        if self.n_frames == 0:
+            return None
+
+        # Find position in frame array
+        t0 = self._times[0]
+        idx_float = (time - t0) / self._time_step
+
+        if idx_float < -0.5 or idx_float > self.n_frames - 0.5:
+            return None
+
+        if interpolation == "nearest":
+            idx = int(round(idx_float))
+            idx = max(0, min(self.n_frames - 1, idx))
+            return float(self._values[idx])
+
+        elif interpolation == "linear":
+            idx = int(np.floor(idx_float))
+            if idx < 0:
+                return float(self._values[0])
+            if idx >= self.n_frames - 1:
+                return float(self._values[-1])
+            frac = idx_float - idx
+            return float(self._values[idx] * (1 - frac) + self._values[idx + 1] * frac)
+
+        elif interpolation == "cubic":
+            idx = int(np.floor(idx_float))
+            frac = idx_float - idx
+
+            # Get 4 surrounding points for cubic interpolation
+            i0 = max(0, idx - 1)
+            i1 = max(0, min(self.n_frames - 1, idx))
+            i2 = max(0, min(self.n_frames - 1, idx + 1))
+            i3 = min(self.n_frames - 1, idx + 2)
+
+            y0, y1, y2, y3 = self._values[i0], self._values[i1], self._values[i2], self._values[i3]
+
+            # Cubic interpolation (Catmull-Rom spline)
+            t = frac
+            t2 = t * t
+            t3 = t2 * t
+
+            result = 0.5 * (
+                (2 * y1) +
+                (-y0 + y2) * t +
+                (2*y0 - 5*y1 + 4*y2 - y3) * t2 +
+                (-y0 + 3*y1 - 3*y2 + y3) * t3
+            )
+            return float(result)
+
+        else:
+            raise ValueError(f"Unknown interpolation method: {interpolation}")
 
 
 def strength_to_hnr(r: float) -> float:

@@ -163,22 +163,25 @@ class Sound:
         self,
         time_step: float = 0.0,
         pitch_floor: float = 75.0,
-        pitch_ceiling: float = 600.0
+        pitch_ceiling: float = 600.0,
+        method: str = "ac"
     ) -> "Pitch":
         """
-        Compute pitch (F0) contour using autocorrelation method.
+        Compute pitch (F0) contour.
 
         Args:
             time_step: Time step in seconds (0 = auto)
             pitch_floor: Minimum pitch in Hz
             pitch_ceiling: Maximum pitch in Hz
+            method: Analysis method ("ac" for autocorrelation, "cc" for cross-correlation)
 
         Returns:
             Pitch object
         """
         from .pitch import sound_to_pitch
         return sound_to_pitch(self, time_step=time_step,
-                             pitch_floor=pitch_floor, pitch_ceiling=pitch_ceiling)
+                             pitch_floor=pitch_floor, pitch_ceiling=pitch_ceiling,
+                             method=method)
 
     def to_harmonicity_ac(
         self,
@@ -199,8 +202,11 @@ class Sound:
         Returns:
             Harmonicity object
         """
-        from .harmonicity import Harmonicity
-        raise NotImplementedError("Harmonicity not yet implemented")
+        from .harmonicity import sound_to_harmonicity_ac
+        return sound_to_harmonicity_ac(
+            self, time_step=time_step, min_pitch=min_pitch,
+            silence_threshold=silence_threshold, periods_per_window=periods_per_window
+        )
 
     def to_harmonicity_cc(
         self,
@@ -221,8 +227,11 @@ class Sound:
         Returns:
             Harmonicity object
         """
-        from .harmonicity import Harmonicity
-        raise NotImplementedError("Harmonicity not yet implemented")
+        from .harmonicity import sound_to_harmonicity_cc
+        return sound_to_harmonicity_cc(
+            self, time_step=time_step, min_pitch=min_pitch,
+            silence_threshold=silence_threshold, periods_per_window=periods_per_window
+        )
 
     def to_formant_burg(
         self,
@@ -245,8 +254,12 @@ class Sound:
         Returns:
             Formant object
         """
-        from .formant import Formant
-        raise NotImplementedError("Formant not yet implemented")
+        from .formant import sound_to_formant_burg
+        return sound_to_formant_burg(
+            self, time_step=time_step, max_num_formants=max_num_formants,
+            max_formant_hz=max_formant_hz, window_length=window_length,
+            pre_emphasis_from=pre_emphasis_from
+        )
 
     def to_spectrogram(
         self,
@@ -267,5 +280,8 @@ class Sound:
         Returns:
             Spectrogram object
         """
-        from .spectrogram import Spectrogram
-        raise NotImplementedError("Spectrogram not yet implemented")
+        from .spectrogram import sound_to_spectrogram
+        return sound_to_spectrogram(
+            self, window_length=window_length, max_frequency=max_frequency,
+            time_step=time_step, frequency_step=frequency_step
+        )
