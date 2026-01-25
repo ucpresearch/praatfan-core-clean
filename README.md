@@ -2,11 +2,37 @@
 
 A clean-room reimplementation of Praat's acoustic analysis algorithms, with a unified API that supports multiple backends.
 
+> **Note:** This is a pre-release (v0.1.0). The API is stabilizing but may still change.
+
 ## Installation
+
+### Option 1: Pure Python (from source)
 
 ```bash
 pip install git+https://github.com/ucpresearch/praatfan-core-clean.git
 ```
+
+This installs the pure Python implementation. Works everywhere, no compilation needed.
+
+### Option 2: Pre-built Rust wheels (faster)
+
+Pre-compiled wheels with Rust acceleration are available from [GitHub Releases](https://github.com/ucpresearch/praatfan-core-clean/releases/tag/v0.1.0).
+
+```bash
+# Linux x86_64, Python 3.12
+pip install "https://github.com/ucpresearch/praatfan-core-clean/releases/download/v0.1.0/praatfan-0.1.0-cp312-cp312-manylinux_2_17_x86_64.manylinux2014_x86_64.whl"
+
+# macOS ARM64 (Apple Silicon), Python 3.12
+pip install "https://github.com/ucpresearch/praatfan-core-clean/releases/download/v0.1.0/praatfan-0.1.0-cp312-cp312-macosx_11_0_arm64.whl"
+
+# Windows x86_64, Python 3.12
+pip install "https://github.com/ucpresearch/praatfan-core-clean/releases/download/v0.1.0/praatfan-0.1.0-cp312-cp312-win_amd64.whl"
+```
+
+Available wheels:
+- **Linux x86_64**: Python 3.8, 3.9, 3.10, 3.11, 3.12
+- **macOS ARM64**: Python 3.12
+- **Windows x86_64**: Python 3.12
 
 ## Quick Start
 
@@ -100,12 +126,7 @@ Note: parselmouth is GPL-licensed. If you need a permissive license, use the bui
 
 #### praatfan-rust
 
-Pre-compiled wheels are available from [GitHub Releases](https://github.com/ucpresearch/praatfan-core-clean/releases). Download the wheel for your platform and install:
-
-```bash
-# Download wheel for your platform from releases, then:
-pip install praatfan-0.1.0-cp312-cp312-manylinux_2_17_x86_64.whl
-```
+The Rust-accelerated backend is included when you install from [pre-built wheels](#option-2-pre-built-rust-wheels-faster).
 
 To build from source (requires Rust toolchain):
 
@@ -117,8 +138,10 @@ maturin develop --features python
 
 #### praatfan-core
 
+A separate Rust implementation with pre-built wheels:
+
 ```bash
-pip install praatfan-core
+pip install git+https://github.com/ucpresearch/praatfan-core-rs.git
 ```
 
 ## Unified API
