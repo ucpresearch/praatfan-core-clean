@@ -760,12 +760,12 @@ class PraatfanPythonSound(BaseSound):
 
     @classmethod
     def from_file(cls, path: Union[str, Path]) -> "PraatfanPythonSound":
-        from praatfan import Sound as PfSound
+        from praatfan.sound import Sound as PfSound
         return cls(PfSound.from_file(path))
 
     @classmethod
     def from_samples(cls, samples: np.ndarray, sampling_frequency: float) -> "PraatfanPythonSound":
-        from praatfan import Sound as PfSound
+        from praatfan.sound import Sound as PfSound
         return cls(PfSound(samples, sampling_frequency))
 
     def to_pitch_ac(self, time_step=0.0, pitch_floor=75.0, pitch_ceiling=600.0) -> UnifiedPitch:
