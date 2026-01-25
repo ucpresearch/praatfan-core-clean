@@ -1,0 +1,24 @@
+{
+  "name": "praatfan",
+  "type": "module",
+  "description": "Clean-room reimplementation of Praat's acoustic analysis algorithms",
+  "version": "0.1.0",
+  "license": "MIT OR Apache-2.0",
+  "files": [
+    "praatfan_bg.wasm",
+    "praatfan.js",
+    "praatfan.d.ts"
+  ],
+  "main": "praatfan.js",
+  "types": "praatfan.d.ts",
+  "sideEffects": [
+    "./snippets/*"
+  ],
+  "keywords": [
+    "audio",
+    "speech",
+    "acoustics",
+    "formant",
+    "pitch"
+  ]
+}
