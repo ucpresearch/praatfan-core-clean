@@ -100,10 +100,11 @@ Note: parselmouth is GPL-licensed. If you need a permissive license, use the bui
 
 #### praatfan-rust
 
-If pre-compiled wheels are available (check releases), pip installs them automatically - no Rust toolchain needed:
+Pre-compiled wheels are available from [GitHub Releases](https://github.com/ucpresearch/praatfan-core-clean/releases). Download the wheel for your platform and install:
 
 ```bash
-pip install praatfan[rust]  # If wheels are published
+# Download wheel for your platform from releases, then:
+pip install praatfan-0.1.0-cp312-cp312-manylinux_2_17_x86_64.whl
 ```
 
 To build from source (requires Rust toolchain):
