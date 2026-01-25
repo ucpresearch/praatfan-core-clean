@@ -117,7 +117,7 @@ maturin develop --features python
 #### praatfan-core
 
 ```bash
-pip install git+https://github.com/ucpresearch/praatfan-core.git
+pip install praatfan-core
 ```
 
 ## Unified API
