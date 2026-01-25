@@ -32,45 +32,6 @@ jobs:
           name: wheel-python
           path: dist/*.whl
 
-  # Build Rust wheels for multiple platforms
-  build-rust:
-    strategy:
-      fail-fast: false
-      matrix:
-        include:
-          # Linux x86_64
-          - os: ubuntu-latest
-            target: x86_64-unknown-linux-gnu
-          # macOS Apple Silicon
-          - os: macos-14
-            target: aarch64-apple-darwin
-          # Windows x86_64
-          - os: windows-latest
-            target: x86_64-pc-windows-msvc
-
-    runs-on: ${{ matrix.os }}
-    steps:
-      - uses: actions/checkout@v4
-
-      - name: Set up Python
-        uses: actions/setup-python@v5
-        with:
-          python-version: "3.12"
-
-      - name: Build wheels
-        uses: PyO3/maturin-action@v1
-        with:
-          target: ${{ matrix.target }}
-          args: --release --out dist --features python
-          working-directory: rust
-          sccache: 'true'
-          manylinux: auto
-
-      - name: Upload wheels
-        uses: actions/upload-artifact@v4
-        with:
-          name: wheel-${{ matrix.target }}
-          path: rust/dist/*.whl
 
   # Build for multiple Python versions on Linux
   build-rust-linux-py:
@@ -97,9 +58,67 @@ jobs:
           name: wheel-linux-py${{ matrix.python-version }}
           path: rust/dist/*.whl
 
+  # Build for multiple Python versions on macOS ARM64
+  build-rust-macos-py:
+    runs-on: macos-14
+    strategy:
+      fail-fast: false
+      matrix:
+        python-version: ["3.9", "3.10", "3.11", "3.12"]
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: ${{ matrix.python-version }}
+
+      - name: Build wheels
+        uses: PyO3/maturin-action@v1
+        with:
+          target: aarch64-apple-darwin
+          args: --release --out dist --features python -i python${{ matrix.python-version }}
+          working-directory: rust
+          sccache: 'true'
+
+      - name: Upload wheels
+        uses: actions/upload-artifact@v4
+        with:
+          name: wheel-macos-py${{ matrix.python-version }}
+          path: rust/dist/*.whl
+
+  # Build for multiple Python versions on Windows
+  build-rust-windows-py:
+    runs-on: windows-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        python-version: ["3.9", "3.10", "3.11", "3.12"]
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: ${{ matrix.python-version }}
+
+      - name: Build wheels
+        uses: PyO3/maturin-action@v1
+        with:
+          target: x86_64-pc-windows-msvc
+          args: --release --out dist --features python -i python${{ matrix.python-version }}
+          working-directory: rust
+          sccache: 'true'
+
+      - name: Upload wheels
+        uses: actions/upload-artifact@v4
+        with:
+          name: wheel-windows-py${{ matrix.python-version }}
+          path: rust/dist/*.whl
+
   # Upload all wheels to the GitHub release
   upload-release:
-    needs: [build-python, build-rust, build-rust-linux-py]
+    needs: [build-python, build-rust-linux-py, build-rust-macos-py, build-rust-windows-py]
     runs-on: ubuntu-latest
     if: github.event_name == 'release'
     steps:
