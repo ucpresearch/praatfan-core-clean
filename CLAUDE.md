@@ -510,17 +510,25 @@ wasm-pack build --target nodejs --features wasm  # For Node.js
 cargo test
 ```
 
-### Git Status (as of 2026-01-25)
+### Release Status
 
-**Local commits not yet pushed:**
-- `a6cfe61` - Add WASM and Python bindings with inline documentation
-- `40d5b2a` - Add comprehensive USAGE.md documentation
+**Current version:** v0.1.0 (Pre-release)
 
-**No remote configured yet.** To push:
-```bash
-git remote add origin <your-repo-url>
-git push -u origin master
-```
+This is a **pre-release** - the API is stabilizing but may still change. Use at your own risk in production.
+
+**Pre-release wheels available at:** https://github.com/ucpresearch/praatfan-core-clean/releases/tag/v0.1.0
+
+Available platforms:
+- Pure Python: `praatfan-0.1.0-py3-none-any.whl` (works everywhere)
+- Linux x86_64: Python 3.8, 3.9, 3.10, 3.11, 3.12
+- macOS ARM64: Python 3.12
+- Windows x86_64: Python 3.12
+
+### Repository
+
+- **Remote:** https://github.com/ucpresearch/praatfan-core-clean
+- **Default branch:** master
+- **CI/CD:** GitHub Actions builds wheels on release creation
 
 ### Untracked Files (not committed)
 
