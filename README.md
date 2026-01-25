@@ -22,17 +22,17 @@ Pre-compiled wheels with Rust acceleration are available from [GitHub Releases](
 # Linux x86_64, Python 3.12
 pip install "https://github.com/ucpresearch/praatfan-core-clean/releases/download/v0.1.0/praatfan-0.1.0-cp312-cp312-manylinux_2_17_x86_64.manylinux2014_x86_64.whl"
 
-# macOS ARM64 (Apple Silicon), Python 3.12
-pip install "https://github.com/ucpresearch/praatfan-core-clean/releases/download/v0.1.0/praatfan-0.1.0-cp312-cp312-macosx_11_0_arm64.whl"
+# macOS ARM64 (Apple Silicon), Python 3.9 (default macOS Python)
+pip install "https://github.com/ucpresearch/praatfan-core-clean/releases/download/v0.1.0/praatfan-0.1.0-cp39-cp39-macosx_11_0_arm64.whl"
 
 # Windows x86_64, Python 3.12
 pip install "https://github.com/ucpresearch/praatfan-core-clean/releases/download/v0.1.0/praatfan-0.1.0-cp312-cp312-win_amd64.whl"
 ```
 
 Available wheels:
-- **Linux x86_64**: Python 3.8, 3.9, 3.10, 3.11, 3.12
-- **macOS ARM64**: Python 3.12
-- **Windows x86_64**: Python 3.12
+- **Linux x86_64**: Python 3.9, 3.10, 3.11, 3.12
+- **macOS ARM64**: Python 3.9, 3.10, 3.11, 3.12
+- **Windows x86_64**: Python 3.9, 3.10, 3.11, 3.12
 
 ## Quick Start
 
