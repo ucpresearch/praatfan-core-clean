@@ -528,8 +528,3 @@ git push -u origin master
 - `scripts/*.py` - Comparison and debug scripts used during development
 - `src/praatfan/__pycache__/` - Python cache (gitignored)
 
-### Consumer Projects
-
-- **ozen-web** (`../ozen-web/`) - Web app that uses the WASM bindings
-  - Expects API: `new Sound(samples, sampleRate)`, snake_case methods
-  - WASM bindings designed to match these expectations
