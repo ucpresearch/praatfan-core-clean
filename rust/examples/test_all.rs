@@ -141,6 +141,7 @@ fn main() {
         "one_two_three_four_five-gain5.wav",
         "one_two_three_four_five_16k.wav",
         "tam-haʃaʁav-haɡadol.wav",
+        "tam-haʃaʁav-haɡadol-mono.wav",
     ];
 
     println!("Praatfan Rust - Module Tests");

@@ -15,7 +15,7 @@
 
 use ndarray::Array1;
 use num_complex::Complex64;
-use rubato::{FftFixedIn, Resampler};
+use rustfft::{FftPlanner, num_complex::Complex};
 
 use crate::sound::Sound;
 
@@ -444,25 +444,36 @@ fn lpc_roots(a: &[f64], polish: bool, reflect_unstable: bool) -> Vec<Complex64> 
         return Vec::new();
     }
 
-    // Build companion matrix
+    // Check if coefficients are essentially zero (silent frame)
+    // This avoids hanging in Schur decomposition for degenerate matrices
+    let coeff_sum: f64 = a.iter().skip(1).map(|c| c.abs()).sum();
+    if coeff_sum < 1e-10 {
+        return Vec::new();
+    }
+
+    // Build companion matrix using nalgebra
     // For polynomial z^p + c1*z^{p-1} + ... + cp
     // Companion matrix has -coefficients in first row, 1s on subdiagonal
-    let mut companion = ndarray::Array2::<f64>::zeros((order, order));
+    let mut companion = nalgebra::DMatrix::<f64>::zeros(order, order);
 
     // First row: -a[1], -a[2], ..., -a[p]
     for i in 0..order {
-        companion[[0, i]] = -a[i + 1];
+        companion[(0, i)] = -a[i + 1];
     }
 
     // Subdiagonal: 1s
     for i in 1..order {
-        companion[[i, i - 1]] = 1.0;
+        companion[(i, i - 1)] = 1.0;
     }
 
-    // Compute eigenvalues using a simple QR algorithm approximation
-    // For production, you'd want to use a proper linear algebra library
-    // Here we implement a basic eigenvalue computation via the characteristic polynomial
-    let mut roots = compute_eigenvalues(&companion);
+    // Compute eigenvalues using nalgebra's Schur decomposition
+    let schur = companion.schur();
+    let eigenvalues = schur.complex_eigenvalues();
+
+    let mut roots: Vec<Complex64> = eigenvalues
+        .iter()
+        .map(|e| Complex64::new(e.re, e.im))
+        .collect();
 
     // Reflect unstable roots (|z| > 1) inside unit circle
     if reflect_unstable {
@@ -477,136 +488,6 @@ fn lpc_roots(a: &[f64], polish: bool, reflect_unstable: bool) -> Vec<Complex64> 
     }
 
     roots
-}
-
-/// Compute eigenvalues of a companion matrix.
-///
-/// This is a simplified implementation using the QR algorithm.
-/// For better numerical stability, use a full linear algebra library.
-fn compute_eigenvalues(matrix: &ndarray::Array2<f64>) -> Vec<Complex64> {
-    let n = matrix.nrows();
-    if n == 0 {
-        return Vec::new();
-    }
-
-    // Use a simple iterative approach - QR iteration
-    // Note: For production, use nalgebra or similar
-    let mut h = matrix.clone();
-    let max_iter = 100;
-    let tol = 1e-10;
-
-    // Apply QR iterations to get upper Hessenberg/quasi-triangular form
-    for _ in 0..max_iter {
-        // Simple QR decomposition using Householder reflections
-        let (q, r) = qr_decomposition(&h);
-
-        // H = R * Q
-        h = r.dot(&q);
-
-        // Check convergence (subdiagonal elements should be small)
-        let mut converged = true;
-        for i in 1..n {
-            if h[[i, i - 1]].abs() > tol {
-                converged = false;
-                break;
-            }
-        }
-        if converged {
-            break;
-        }
-    }
-
-    // Extract eigenvalues from quasi-triangular matrix
-    let mut eigenvalues = Vec::with_capacity(n);
-    let mut i = 0;
-    while i < n {
-        if i == n - 1 || h[[i + 1, i]].abs() < tol {
-            // Real eigenvalue
-            eigenvalues.push(Complex64::new(h[[i, i]], 0.0));
-            i += 1;
-        } else {
-            // Complex conjugate pair from 2x2 block
-            let a = h[[i, i]];
-            let b = h[[i, i + 1]];
-            let c = h[[i + 1, i]];
-            let d = h[[i + 1, i + 1]];
-
-            let trace = a + d;
-            let det = a * d - b * c;
-            let disc = trace * trace - 4.0 * det;
-
-            if disc < 0.0 {
-                let real = trace / 2.0;
-                let imag = (-disc).sqrt() / 2.0;
-                eigenvalues.push(Complex64::new(real, imag));
-                eigenvalues.push(Complex64::new(real, -imag));
-            } else {
-                let sqrt_disc = disc.sqrt();
-                eigenvalues.push(Complex64::new((trace + sqrt_disc) / 2.0, 0.0));
-                eigenvalues.push(Complex64::new((trace - sqrt_disc) / 2.0, 0.0));
-            }
-            i += 2;
-        }
-    }
-
-    eigenvalues
-}
-
-/// Simple QR decomposition using Householder reflections.
-fn qr_decomposition(a: &ndarray::Array2<f64>) -> (ndarray::Array2<f64>, ndarray::Array2<f64>) {
-    let n = a.nrows();
-    let mut q = ndarray::Array2::<f64>::eye(n);
-    let mut r = a.clone();
-
-    for k in 0..n.saturating_sub(1) {
-        // Extract column below diagonal
-        let mut x = Vec::with_capacity(n - k);
-        for i in k..n {
-            x.push(r[[i, k]]);
-        }
-
-        // Compute Householder vector
-        let norm_x: f64 = x.iter().map(|&v| v * v).sum::<f64>().sqrt();
-        if norm_x < 1e-30 {
-            continue;
-        }
-
-        let sign = if x[0] >= 0.0 { 1.0 } else { -1.0 };
-        x[0] += sign * norm_x;
-
-        let norm_v: f64 = x.iter().map(|&v| v * v).sum::<f64>().sqrt();
-        if norm_v < 1e-30 {
-            continue;
-        }
-
-        for v in x.iter_mut() {
-            *v /= norm_v;
-        }
-
-        // Apply Householder reflection to R
-        for j in k..n {
-            let mut dot = 0.0;
-            for i in 0..(n - k) {
-                dot += x[i] * r[[k + i, j]];
-            }
-            for i in 0..(n - k) {
-                r[[k + i, j]] -= 2.0 * dot * x[i];
-            }
-        }
-
-        // Apply Householder reflection to Q
-        for j in 0..n {
-            let mut dot = 0.0;
-            for i in 0..(n - k) {
-                dot += x[i] * q[[j, k + i]];
-            }
-            for i in 0..(n - k) {
-                q[[j, k + i]] -= 2.0 * dot * x[i];
-            }
-        }
-    }
-
-    (q, r)
 }
 
 /// Convert complex roots to formant frequencies and bandwidths.
@@ -653,91 +534,85 @@ fn roots_to_formants(
     formants
 }
 
-/// Resample audio to a different sample rate.
+/// Resample audio using FFT-based method (matches scipy.signal.resample).
+///
+/// This performs sinc interpolation via the frequency domain:
+/// 1. Compute FFT of input
+/// 2. Zero-pad or truncate in frequency domain to new length
+/// 3. Inverse FFT
 fn resample(samples: &[f64], old_rate: f64, new_rate: f64) -> Vec<f64> {
     if (old_rate - new_rate).abs() < 1e-6 {
         return samples.to_vec();
     }
 
-    // Calculate resampling ratio
-    let ratio = new_rate / old_rate;
-    let new_length = (samples.len() as f64 * ratio).round() as usize;
+    let n = samples.len();
+    if n == 0 {
+        return Vec::new();
+    }
 
+    // Calculate new length
+    let new_length = (n as f64 * new_rate / old_rate).round() as usize;
     if new_length == 0 {
         return Vec::new();
     }
 
-    // Use rubato for high-quality resampling
-    let chunk_size = 1024.min(samples.len());
+    // Forward FFT
+    let mut planner = FftPlanner::<f64>::new();
+    let fft = planner.plan_fft_forward(n);
 
-    // Create resampler
-    let mut resampler = match FftFixedIn::<f64>::new(
-        old_rate as usize,
-        new_rate as usize,
-        chunk_size,
-        2,  // Sub-chunks
-        1,  // Channels
-    ) {
-        Ok(r) => r,
-        Err(_) => {
-            // Fallback to linear interpolation if rubato fails
-            return linear_resample(samples, new_length);
+    let mut spectrum: Vec<Complex<f64>> = samples
+        .iter()
+        .map(|&x| Complex::new(x, 0.0))
+        .collect();
+    fft.process(&mut spectrum);
+
+    // Create new spectrum with target length
+    let mut new_spectrum = vec![Complex::new(0.0, 0.0); new_length];
+
+    // Copy frequencies, handling the Nyquist properly
+    // For downsampling (new_length < n): truncate high frequencies
+    // For upsampling (new_length > n): zero-pad high frequencies
+    let half_n = n / 2;
+    let half_new = new_length / 2;
+
+    if new_length <= n {
+        // Downsampling: copy low frequencies
+        // Positive frequencies (0 to half_new)
+        for i in 0..=half_new.min(half_n) {
+            new_spectrum[i] = spectrum[i];
         }
-    };
-
-    let mut output = Vec::with_capacity(new_length);
-    let mut pos = 0;
-
-    while pos < samples.len() {
-        let end = (pos + chunk_size).min(samples.len());
-        let mut chunk = samples[pos..end].to_vec();
-
-        // Pad if necessary
-        while chunk.len() < chunk_size {
-            chunk.push(0.0);
+        // Negative frequencies (from end)
+        for i in 1..half_new.min(half_n) {
+            new_spectrum[new_length - i] = spectrum[n - i];
         }
-
-        let input = vec![chunk];
-        match resampler.process(&input, None) {
-            Ok(result) => {
-                if !result.is_empty() {
-                    output.extend(&result[0]);
-                }
-            }
-            Err(_) => break,
+        // Handle Nyquist if both have it
+        if new_length % 2 == 0 && n % 2 == 0 && half_new <= half_n {
+            // Split the Nyquist between positive and negative
+            new_spectrum[half_new] = spectrum[half_n] * 0.5;
+            new_spectrum[half_new] = new_spectrum[half_new] + spectrum[n - half_n] * 0.5;
         }
-
-        pos += chunk_size;
-    }
-
-    // Trim to expected length
-    output.truncate(new_length);
-
-    output
-}
-
-/// Simple linear resampling fallback.
-fn linear_resample(samples: &[f64], new_length: usize) -> Vec<f64> {
-    if samples.is_empty() || new_length == 0 {
-        return Vec::new();
-    }
-
-    let ratio = (samples.len() - 1) as f64 / (new_length - 1).max(1) as f64;
-    let mut output = Vec::with_capacity(new_length);
-
-    for i in 0..new_length {
-        let pos = i as f64 * ratio;
-        let idx = pos.floor() as usize;
-        let frac = pos - idx as f64;
-
-        if idx >= samples.len() - 1 {
-            output.push(samples[samples.len() - 1]);
-        } else {
-            output.push(samples[idx] * (1.0 - frac) + samples[idx + 1] * frac);
+    } else {
+        // Upsampling: copy all frequencies, zero-pad the rest
+        // Positive frequencies
+        for i in 0..=half_n {
+            new_spectrum[i] = spectrum[i];
+        }
+        // Negative frequencies
+        for i in 1..half_n {
+            new_spectrum[new_length - i] = spectrum[n - i];
         }
     }
 
-    output
+    // Inverse FFT
+    let ifft = planner.plan_fft_inverse(new_length);
+    ifft.process(&mut new_spectrum);
+
+    // Scale and extract real part
+    let scale = new_length as f64 / n as f64;
+    new_spectrum
+        .iter()
+        .map(|c| c.re / new_length as f64 * scale)
+        .collect()
 }
 
 /// Compute formants using Burg's LPC method.

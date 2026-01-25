@@ -24,8 +24,8 @@ hound = "3.5"
 # Error handling
 thiserror = "2.0"
 
-# Resampling
-rubato = "0.16"
+# Linear algebra (for eigenvalue computation)
+nalgebra = "0.33"
 
 [dev-dependencies]
 approx = "0.5"
