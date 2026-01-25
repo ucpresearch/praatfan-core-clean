@@ -315,7 +315,8 @@ See `scripts/README.md` for more validation examples.
 ```
 praatfan-core-clean/
 ├── CLAUDE.md              # This file - project instructions
-├── PLAN.md                # Black-box testing decisions and debugging log (gitignored)
+├── USAGE.md               # Usage guide for Python and WASM APIs
+├── PLAN.md                # Black-box testing decisions (gitignored)
 ├── PROGRESS.md            # Session progress notes (gitignored)
 ├── docs/
 │   ├── RESOURCES.md       # Available documentation sources
@@ -327,7 +328,7 @@ praatfan-core-clean/
 │   ├── README.md          # Validation script instructions
 │   └── compare_*.py       # Comparison scripts against parselmouth
 ├── src/
-│   └── praatfan/          # Python implementation (develop here first)
+│   └── praatfan/          # Python implementation (reference)
 │       ├── __init__.py
 │       ├── sound.py       # Sound loading and basic operations
 │       ├── spectrum.py    # FFT and spectral moments
@@ -336,8 +337,23 @@ praatfan-core-clean/
 │       ├── harmonicity.py # HNR (wraps pitch)
 │       ├── formant.py     # Formant analysis (Burg LPC)
 │       └── spectrogram.py # STFT spectrogram
-└── rust/                  # Rust port (after Python validated)
-    └── (later)
+└── rust/                  # Rust implementation
+    ├── Cargo.toml         # Dependencies and feature flags (wasm, python)
+    ├── Cargo.lock         # Locked dependency versions
+    ├── pyproject.toml     # Maturin config for Python builds
+    ├── src/
+    │   ├── lib.rs         # Library root with re-exports
+    │   ├── sound.rs       # Sound type and WAV loading
+    │   ├── spectrum.rs    # Single-frame FFT and spectral moments
+    │   ├── intensity.rs   # Intensity analysis
+    │   ├── pitch.rs       # Pitch detection (AC and CC)
+    │   ├── harmonicity.rs # HNR analysis
+    │   ├── formant.rs     # Formant analysis (Burg LPC)
+    │   ├── spectrogram.rs # STFT spectrogram
+    │   ├── error.rs       # Error types
+    │   ├── wasm.rs        # WASM bindings (wasm-bindgen)
+    │   └── python.rs      # Python bindings (PyO3)
+    └── pkg/               # Built WASM package (after wasm-pack build)
 ```
 
 ---
@@ -438,3 +454,82 @@ Error distribution (Hz):
 5. **Proceeding when frame counts don't match** - Fix timing first
 6. **Assuming multi-channel works** - We only support mono
 7. **Guessing at formulas** - If not documented, test options systematically
+
+---
+
+## 📊 Current Implementation Status
+
+### Completed
+
+| Component | Python | Rust | WASM | PyO3 |
+|-----------|--------|------|------|------|
+| Sound | ✅ | ✅ | ✅ | ✅ |
+| Spectrum | ✅ | ✅ | ✅ | ✅ |
+| Spectral Moments | ✅ | ✅ | ✅ | ✅ |
+| Intensity | ✅ | ✅ | ✅ | ✅ |
+| Pitch (AC) | ✅ | ✅ | ✅ | ✅ |
+| Pitch (CC) | ✅ | ✅ | ✅ | ✅ |
+| Harmonicity | ✅ | ✅ | ✅ | ✅ |
+| Formant | ✅ | ✅ | ✅ | ✅ |
+| Spectrogram | ✅ | ✅ | ✅ | ✅ |
+
+### Key Files
+
+```
+rust/
+├── Cargo.toml          # Features: wasm, python
+├── pyproject.toml      # Maturin config for Python builds
+├── src/
+│   ├── lib.rs          # Main library with re-exports
+│   ├── wasm.rs         # WASM bindings (wasm-bindgen)
+│   ├── python.rs       # Python bindings (PyO3, parselmouth-compatible)
+│   ├── sound.rs        # Sound type and WAV loading
+│   ├── pitch.rs        # Pitch analysis (AC/CC methods)
+│   ├── formant.rs      # Formant analysis (Burg LPC)
+│   ├── intensity.rs    # Intensity analysis
+│   ├── harmonicity.rs  # HNR analysis
+│   ├── spectrum.rs     # Single-frame FFT
+│   └── spectrogram.rs  # STFT spectrogram
+└── pkg/                # Built WASM package (after wasm-pack build)
+```
+
+### Build Commands
+
+```bash
+# Python bindings
+cd rust
+maturin develop --features python    # Install in current venv
+maturin build --features python      # Build wheel
+
+# WASM bindings
+cd rust
+wasm-pack build --target web --features wasm     # For browsers
+wasm-pack build --target nodejs --features wasm  # For Node.js
+
+# Rust tests
+cargo test
+```
+
+### Git Status (as of 2026-01-25)
+
+**Local commits not yet pushed:**
+- `a6cfe61` - Add WASM and Python bindings with inline documentation
+- `40d5b2a` - Add comprehensive USAGE.md documentation
+
+**No remote configured yet.** To push:
+```bash
+git remote add origin <your-repo-url>
+git push -u origin master
+```
+
+### Untracked Files (not committed)
+
+- `rust/examples/dump_f*.rs` - Rust example programs for formant extraction
+- `scripts/*.py` - Comparison and debug scripts used during development
+- `src/praatfan/__pycache__/` - Python cache (gitignored)
+
+### Consumer Projects
+
+- **ozen-web** (`../ozen-web/`) - Web app that uses the WASM bindings
+  - Expects API: `new Sound(samples, sampleRate)`, snake_case methods
+  - WASM bindings designed to match these expectations
