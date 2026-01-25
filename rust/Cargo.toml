@@ -1,0 +1,31 @@
+[package]
+name = "praatfan"
+version = "0.1.0"
+edition = "2021"
+description = "Clean-room reimplementation of Praat's acoustic analysis algorithms"
+license = "MIT OR Apache-2.0"
+keywords = ["audio", "speech", "acoustics", "formant", "pitch"]
+categories = ["multimedia::audio", "science"]
+
+[dependencies]
+# Array operations (numpy equivalent)
+ndarray = "0.16"
+
+# FFT
+rustfft = "6.2"
+num-complex = "0.4"
+
+# Numeric traits
+num-traits = "0.2"
+
+# WAV file reading
+hound = "3.5"
+
+# Error handling
+thiserror = "2.0"
+
+# Resampling
+rubato = "0.16"
+
+[dev-dependencies]
+approx = "0.5"
