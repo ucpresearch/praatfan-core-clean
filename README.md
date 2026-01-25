@@ -98,7 +98,15 @@ pip install praat-parselmouth
 
 Note: parselmouth is GPL-licensed. If you need a permissive license, use the built-in `praatfan` backend.
 
-#### praatfan-rust (requires Rust toolchain)
+#### praatfan-rust
+
+If pre-compiled wheels are available (check releases), pip installs them automatically - no Rust toolchain needed:
+
+```bash
+pip install praatfan[rust]  # If wheels are published
+```
+
+To build from source (requires Rust toolchain):
 
 ```bash
 cd rust
@@ -109,8 +117,7 @@ maturin develop --features python
 #### praatfan-core
 
 ```bash
-pip install praatfan-core  # If published to PyPI
-# Or from source
+pip install git+https://github.com/ucpresearch/praatfan-core.git
 ```
 
 ## Unified API
