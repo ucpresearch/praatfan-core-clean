@@ -31,7 +31,7 @@ class UnifiedPitch:
         if self._backend == "parselmouth":
             return np.array(self._inner.xs())
         elif self._backend == "praatfan":
-            return self._inner.times
+            return self._inner.times()
         elif self._backend == "praatfan-rust":
             return np.array(self._inner.xs())
         elif self._backend == "praatfan-core":
@@ -43,7 +43,7 @@ class UnifiedPitch:
         if self._backend == "parselmouth":
             return self._inner.selected_array['frequency']
         elif self._backend == "praatfan":
-            return self._inner.values
+            return self._inner.values()
         elif self._backend == "praatfan-rust":
             return np.array(self._inner.values())
         elif self._backend == "praatfan-core":
@@ -55,7 +55,7 @@ class UnifiedPitch:
         if self._backend == "parselmouth":
             return self._inner.selected_array['strength']
         elif self._backend == "praatfan":
-            return self._inner.strengths
+            return self._inner.strengths()
         elif self._backend == "praatfan-rust":
             return np.array(self._inner.selected_array['strength'])
         elif self._backend == "praatfan-core":
@@ -108,7 +108,7 @@ class UnifiedFormant:
         if self._backend == "parselmouth":
             return np.array(self._inner.xs())
         elif self._backend == "praatfan":
-            return self._inner.times
+            return self._inner.times()
         elif self._backend == "praatfan-rust":
             return np.array(self._inner.xs())
         elif self._backend == "praatfan-core":
@@ -282,7 +282,8 @@ class UnifiedSpectrum:
         if self._backend == "parselmouth":
             return np.array(self._inner.xs())
         elif self._backend == "praatfan":
-            return self._inner.frequencies
+            # Compute frequencies from df and n_bins
+            return np.arange(self._inner.n_bins) * self._inner.df
         elif self._backend == "praatfan-rust":
             return np.array(self._inner.xs())
         elif self._backend == "praatfan-core":
@@ -342,7 +343,7 @@ class UnifiedSpectrogram:
         if self._backend == "parselmouth":
             return np.array(self._inner.xs())
         elif self._backend == "praatfan":
-            return self._inner.times
+            return self._inner.times()
         elif self._backend == "praatfan-rust":
             return np.array(self._inner.xs())
         elif self._backend == "praatfan-core":
@@ -354,7 +355,7 @@ class UnifiedSpectrogram:
         if self._backend == "parselmouth":
             return np.array(self._inner.ys())
         elif self._backend == "praatfan":
-            return self._inner.frequencies
+            return self._inner.frequencies()
         elif self._backend == "praatfan-rust":
             return np.array(self._inner.ys())
         elif self._backend == "praatfan-core":
