@@ -1,27 +1,73 @@
 //! Pitch - Fundamental frequency (F0) contour.
 //!
-//! Documentation sources:
-//! - Boersma (1993): "Accurate short-term analysis of the fundamental frequency
-//!   and the harmonics-to-noise ratio of a sampled sound"
+//! This module computes the pitch (fundamental frequency) of voiced speech
+//! using autocorrelation (AC) or cross-correlation (CC) methods.
+//!
+//! # Documentation Sources
+//!
+//! - **Primary**: Boersma (1993): "Accurate short-term analysis of the fundamental
+//!   frequency and the harmonics-to-noise ratio of a sampled sound"
+//!   (https://www.fon.hum.uva.nl/paul/papers/Proceedings_1993.pdf)
 //! - Praat manual: Sound: To Pitch...
 //!
-//! Key documented facts (from Boersma 1993):
-//! - Autocorrelation normalization: r_x(τ) ≈ r_a(τ) / r_w(τ) (Eq. 9)
-//! - Sinc interpolation formula (Eq. 22)
-//! - Candidate strength formulas (Eq. 23, 24)
-//! - Viterbi transition costs (Eq. 27)
-//! - Gaussian window formula (postscript)
+//! # Key Documented Facts (from Boersma 1993)
+//!
+//! - **Autocorrelation normalization**: r_x(τ) ≈ r_a(τ) / r_w(τ) (Eq. 9)
+//!   The signal autocorrelation is normalized by the window autocorrelation
+//!   to correct for the window's effect on the correlation values.
+//!
+//! - **Sinc interpolation**: For sub-sample precision (Eq. 22)
+//!
+//! - **Candidate strength formulas**:
+//!   - Unvoiced strength (Eq. 23): voicing_threshold + bonus for weak signals
+//!   - Octave cost (Eq. 24): penalizes selection of subharmonics
+//!
+//! - **Viterbi transition costs** (Eq. 27):
+//!   - 0 for unvoiced-to-unvoiced transitions
+//!   - voiced_unvoiced_cost for voicing changes
+//!   - octave_jump_cost × |log₂(F1/F2)| for pitch jumps
+//!
+//! - **Gaussian window formula**: Documented in the paper's postscript
+//!
+//! # Algorithm Overview
+//!
+//! 1. **Frame Analysis**: For each analysis frame:
+//!    - Extract windowed samples
+//!    - Compute autocorrelation or cross-correlation
+//!    - Find peaks corresponding to pitch period candidates
+//!    - Apply octave cost to penalize low-frequency candidates
+//!
+//! 2. **Viterbi Path Finding**: Find optimal path through candidates
+//!    across all frames by minimizing transition costs + maximizing strength.
 
 use ndarray::Array1;
 
 use crate::sound::Sound;
 
 /// A pitch candidate for a frame.
+///
+/// Each frame typically has multiple candidates:
+/// - One unvoiced candidate (frequency = 0)
+/// - Multiple voiced candidates at different pitch periods
+///
+/// The Viterbi algorithm selects the optimal candidate for each frame
+/// by considering both local strength and inter-frame transition costs.
 #[derive(Debug, Clone)]
 pub struct PitchCandidate {
-    /// Frequency in Hz (0 = unvoiced).
+    /// Frequency in Hz.
+    ///
+    /// 0 indicates the unvoiced candidate.
+    /// For voiced candidates, this is computed from the autocorrelation lag:
+    /// frequency = sample_rate / lag
     pub frequency: f64,
-    /// Correlation strength (0-1).
+
+    /// Correlation strength (typically 0-1 for voiced, higher for unvoiced).
+    ///
+    /// For AC method: normalized autocorrelation r(τ) / (r_w(τ) × r_w(0))
+    /// For CC method: normalized cross-correlation
+    ///
+    /// The unvoiced candidate's strength includes the voicing threshold
+    /// plus a bonus for weak signals (Boersma 1993, Eq. 23).
     pub strength: f64,
 }
 
@@ -33,13 +79,28 @@ impl PitchCandidate {
 }
 
 /// Pitch analysis results for a single frame.
+///
+/// Each frame contains:
+/// - A time stamp
+/// - A list of candidates (first is selected after Viterbi)
+/// - Local intensity for silence detection
 #[derive(Debug, Clone)]
 pub struct PitchFrame {
-    /// Time in seconds.
+    /// Time in seconds (center of analysis window).
     pub time: f64,
-    /// Candidates (first is selected).
+
+    /// Pitch candidates for this frame.
+    ///
+    /// After Viterbi path finding, candidates are reordered so the
+    /// selected candidate is first. The selected candidate may be
+    /// unvoiced (frequency = 0).
     pub candidates: Vec<PitchCandidate>,
+
     /// Local intensity (0-1).
+    ///
+    /// This is the ratio of local peak amplitude to global peak amplitude.
+    /// Used for silence detection: weak frames get a bonus for the unvoiced
+    /// candidate (Boersma 1993, Eq. 23).
     pub intensity: f64,
 }
 
@@ -53,7 +114,9 @@ impl PitchFrame {
         }
     }
 
-    /// Selected pitch frequency (0 if unvoiced).
+    /// Get the selected pitch frequency (0 if unvoiced).
+    ///
+    /// After Viterbi, the selected candidate is always first in the list.
     #[inline]
     pub fn frequency(&self) -> f64 {
         if !self.candidates.is_empty() {
@@ -63,7 +126,9 @@ impl PitchFrame {
         }
     }
 
-    /// Selected pitch strength.
+    /// Get the selected pitch strength.
+    ///
+    /// This is the correlation value used for computing HNR.
     #[inline]
     pub fn strength(&self) -> f64 {
         if !self.candidates.is_empty() {
@@ -73,7 +138,9 @@ impl PitchFrame {
         }
     }
 
-    /// Whether this frame is voiced.
+    /// Check whether this frame is voiced.
+    ///
+    /// A frame is voiced if its selected candidate has non-zero frequency.
     #[inline]
     pub fn voiced(&self) -> bool {
         self.frequency() > 0.0
@@ -81,24 +148,47 @@ impl PitchFrame {
 }
 
 /// Frame timing mode for pitch analysis.
+///
+/// Different timing modes are used for different analysis types.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum FrameTiming {
-    /// Centered: frames centered in signal (used for Pitch).
+    /// Centered: Frames are centered in the signal.
+    ///
+    /// Used for Pitch analysis. The first frame time is chosen so that
+    /// frames are symmetrically distributed around the signal center.
     Centered,
-    /// Left: left-aligned with centering constraint (used for Harmonicity).
+
+    /// Left: Left-aligned with centering constraint.
+    ///
+    /// Used for Harmonicity analysis. Frames start at the left edge
+    /// of the valid analysis region but are centered within that region.
     Left,
 }
 
 /// Pitch (F0) contour.
+///
+/// Contains pitch frames with candidate information plus analysis parameters.
 #[derive(Debug, Clone)]
 pub struct Pitch {
     /// List of pitch frames.
+    ///
+    /// Each frame contains candidates; the first candidate in each frame
+    /// is the selected one (after Viterbi path finding).
     frames: Vec<PitchFrame>,
+
     /// Time step between frames.
+    ///
+    /// Default: 0.75 / pitch_floor (about 10 ms for 75 Hz floor)
     time_step: f64,
+
     /// Minimum pitch in Hz.
+    ///
+    /// Determines the maximum lag to search in autocorrelation.
     pitch_floor: f64,
+
     /// Maximum pitch in Hz.
+    ///
+    /// Determines the minimum lag to search in autocorrelation.
     pitch_ceiling: f64,
 }
 
@@ -178,33 +268,40 @@ impl Pitch {
     ///
     /// # Returns
     ///
-    /// Pitch value in Hz, or None if unvoiced or outside range
+    /// Pitch value in Hz, or None if unvoiced or outside range.
     pub fn get_value_at_time(&self, time: f64, interpolation: &str) -> Option<f64> {
         if self.n_frames() == 0 {
             return None;
         }
 
+        // Compute floating-point index
         let t0 = self.frames[0].time;
         let idx_float = (time - t0) / self.time_step;
 
+        // Check bounds
         if idx_float < -0.5 || idx_float > self.n_frames() as f64 - 0.5 {
             return None;
         }
 
         match interpolation {
             "nearest" => {
+                // Round to nearest frame
                 let idx = idx_float.round() as usize;
                 let idx = idx.min(self.n_frames() - 1);
                 let frame = &self.frames[idx];
+
+                // Return None for unvoiced frames
                 if !frame.voiced() {
                     return None;
                 }
                 Some(frame.frequency())
             }
             "linear" => {
+                // Linear interpolation between adjacent frames
                 let idx = idx_float.floor() as isize;
                 let frac = idx_float - idx as f64;
 
+                // Get adjacent frame indices with clamping
                 let i1 = 0.max(idx).min(self.n_frames() as isize - 1) as usize;
                 let i2 = 0.max(idx + 1).min(self.n_frames() as isize - 1) as usize;
 
@@ -213,7 +310,7 @@ impl Pitch {
 
                 // Both frames must be voiced for interpolation
                 if !f1.voiced() || !f2.voiced() {
-                    // Fall back to nearest voiced
+                    // Fall back to nearest voiced frame
                     if frac < 0.5 && f1.voiced() {
                         Some(f1.frequency())
                     } else if f2.voiced() {
@@ -224,6 +321,7 @@ impl Pitch {
                         None
                     }
                 } else {
+                    // Linear interpolation: f = f1 × (1-t) + f2 × t
                     Some(f1.frequency() * (1.0 - frac) + f2.frequency() * frac)
                 }
             }
@@ -234,6 +332,7 @@ impl Pitch {
     /// Get pitch strength at a specific time.
     ///
     /// This is the correlation value used to compute HNR.
+    /// Unlike pitch values, strengths are returned even for unvoiced frames.
     ///
     /// # Arguments
     ///
@@ -242,7 +341,7 @@ impl Pitch {
     ///
     /// # Returns
     ///
-    /// Strength value (0-1), or None if outside range
+    /// Strength value (typically 0-1), or None if outside range.
     pub fn get_strength_at_time(&self, time: f64, interpolation: &str) -> Option<f64> {
         if self.n_frames() == 0 {
             return None;
@@ -279,6 +378,19 @@ impl Pitch {
 }
 
 /// Generate Hanning window.
+///
+/// The Hanning (or Hann) window is defined as:
+/// ```text
+/// w(n) = 0.5 - 0.5 × cos(2π × n / (N-1))
+/// ```
+///
+/// This window has good frequency resolution and moderate sidelobe levels,
+/// making it suitable for pitch analysis where we want to resolve the
+/// fundamental frequency accurately.
+///
+/// # Arguments
+///
+/// * `n` - Number of samples in the window
 fn hanning_window(n: usize) -> Vec<f64> {
     if n <= 1 {
         return vec![1.0];
@@ -286,16 +398,37 @@ fn hanning_window(n: usize) -> Vec<f64> {
 
     (0..n)
         .map(|i| {
+            // Hanning formula: 0.5 - 0.5 × cos(2πi/(N-1))
             0.5 - 0.5 * (2.0 * std::f64::consts::PI * i as f64 / (n - 1) as f64).cos()
         })
         .collect()
 }
 
 /// Compute autocorrelation of a window function numerically.
+///
+/// This is needed for the AC method's normalization (Boersma 1993, Eq. 9).
+/// The window autocorrelation r_w(τ) corrects for the reduced overlap
+/// between the window and itself at larger lags.
+///
+/// # Formula
+///
+/// ```text
+/// r_w(τ) = Σᵢ w(i) × w(i + τ)
+/// ```
+///
+/// # Arguments
+///
+/// * `window` - Window coefficients
+/// * `max_lag` - Maximum lag to compute
+///
+/// # Returns
+///
+/// Vector of autocorrelation values r_w[0..max_lag]
 fn compute_window_autocorrelation(window: &[f64], max_lag: usize) -> Vec<f64> {
     let n = window.len();
     let mut r = vec![0.0; max_lag + 1];
 
+    // For each lag, sum product of overlapping window values
     for lag in 0..=max_lag.min(n - 1) {
         r[lag] = window[..n - lag]
             .iter()
@@ -308,6 +441,27 @@ fn compute_window_autocorrelation(window: &[f64], max_lag: usize) -> Vec<f64> {
 }
 
 /// Compute autocorrelation for lags 0 to max_lag.
+///
+/// The autocorrelation measures self-similarity at different time shifts.
+/// Peaks in the autocorrelation correspond to periodic components in the signal.
+///
+/// # Formula
+///
+/// ```text
+/// r(τ) = Σᵢ x(i) × x(i + τ)
+/// ```
+///
+/// For pitch detection, we look for the first significant peak after lag 0,
+/// which corresponds to the pitch period.
+///
+/// # Arguments
+///
+/// * `samples` - Input signal samples
+/// * `max_lag` - Maximum lag to compute
+///
+/// # Returns
+///
+/// Vector of autocorrelation values r[0..max_lag]
 fn compute_autocorrelation(samples: &[f64], max_lag: usize) -> Vec<f64> {
     let n = samples.len();
     let mut r = vec![0.0; max_lag + 1];
@@ -316,6 +470,7 @@ fn compute_autocorrelation(samples: &[f64], max_lag: usize) -> Vec<f64> {
         if lag >= n {
             break;
         }
+        // Sum product of samples at positions i and i+lag
         r[lag] = samples[..n - lag]
             .iter()
             .zip(samples[lag..].iter())
@@ -328,24 +483,45 @@ fn compute_autocorrelation(samples: &[f64], max_lag: usize) -> Vec<f64> {
 
 /// Compute full-frame cross-correlation for the CC pitch method.
 ///
-/// For each lag τ, computes the normalized correlation between:
-/// - samples[0 : n-τ]  (signal from start to n-τ)
-/// - samples[τ : n]    (signal shifted by τ samples)
+/// The cross-correlation method computes the normalized correlation between
+/// the signal and a time-shifted version of itself, normalized by the
+/// geometric mean of the energies in both segments.
 ///
-/// This is normalized by the geometric mean of the energies:
-///     r(τ) = Σ(x[i] × x[i+τ]) / sqrt(Σx[0:n-τ]² × Σx[τ:n]²)
+/// # Formula
+///
+/// ```text
+/// r(τ) = Σ(x[i] × x[i+τ]) / sqrt(Σx[0:n-τ]² × Σx[τ:n]²)
+/// ```
+///
+/// This normalization makes the CC method more robust to amplitude variations
+/// within the analysis window compared to the AC method.
+///
+/// # Arguments
+///
+/// * `samples` - Input signal samples
+/// * `min_lag` - Minimum lag (corresponding to pitch_ceiling)
+/// * `max_lag` - Maximum lag (corresponding to pitch_floor)
+///
+/// # Returns
+///
+/// Vector of correlation values (indices 0..min_lag will be 0)
 fn compute_cross_correlation(samples: &[f64], min_lag: usize, max_lag: usize) -> Vec<f64> {
     let n = samples.len();
     let mut r = vec![0.0; max_lag + 1];
 
     for lag in min_lag..=max_lag.min(n - 1) {
-        let x1 = &samples[..n - lag];
-        let x2 = &samples[lag..];
+        // Split signal into two overlapping parts
+        let x1 = &samples[..n - lag];  // First n-lag samples
+        let x2 = &samples[lag..];      // Last n-lag samples
 
+        // Compute correlation (unnormalized)
         let corr: f64 = x1.iter().zip(x2.iter()).map(|(&a, &b)| a * b).sum();
+
+        // Compute energies of both segments
         let e1: f64 = x1.iter().map(|&x| x * x).sum();
         let e2: f64 = x2.iter().map(|&x| x * x).sum();
 
+        // Normalize by geometric mean of energies
         if e1 > 0.0 && e2 > 0.0 {
             r[lag] = corr / (e1 * e2).sqrt();
         }
@@ -358,6 +534,28 @@ fn compute_cross_correlation(samples: &[f64], min_lag: usize, max_lag: usize) ->
 ///
 /// Unlike AC, CC values are already normalized (0-1) via energy normalization,
 /// so no window autocorrelation normalization is needed.
+///
+/// # Peak Detection
+///
+/// A peak is a local maximum where r[lag] > r[lag-1] and r[lag] > r[lag+1].
+/// Parabolic interpolation is used for sub-sample lag precision:
+///
+/// ```text
+/// δ = 0.5 × (r[lag-1] - r[lag+1]) / (r[lag-1] - 2×r[lag] + r[lag+1])
+/// refined_lag = lag + δ
+/// ```
+///
+/// # Arguments
+///
+/// * `r` - Cross-correlation values
+/// * `min_lag` - Minimum lag to search
+/// * `max_lag` - Maximum lag to search
+/// * `sample_rate` - Sample rate for converting lag to frequency
+/// * `max_candidates` - Maximum number of candidates to return
+///
+/// # Returns
+///
+/// Vector of (frequency, strength) tuples, sorted by strength
 fn find_cc_peaks(
     r: &[f64],
     min_lag: usize,
@@ -367,8 +565,9 @@ fn find_cc_peaks(
 ) -> Vec<(f64, f64)> {
     let mut candidates = Vec::new();
 
-    // Find all peaks
+    // Find all local maxima
     for lag in min_lag..max_lag.min(r.len() - 1) {
+        // Check for local maximum
         if r[lag] > r[lag - 1] && r[lag] > r[lag + 1] {
             let r_curr = r[lag];
 
@@ -378,28 +577,50 @@ fn find_cc_peaks(
 
             let denom = r_prev - 2.0 * r_curr + r_next;
             if denom.abs() > 1e-10 {
+                // Compute refined lag position
                 let delta = 0.5 * (r_prev - r_next) / denom;
                 if delta.abs() < 1.0 {
                     let refined_lag = lag as f64 + delta;
-                    // Use raw peak strength (not interpolated) to avoid overshoot
+                    // Convert lag to frequency: f = sample_rate / lag
                     let freq = sample_rate / refined_lag;
+                    // Use raw peak strength (not interpolated) to avoid overshoot
                     candidates.push((freq, r_curr));
                 } else {
+                    // Delta too large, use unrefined lag
                     candidates.push((sample_rate / lag as f64, r_curr));
                 }
             } else {
+                // Degenerate case, use unrefined lag
                 candidates.push((sample_rate / lag as f64, r_curr));
             }
         }
     }
 
-    // Sort by strength and return top candidates
+    // Sort by strength (highest first) and truncate
     candidates.sort_by(|a, b| b.1.partial_cmp(&a.1).unwrap_or(std::cmp::Ordering::Equal));
     candidates.truncate(max_candidates);
     candidates
 }
 
 /// Find all autocorrelation peaks in the given lag range.
+///
+/// For the AC method, the autocorrelation is normalized by the window
+/// autocorrelation (Boersma 1993, Eq. 9):
+///
+/// ```text
+/// r_normalized(τ) = (r(τ) / r(0)) / (r_w(τ) / r_w(0))
+/// ```
+///
+/// This normalization corrects for the reduced overlap at larger lags.
+///
+/// # Arguments
+///
+/// * `r` - Signal autocorrelation
+/// * `r_w` - Window autocorrelation (for normalization)
+/// * `min_lag` - Minimum lag to search
+/// * `max_lag` - Maximum lag to search
+/// * `sample_rate` - Sample rate for converting lag to frequency
+/// * `max_candidates` - Maximum number of candidates to return
 fn find_autocorrelation_peaks(
     r: &[f64],
     r_w: &[f64],
@@ -408,19 +629,23 @@ fn find_autocorrelation_peaks(
     sample_rate: f64,
     max_candidates: usize,
 ) -> Vec<(f64, f64)> {
+    // Validate inputs
     if max_lag >= r.len() || max_lag >= r_w.len() {
         return Vec::new();
     }
 
+    // r(0) is the total energy - needed for normalization
     let r_0 = r[0];
     if r_0 <= 0.0 {
         return Vec::new();
     }
 
     // Compute normalized autocorrelation array
+    // r_norm[τ] = (r[τ]/r[0]) / (r_w[τ]/r_w[0])
     let mut r_norm = vec![0.0; max_lag + 1];
     for lag in 0..=max_lag {
         if r_w[lag] > 0.0 && r_w[0] > 0.0 {
+            // Boersma 1993, Eq. 9
             r_norm[lag] = (r[lag] / r_0) / (r_w[lag] / r_w[0]);
         }
     }
@@ -429,6 +654,7 @@ fn find_autocorrelation_peaks(
 
     // Find all peaks in normalized autocorrelation
     for lag in min_lag..max_lag.min(r_norm.len() - 1) {
+        // Check for local maximum
         if r_norm[lag] > r_norm[lag - 1] && r_norm[lag] > r_norm[lag + 1] {
             let r_curr = r_norm[lag];
 
@@ -461,14 +687,40 @@ fn find_autocorrelation_peaks(
 
 /// Apply Viterbi algorithm to find optimal path through candidates.
 ///
-/// From Boersma (1993) Eq. 27, the transition cost is:
-/// - 0 if both unvoiced
-/// - voiced_unvoiced_cost if voicing changes
-/// - octave_jump_cost × |log₂(F1/F2)| if both voiced
+/// The Viterbi algorithm finds the globally optimal sequence of pitch
+/// candidates by minimizing a cost function that combines:
+/// - Local costs (negative of candidate strength)
+/// - Transition costs (penalize pitch jumps and voicing changes)
 ///
-/// The costs are corrected for time step: multiply by 0.01 / time_step
+/// # Cost Function (from Boersma 1993, Eq. 27)
 ///
-/// This modifies the frames in place, reordering candidates.
+/// Transition cost between frames i-1 and i:
+/// - **Both unvoiced**: 0
+/// - **Voicing change**: voiced_unvoiced_cost
+/// - **Both voiced**: octave_jump_cost × |log₂(F₁/F₂)|
+///
+/// Costs are scaled by time_step to make them independent of frame rate:
+/// ```text
+/// scaled_cost = cost × (0.01 / time_step)
+/// ```
+///
+/// # Dynamic Programming
+///
+/// 1. **Forward pass**: For each frame, compute minimum total cost to
+///    reach each candidate, tracking the best predecessor.
+///
+/// 2. **Backward pass**: Starting from the best final candidate, trace
+///    back through best predecessors to find optimal path.
+///
+/// 3. **Reordering**: Reorder candidates in each frame so the selected
+///    candidate is first.
+///
+/// # Arguments
+///
+/// * `frames` - Mutable slice of pitch frames (candidates will be reordered)
+/// * `time_step` - Time step between frames (for cost scaling)
+/// * `octave_jump_cost` - Cost per octave of frequency change
+/// * `voiced_unvoiced_cost` - Cost for voicing transitions
 fn viterbi_path(
     frames: &mut [PitchFrame],
     time_step: f64,
@@ -480,55 +732,59 @@ fn viterbi_path(
         return;
     }
 
-    // Time correction factor
+    // Time correction factor (Boersma 1993)
+    // Costs are defined per 10 ms; scale to actual time step
     let time_correction = 0.01 / time_step;
 
-    // Get candidate counts
+    // Get candidate counts per frame
     let n_cands: Vec<usize> = frames.iter().map(|f| f.candidates.len()).collect();
 
-    // Dynamic programming
-    // best_cost[i][j] = best total cost to reach candidate j at frame i
-    // best_prev[i][j] = previous candidate index that led to this best cost
-
-    // Initialize arrays
+    // Dynamic programming tables:
+    // best_cost[i][j] = minimum total cost to reach candidate j at frame i
+    // best_prev[i][j] = predecessor candidate index that achieved this cost
     let mut best_cost: Vec<Vec<f64>> = n_cands
         .iter()
         .map(|&n| vec![f64::INFINITY; n])
         .collect();
     let mut best_prev: Vec<Vec<usize>> = n_cands.iter().map(|&n| vec![0; n]).collect();
 
-    // First frame: cost is negative of strength (we minimize cost, maximize strength)
+    // Initialize first frame: cost = negative strength (we minimize cost)
     for (j, cand) in frames[0].candidates.iter().enumerate() {
         best_cost[0][j] = -cand.strength;
     }
 
-    // Forward pass
+    // Forward pass: compute minimum cost to reach each candidate
     for i in 1..n_frames {
         for j in 0..n_cands[i] {
             let cand_j = &frames[i].candidates[j];
+
+            // Consider all possible predecessors
             for k in 0..n_cands[i - 1] {
                 let cand_k = &frames[i - 1].candidates[k];
 
-                // Transition cost
+                // Compute transition cost based on voicing states
                 let f_k = cand_k.frequency;
                 let f_j = cand_j.frequency;
 
                 let trans_cost = if f_k == 0.0 && f_j == 0.0 {
-                    // Both unvoiced
+                    // Both unvoiced: no cost
                     0.0
                 } else if f_k == 0.0 || f_j == 0.0 {
-                    // Voicing change
+                    // Voicing change: fixed penalty
                     voiced_unvoiced_cost
                 } else {
-                    // Both voiced - octave jump cost
+                    // Both voiced: penalize octave jumps
+                    // Cost proportional to |log₂(F_j / F_k)|
                     octave_jump_cost * (f_j / f_k).log2().abs()
                 };
 
+                // Scale transition cost by time correction
                 let trans_cost = trans_cost * time_correction;
 
-                // Total cost to reach candidate j at frame i via candidate k at frame i-1
+                // Total cost = previous cost + transition + local (negative strength)
                 let total_cost = best_cost[i - 1][k] + trans_cost - cand_j.strength;
 
+                // Update if this is the best path to candidate j
                 if total_cost < best_cost[i][j] {
                     best_cost[i][j] = total_cost;
                     best_prev[i][j] = k;
@@ -537,7 +793,8 @@ fn viterbi_path(
         }
     }
 
-    // Backward pass to find best path
+    // Backward pass: find best path
+    // Start from the candidate with minimum cost at the last frame
     let mut path = vec![0usize; n_frames];
     path[n_frames - 1] = best_cost[n_frames - 1]
         .iter()
@@ -546,14 +803,16 @@ fn viterbi_path(
         .map(|(i, _)| i)
         .unwrap_or(0);
 
+    // Trace back through best predecessors
     for i in (0..n_frames - 1).rev() {
         path[i] = best_prev[i + 1][path[i + 1]];
     }
 
-    // Reorder candidates in each frame so best path candidate is first
+    // Reorder candidates so best path candidate is first
     for i in 0..n_frames {
         let best_idx = path[i];
         if best_idx > 0 {
+            // Swap selected candidate to position 0
             frames[i].candidates.swap(0, best_idx);
         }
     }
@@ -561,8 +820,12 @@ fn viterbi_path(
 
 /// Compute pitch from sound using autocorrelation method.
 ///
-/// Based on Boersma (1993): "Accurate short-term analysis of the fundamental
-/// frequency and the harmonics-to-noise ratio of a sampled sound."
+/// The AC method is the primary pitch detection algorithm described in
+/// Boersma (1993). It provides accurate pitch tracking by:
+/// 1. Windowing the signal with a Hanning window
+/// 2. Computing autocorrelation with window normalization
+/// 3. Finding peaks corresponding to pitch period candidates
+/// 4. Using Viterbi to find the optimal path through candidates
 ///
 /// # Arguments
 ///
@@ -573,7 +836,7 @@ fn viterbi_path(
 ///
 /// # Returns
 ///
-/// Pitch object
+/// Pitch object with frames containing selected pitch values
 pub fn sound_to_pitch_ac(
     sound: &Sound,
     time_step: f64,
@@ -586,12 +849,12 @@ pub fn sound_to_pitch_ac(
         pitch_floor,
         pitch_ceiling,
         PitchMethod::Ac,
-        0.45,  // voicing_threshold
+        0.45,  // voicing_threshold (Boersma default)
         0.03,  // silence_threshold
-        0.01,  // octave_cost
+        0.01,  // octave_cost (favors higher frequencies slightly)
         0.35,  // octave_jump_cost
         0.14,  // voiced_unvoiced_cost
-        3.0,   // periods_per_window
+        3.0,   // periods_per_window (3 for AC)
         FrameTiming::Centered,
         true,  // apply_octave_cost
     )
@@ -599,16 +862,15 @@ pub fn sound_to_pitch_ac(
 
 /// Compute pitch from sound using cross-correlation method.
 ///
+/// The CC method is an alternative to AC that normalizes by energy,
+/// making it more robust to amplitude variations within the analysis window.
+///
 /// # Arguments
 ///
 /// * `sound` - Sound object
 /// * `time_step` - Time step in seconds (0 = auto: 0.75/floor)
 /// * `pitch_floor` - Minimum pitch in Hz
 /// * `pitch_ceiling` - Maximum pitch in Hz
-///
-/// # Returns
-///
-/// Pitch object
 pub fn sound_to_pitch_cc(
     sound: &Sound,
     time_step: f64,
@@ -626,7 +888,7 @@ pub fn sound_to_pitch_cc(
         0.01,  // octave_cost
         0.35,  // octave_jump_cost
         0.14,  // voiced_unvoiced_cost
-        2.0,   // periods_per_window (CC uses 2)
+        2.0,   // periods_per_window (2 for CC, shorter than AC)
         FrameTiming::Centered,
         true,  // apply_octave_cost
     )
@@ -634,7 +896,22 @@ pub fn sound_to_pitch_cc(
 
 /// Internal pitch computation with full parameter control.
 ///
-/// This is also used by harmonicity to compute pitch with specific settings.
+/// This function is also used by the harmonicity module to compute pitch
+/// with specific settings (e.g., different periods_per_window, no octave cost).
+///
+/// # Algorithm
+///
+/// For each frame:
+/// 1. Extract samples centered at frame time
+/// 2. For AC: apply window and compute autocorrelation with normalization
+///    For CC: compute full-frame cross-correlation
+/// 3. Find peaks in correlation function
+/// 4. Create candidate list:
+///    - Unvoiced candidate (Boersma 1993, Eq. 23)
+///    - Voiced candidates with optional octave cost (Eq. 24)
+///
+/// After all frames are processed:
+/// 5. Apply Viterbi algorithm to find optimal candidate sequence
 #[allow(clippy::too_many_arguments)]
 pub fn sound_to_pitch_internal(
     sound: &Sound,
@@ -663,21 +940,24 @@ pub fn sound_to_pitch_internal(
     };
 
     // Window duration: periods_per_window periods of minimum pitch
+    // AC uses 3 periods, CC uses 2 periods
     let window_duration = periods_per_window / pitch_floor;
 
     // Lag range for pitch search
+    // min_lag corresponds to pitch_ceiling (highest frequency = shortest period)
+    // max_lag corresponds to pitch_floor (lowest frequency = longest period)
     let min_lag = (sample_rate / pitch_ceiling).ceil() as usize;
     let max_lag = (sample_rate / pitch_floor).floor() as usize;
 
     // Number of samples in window
     let mut window_samples = (window_duration * sample_rate).round() as usize;
     if window_samples % 2 == 0 {
-        window_samples += 1;
+        window_samples += 1;  // Ensure odd for symmetric window
     }
     let half_window_samples = window_samples / 2;
 
     // For AC method: generate window and compute its autocorrelation
-    // For CC method: no windowing needed
+    // The window autocorrelation is used for normalization (Eq. 9)
     let (window, r_w) = match method {
         PitchMethod::Ac => {
             let w = hanning_window(window_samples);
@@ -687,26 +967,31 @@ pub fn sound_to_pitch_internal(
         PitchMethod::Cc => (None, None),
     };
 
-    // Frame timing
+    // Frame timing calculation
     let (n_frames, t1) = match frame_timing {
         FrameTiming::Left => {
             // Left-aligned with centering: used for Harmonicity
+            // Frames start window_duration into signal and end window_duration before end
             let n = ((duration - 2.0 * window_duration) / time_step + 1e-9).floor() as usize + 1;
             let n = n.max(1);
+            // Center frames in available region
             let remaining = duration - 2.0 * window_duration - (n - 1) as f64 * time_step;
             let t1 = window_duration + remaining / 2.0;
             (n, t1)
         }
         FrameTiming::Centered => {
             // Centered: frames centered in signal, used for Pitch
+            // Need half window on each side, so valid region is [window_duration/2, duration - window_duration/2]
             let n = ((duration - window_duration) / time_step + 1e-9).floor() as usize + 1;
             let n = n.max(1);
+            // Center frames symmetrically
             let t1 = (duration - (n - 1) as f64 * time_step) / 2.0;
             (n, t1)
         }
     };
 
     // Compute global peak for silence detection
+    // This is used to determine local intensity relative to overall signal
     let global_peak = samples.iter().map(|&s| s.abs()).fold(0.0f64, f64::max);
 
     // Process each frame
@@ -716,14 +1001,15 @@ pub fn sound_to_pitch_internal(
     for i in 0..n_frames {
         let t = t1 + i as f64 * time_step;
 
-        // Extract frame samples
+        // Extract frame samples centered at time t
         let center_sample = (t * sample_rate).round() as isize;
         let start_sample = center_sample - half_window_samples as isize;
         let end_sample = start_sample + window_samples as isize;
 
-        // Handle boundaries
+        // Handle boundary conditions (zero-pad outside signal)
         let mut frame_samples = vec![0.0; window_samples];
         if start_sample < 0 || end_sample > n_samples as isize {
+            // Partial overlap with signal boundaries
             let src_start = 0.max(start_sample) as usize;
             let src_end = (n_samples as isize).min(end_sample) as usize;
             let dst_start = (src_start as isize - start_sample) as usize;
@@ -731,31 +1017,38 @@ pub fn sound_to_pitch_internal(
             frame_samples[dst_start..dst_end]
                 .copy_from_slice(&samples.as_slice().unwrap()[src_start..src_end]);
         } else {
+            // Full overlap - copy all samples
             let start = start_sample as usize;
             let end = end_sample as usize;
             frame_samples.copy_from_slice(&samples.as_slice().unwrap()[start..end]);
         }
 
-        // Compute local peak (for silence detection)
+        // Compute local peak for silence detection
         let local_peak = frame_samples.iter().map(|&s| s.abs()).fold(0.0f64, f64::max);
         let local_intensity = local_peak / (global_peak + 1e-30);
 
         // Compute correlation and find peaks based on method
         let peaks = match method {
             PitchMethod::Ac => {
-                // AC: Apply window and compute autocorrelation with normalization
+                // AC method: apply window and compute autocorrelation
                 let window = window.as_ref().unwrap();
                 let r_w = r_w.as_ref().unwrap();
+
+                // Apply window to samples
                 let windowed: Vec<f64> = frame_samples
                     .iter()
                     .zip(window.iter())
                     .map(|(&s, &w)| s * w)
                     .collect();
+
+                // Compute autocorrelation
                 let r = compute_autocorrelation(&windowed, max_lag);
+
+                // Find peaks with window normalization
                 find_autocorrelation_peaks(&r, r_w, min_lag, max_lag, sample_rate, 15)
             }
             PitchMethod::Cc => {
-                // CC: Full-frame cross-correlation on raw samples
+                // CC method: full-frame cross-correlation on raw samples
                 let r = compute_cross_correlation(&frame_samples, min_lag, max_lag);
                 find_cc_peaks(&r, min_lag, max_lag, sample_rate, 15)
             }
@@ -764,27 +1057,31 @@ pub fn sound_to_pitch_internal(
         // Create candidates list
         let mut candidates = Vec::new();
 
-        // Unvoiced candidate
-        // From Boersma (1993) Eq. 23
+        // Unvoiced candidate (Boersma 1993, Eq. 23)
+        // strength = voicing_threshold + bonus for weak signals
+        // Weak signals (low intensity) get higher unvoiced strength, making them
+        // more likely to be classified as unvoiced
         let unvoiced_strength = voicing_threshold
             + (2.0 - local_intensity / silence_threshold).max(0.0) * (1.0 + voicing_threshold);
         candidates.push(PitchCandidate::new(0.0, unvoiced_strength));
 
-        // Voiced candidates
+        // Voiced candidates from correlation peaks
         for (freq, strength) in peaks {
             if freq > 0.0 && strength > 0.0 {
+                // Optionally apply octave cost (Boersma 1993, Eq. 24)
+                // This penalizes lower frequencies to prevent selection of subharmonics
                 let adjusted_strength = if apply_octave_cost {
-                    // Apply octave cost (Eq. 24) for pitch tracking
+                    // Cost increases logarithmically for lower frequencies
                     strength - octave_cost * (pitch_floor / freq + 1e-30).log2()
                 } else {
-                    // Use raw strength for harmonicity computation
+                    // Raw strength for harmonicity computation
                     strength
                 };
                 candidates.push(PitchCandidate::new(freq, adjusted_strength));
             }
         }
 
-        // Sort by strength (highest first)
+        // Sort by strength (highest first) for initial ordering
         candidates.sort_by(|a, b| {
             b.strength
                 .partial_cmp(&a.strength)
@@ -794,7 +1091,7 @@ pub fn sound_to_pitch_internal(
         frames.push(PitchFrame::new(t, candidates, local_intensity));
     }
 
-    // Apply Viterbi path finding to resolve octave errors
+    // Apply Viterbi path finding to resolve octave errors and voicing decisions
     viterbi_path(&mut frames, time_step, octave_jump_cost, voiced_unvoiced_cost);
 
     Pitch::new(frames, time_step, pitch_floor, pitch_ceiling)
@@ -804,7 +1101,14 @@ pub fn sound_to_pitch_internal(
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum PitchMethod {
     /// Autocorrelation method.
+    ///
+    /// The primary method described in Boersma (1993). Uses windowed
+    /// autocorrelation with normalization for accurate pitch detection.
     Ac,
+
     /// Cross-correlation method.
+    ///
+    /// Alternative method that normalizes by energy, making it more
+    /// robust to amplitude variations within the analysis window.
     Cc,
 }

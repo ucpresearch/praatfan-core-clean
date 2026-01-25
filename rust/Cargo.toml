@@ -7,6 +7,14 @@ license = "MIT OR Apache-2.0"
 keywords = ["audio", "speech", "acoustics", "formant", "pitch"]
 categories = ["multimedia::audio", "science"]
 
+[lib]
+crate-type = ["cdylib", "rlib"]
+
+[features]
+default = []
+wasm = ["wasm-bindgen", "js-sys", "serde", "serde-wasm-bindgen", "console_error_panic_hook"]
+python = ["pyo3", "numpy"]
+
 [dependencies]
 # Array operations (numpy equivalent)
 ndarray = "0.16"
@@ -27,5 +35,21 @@ thiserror = "2.0"
 # Linear algebra (for eigenvalue computation)
 nalgebra = "0.33"
 
+# WASM bindings (optional, enabled with "wasm" feature)
+wasm-bindgen = { version = "0.2", optional = true }
+js-sys = { version = "0.3", optional = true }
+serde = { version = "1.0", features = ["derive"], optional = true }
+serde-wasm-bindgen = { version = "0.6", optional = true }
+console_error_panic_hook = { version = "0.1", optional = true }
+
+# Python bindings (optional, enabled with "python" feature)
+pyo3 = { version = "0.23", features = ["extension-module"], optional = true }
+numpy = { version = "0.23", optional = true }
+
 [dev-dependencies]
 approx = "0.5"
+
+[profile.release]
+# Optimize for size in WASM builds
+lto = true
+opt-level = "z"
