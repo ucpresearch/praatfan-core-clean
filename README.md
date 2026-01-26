@@ -321,6 +321,32 @@ set_backend('parselmouth')
 # but you get the unified result API
 ```
 
+### Parselmouth Compatibility Layer
+
+If you have existing code using `parselmouth.praat.call()`, you can use praatfan's compatibility layer with minimal changes:
+
+```python
+# Before (parselmouth)
+import parselmouth
+from parselmouth.praat import call
+
+snd = parselmouth.Sound("audio.wav")
+pitch = call(snd, "To Pitch (ac)", 0, 75, 600)
+f0 = call(pitch, "Get value in frame", 10, "Hertz")
+
+# After (praatfan_selector)
+from praatfan_selector import Sound, call, set_backend
+
+# Optionally choose a specific backend
+set_backend("parselmouth")  # or "praatfan", "praatfan-core"
+
+snd = Sound("audio.wav")
+pitch = call(snd, "To Pitch (ac)", 0, 75, 600)
+f0 = call(pitch, "Get value in frame", 10, "Hertz")
+```
+
+The `call()` function supports all common Praat commands for Sound, Pitch, Formant, Intensity, Harmonicity, Spectrum, and Spectrogram objects. Note that parselmouth uses 1-based frame indices while praatfan uses 0-based; the compatibility layer handles this conversion automatically.
+
 ## Why Multiple Backends?
 
 1. **License flexibility**: The built-in `praatfan` backend is MIT-licensed, while `parselmouth` is GPL. Choose based on your project's licensing needs.

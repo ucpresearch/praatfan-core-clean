@@ -60,6 +60,49 @@ praatfan uses **soundfile/libsndfile** for audio I/O, supporting a wide range of
 
 ---
 
+## 🔄 Parselmouth Compatibility Layer
+
+The `praatfan_selector` module provides a `call()` function that emulates parselmouth's functional API, allowing existing parselmouth scripts to work with any backend.
+
+### Usage
+
+```python
+from praatfan_selector import Sound, call, set_backend
+
+# Optionally choose a specific backend
+set_backend("parselmouth")  # or "praatfan", "praatfan-core"
+
+# Load audio
+snd = Sound("audio.wav")
+
+# Use parselmouth-style call() syntax
+pitch = call(snd, "To Pitch (ac)", 0, 75, 600)
+f0 = call(pitch, "Get value in frame", 10, "Hertz")
+
+formant = call(snd, "To Formant (burg)", 0.01, 5, 5500, 0.025, 50)
+f1 = call(formant, "Get value at time", 1, 0.5, "Hertz", "Linear")
+```
+
+### Supported Commands
+
+| Object | Commands |
+|--------|----------|
+| Sound | `To Pitch (ac)`, `To Pitch (cc)`, `To Formant (burg)`, `To Intensity`, `To Harmonicity (ac)`, `To Harmonicity (cc)`, `To Spectrum`, `To Spectrogram`, `Get total duration`, `Extract part`, `Filter (pre-emphasis)` |
+| Pitch | `Get number of frames`, `Get time from frame number`, `Get value in frame`, `Get value at time`, `Get strength in frame` |
+| Formant | `Get number of frames`, `Get time from frame number`, `Get value at time`, `Get bandwidth at time`, `Get number of formants` |
+| Intensity | `Get number of frames`, `Get time from frame number`, `Get value in frame`, `Get value at time` |
+| Harmonicity | `Get number of frames`, `Get time from frame number`, `Get value in frame`, `Get value at time` |
+| Spectrum | `Get centre of gravity`, `Get standard deviation`, `Get skewness`, `Get kurtosis`, `Get band energy` |
+| Spectrogram | `Get number of frames`, `Get time from frame number`, `Get power at` |
+
+### Key Differences from parselmouth
+
+1. **Frame indexing**: Parselmouth uses 1-based indices, praatfan uses 0-based. The `call()` function converts automatically.
+2. **Backend flexibility**: Same code works with praatfan (Python), praatfan-core (Rust), or parselmouth.
+3. **Return types**: Results are unified wrapper objects with consistent methods like `xs()`, `values()`, `n_frames`.
+
+---
+
 ## 📚 Documentation Categories
 
 When implementing, every formula/constant falls into one of three categories:
@@ -346,16 +389,20 @@ praatfan-core-clean/
 │   ├── README.md          # Validation script instructions
 │   └── compare_*.py       # Comparison scripts against parselmouth
 ├── src/
-│   └── praatfan/          # Python implementation (reference)
-│       ├── __init__.py
-│       ├── sound.py       # Sound loading and basic operations
-│       ├── spectrum.py    # FFT and spectral moments
-│       ├── intensity.py   # Intensity analysis
-│       ├── pitch.py       # Pitch detection (AC and CC methods)
-│       ├── harmonicity.py # HNR (wraps pitch)
-│       ├── formant.py     # Formant analysis (Burg LPC)
-│       ├── spectrogram.py # STFT spectrogram
-│       └── praat.py       # Parselmouth compatibility layer (call() function)
+│   ├── praatfan/          # Python implementation (reference)
+│   │   ├── __init__.py
+│   │   ├── sound.py       # Sound loading and basic operations
+│   │   ├── spectrum.py    # FFT and spectral moments
+│   │   ├── intensity.py   # Intensity analysis
+│   │   ├── pitch.py       # Pitch detection (AC and CC methods)
+│   │   ├── harmonicity.py # HNR (wraps pitch)
+│   │   ├── formant.py     # Formant analysis (Burg LPC)
+│   │   ├── spectrogram.py # STFT spectrogram
+│   │   └── praat.py       # Parselmouth compatibility layer (call() function)
+│   └── praatfan_selector/ # Backend selector with unified API
+│       ├── __init__.py    # Exports Sound, call, set_backend, etc.
+│       ├── selector.py    # Backend detection and unified wrappers
+│       └── compatibility.py # Parselmouth call() compatibility layer
 └── rust/                  # Rust implementation
     ├── Cargo.toml         # Dependencies and feature flags (wasm, python)
     ├── Cargo.lock         # Locked dependency versions
