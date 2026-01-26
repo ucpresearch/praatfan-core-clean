@@ -292,3 +292,127 @@ class Sound:
             self, window_length=window_length, max_frequency=max_frequency,
             time_step=time_step, frequency_step=frequency_step
         )
+
+    # =========================================================================
+    # Per-window spectral feature extraction
+    # =========================================================================
+
+    def extract_part(self, start_time: float, end_time: float) -> "Sound":
+        """
+        Extract a portion of the sound.
+
+        Args:
+            start_time: Start time in seconds
+            end_time: End time in seconds
+
+        Returns:
+            New Sound object containing the extracted portion
+        """
+        start_sample = int(start_time * self._sample_rate)
+        end_sample = int(end_time * self._sample_rate)
+
+        # Clamp to valid range
+        start_sample = max(0, start_sample)
+        end_sample = min(len(self._samples), end_sample)
+
+        extracted = self._samples[start_sample:end_sample].copy()
+        return Sound(extracted, self._sample_rate)
+
+    def get_spectrum_at_time(
+        self,
+        time: float,
+        window_length: float = 0.025
+    ) -> "Spectrum":
+        """
+        Extract spectrum for a window centered at a specific time.
+
+        Args:
+            time: Center time in seconds
+            window_length: Window length in seconds
+
+        Returns:
+            Spectrum object for that window
+        """
+        half_window = window_length / 2.0
+        start_time = max(0.0, time - half_window)
+        end_time = min(self.duration, time + half_window)
+
+        window_sound = self.extract_part(start_time, end_time)
+        return window_sound.to_spectrum()
+
+    def get_spectral_moments_at_times(
+        self,
+        times: "np.ndarray",
+        window_length: float = 0.025,
+        power: float = 2.0
+    ) -> dict:
+        """
+        Compute spectral moments at specified time points.
+
+        Uses existing Spectrum methods for each window.
+
+        Args:
+            times: Array of time points in seconds
+            window_length: Window length in seconds
+            power: Power parameter for moment calculation
+
+        Returns:
+            Dictionary with keys:
+                - 'times': Input time array
+                - 'center_of_gravity': Array of CoG values (Hz)
+                - 'standard_deviation': Array of std dev values (Hz)
+                - 'skewness': Array of skewness values
+                - 'kurtosis': Array of kurtosis values
+        """
+        import numpy as np
+
+        n = len(times)
+        cog = np.zeros(n)
+        std = np.zeros(n)
+        skew = np.zeros(n)
+        kurt = np.zeros(n)
+
+        for i, t in enumerate(times):
+            spectrum = self.get_spectrum_at_time(t, window_length)
+            cog[i] = spectrum.get_center_of_gravity(power)
+            std[i] = spectrum.get_standard_deviation(power)
+            skew[i] = spectrum.get_skewness(power)
+            kurt[i] = spectrum.get_kurtosis(power)
+
+        return {
+            'times': np.asarray(times),
+            'center_of_gravity': cog,
+            'standard_deviation': std,
+            'skewness': skew,
+            'kurtosis': kurt
+        }
+
+    def get_band_energy_at_times(
+        self,
+        times: "np.ndarray",
+        f_min: float,
+        f_max: float,
+        window_length: float = 0.025
+    ) -> "np.ndarray":
+        """
+        Compute band energy at specified time points.
+
+        Args:
+            times: Array of time points in seconds
+            f_min: Minimum frequency in Hz
+            f_max: Maximum frequency in Hz
+            window_length: Window length in seconds
+
+        Returns:
+            Array of band energy values
+        """
+        import numpy as np
+
+        n = len(times)
+        energy = np.zeros(n)
+
+        for i, t in enumerate(times):
+            spectrum = self.get_spectrum_at_time(t, window_length)
+            energy[i] = spectrum.get_band_energy(f_min, f_max)
+
+        return energy

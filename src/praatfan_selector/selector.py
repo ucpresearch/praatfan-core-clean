@@ -898,6 +898,22 @@ class PraatfanPythonSound(BaseSound):
     def values(self) -> np.ndarray:
         return self._inner.samples
 
+    def extract_part(self, start_time: float, end_time: float) -> "PraatfanPythonSound":
+        result = self._inner.extract_part(start_time, end_time)
+        return PraatfanPythonSound(result)
+
+    def get_spectrum_at_time(self, time: float, window_length: float = 0.025) -> UnifiedSpectrum:
+        result = self._inner.get_spectrum_at_time(time, window_length)
+        return UnifiedSpectrum(result, self.BACKEND)
+
+    def get_spectral_moments_at_times(self, times: np.ndarray, window_length: float = 0.025,
+                                       power: float = 2.0) -> dict:
+        return self._inner.get_spectral_moments_at_times(times, window_length, power)
+
+    def get_band_energy_at_times(self, times: np.ndarray, f_min: float, f_max: float,
+                                  window_length: float = 0.025) -> np.ndarray:
+        return self._inner.get_band_energy_at_times(times, f_min, f_max, window_length)
+
     def __repr__(self):
         return f"Sound<praatfan>({self.n_samples} samples, {self.sampling_frequency} Hz)"
 
@@ -1213,6 +1229,36 @@ class Sound:
     def backend(self) -> str:
         """The backend being used."""
         return self._backend
+
+    # Per-window spectral feature extraction (praatfan backend only for now)
+
+    def extract_part(self, start_time: float, end_time: float) -> "Sound":
+        """Extract a portion of the sound."""
+        if hasattr(self._inner, 'extract_part'):
+            result = self._inner.extract_part(start_time, end_time)
+            # Wrap in unified Sound
+            return Sound.__new__(Sound, result, self._backend)
+        raise NotImplementedError(f"extract_part not available for {self._backend} backend")
+
+    def get_spectrum_at_time(self, time: float, window_length: float = 0.025):
+        """Extract spectrum for a window centered at a specific time."""
+        if hasattr(self._inner, 'get_spectrum_at_time'):
+            return self._inner.get_spectrum_at_time(time, window_length)
+        raise NotImplementedError(f"get_spectrum_at_time not available for {self._backend} backend")
+
+    def get_spectral_moments_at_times(self, times: np.ndarray, window_length: float = 0.025,
+                                       power: float = 2.0) -> dict:
+        """Compute spectral moments at specified time points."""
+        if hasattr(self._inner, 'get_spectral_moments_at_times'):
+            return self._inner.get_spectral_moments_at_times(times, window_length, power)
+        raise NotImplementedError(f"get_spectral_moments_at_times not available for {self._backend} backend")
+
+    def get_band_energy_at_times(self, times: np.ndarray, f_min: float, f_max: float,
+                                  window_length: float = 0.025) -> np.ndarray:
+        """Compute band energy at specified time points."""
+        if hasattr(self._inner, 'get_band_energy_at_times'):
+            return self._inner.get_band_energy_at_times(times, f_min, f_max, window_length)
+        raise NotImplementedError(f"get_band_energy_at_times not available for {self._backend} backend")
 
     def __repr__(self):
         return f"Sound<{self._backend}>({self.n_samples} samples, {self.sampling_frequency} Hz, {self.duration:.3f}s)"
