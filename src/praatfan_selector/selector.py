@@ -1200,6 +1200,10 @@ class Sound:
         """Duration in seconds."""
         return self._inner.duration
 
+    def get_total_duration(self) -> float:
+        """Get total duration in seconds (parselmouth compatibility)."""
+        return self.duration
+
     @property
     def values(self) -> np.ndarray:
         """Audio samples as numpy array."""
