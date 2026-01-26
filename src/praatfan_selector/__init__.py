@@ -23,6 +23,13 @@ Usage:
     from praatfan_selector import set_backend, get_backend
     set_backend("parselmouth")
     print(get_backend())  # "parselmouth"
+
+Parselmouth compatibility:
+    from praatfan_selector import Sound, call
+
+    sound = Sound("audio.wav")
+    pitch = call(sound, "To Pitch (ac)", 0, 75, 600)
+    f0 = call(pitch, "Get value in frame", 10, "Hertz")
 """
 
 from .selector import (
@@ -39,6 +46,7 @@ from .selector import (
     UnifiedSpectrum,
     UnifiedSpectrogram,
 )
+from .compatibility import call, PraatCallError
 
 # Convenient aliases
 Pitch = UnifiedPitch
@@ -62,4 +70,7 @@ __all__ = [
     "Harmonicity",
     "Spectrum",
     "Spectrogram",
+    # Parselmouth compatibility
+    "call",
+    "PraatCallError",
 ]
