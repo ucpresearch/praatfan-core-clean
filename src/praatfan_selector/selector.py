@@ -195,7 +195,7 @@ class UnifiedIntensity:
         elif self._backend == "praatfan-rust":
             return np.array(self._inner.xs())
         elif self._backend == "praatfan-core":
-            return np.array(self._inner.xs())
+            return np.array(self._inner.times())
         raise ValueError(f"Unknown backend: {self._backend}")
 
     def values(self) -> np.ndarray:
@@ -244,7 +244,7 @@ class UnifiedHarmonicity:
         elif self._backend == "praatfan-rust":
             return np.array(self._inner.xs())
         elif self._backend == "praatfan-core":
-            return np.array(self._inner.xs())
+            return np.array(self._inner.times())
         raise ValueError(f"Unknown backend: {self._backend}")
 
     def values(self) -> np.ndarray:
