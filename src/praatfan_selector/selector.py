@@ -500,15 +500,18 @@ def _try_import_praatfan_rust():
     """Try to import praatfan Rust bindings (PyO3).
 
     Note: The Rust bindings are also named 'praatfan' when built with maturin.
-    We distinguish by checking for Rust-specific attributes.
+    We distinguish by checking for a .so/.pyd/.dylib file in the package directory.
     """
     try:
         import praatfan
-        # Check if this is the Rust version by looking for Rust-specific behavior
-        # The Rust version has __file__ pointing to a .so/.pyd file
+        import os
+        # Check if this is the Rust version by looking for native extension in package
         if hasattr(praatfan, '__file__') and praatfan.__file__:
-            if praatfan.__file__.endswith(('.so', '.pyd', '.dylib')):
-                return True
+            pkg_dir = os.path.dirname(praatfan.__file__)
+            if os.path.isdir(pkg_dir):
+                for f in os.listdir(pkg_dir):
+                    if f.endswith(('.so', '.pyd', '.dylib')):
+                        return True
         return False
     except ImportError:
         return False

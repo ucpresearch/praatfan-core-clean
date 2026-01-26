@@ -22,9 +22,22 @@ Note:
     This compatibility layer handles the conversion automatically.
 """
 
-# Re-export from praatfan.praat - it's designed to be flexible and works
-# with any objects that have the expected methods (xs, values, n_frames, etc.)
-# The unified types from praatfan_selector have these methods.
-from praatfan.praat import call, PraatCallError
+# Try to import from praatfan.praat (Python version)
+# If Rust version is installed, praatfan.praat won't exist
+try:
+    from praatfan.praat import call, PraatCallError
+except ImportError:
+    # Rust praatfan doesn't have praat module - define PraatCallError here
+    # and import call from a local implementation or raise helpful error
+    class PraatCallError(Exception):
+        """Error from Praat call() function."""
+        pass
+
+    def call(*args, **kwargs):
+        raise NotImplementedError(
+            "call() requires the Python praatfan package. "
+            "The Rust praatfan package is installed but doesn't include the praat compatibility layer. "
+            "Install the Python version: pip install praatfan (pure Python wheel)"
+        )
 
 __all__ = ["call", "PraatCallError"]
