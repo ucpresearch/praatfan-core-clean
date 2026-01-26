@@ -60,46 +60,74 @@ praatfan uses **soundfile/libsndfile** for audio I/O, supporting a wide range of
 
 ---
 
-## 🔄 Parselmouth Compatibility Layer
+## 🔄 Parselmouth Compatibility
 
-The `praatfan_selector` module provides a `call()` function that emulates parselmouth's functional API, allowing existing parselmouth scripts to work with any backend.
+There are two modules for parselmouth compatibility with different purposes:
 
-### Usage
+### praatfan_selector — Drop-in replacement
+
+Use for **minimal code changes** when migrating from parselmouth. The `Sound()` constructor matches parselmouth's API:
 
 ```python
-from praatfan_selector import Sound, call, set_backend
-
-# Optionally choose a specific backend
-set_backend("parselmouth")  # or "praatfan", "praatfan-core"
-
-# Load audio
-snd = Sound("audio.wav")
-
-# Use parselmouth-style call() syntax
+# Before (parselmouth)
+import parselmouth
+from parselmouth.praat import call
+snd = parselmouth.Sound("audio.wav")
 pitch = call(snd, "To Pitch (ac)", 0, 75, 600)
-f0 = call(pitch, "Get value in frame", 10, "Hertz")
 
-formant = call(snd, "To Formant (burg)", 0.01, 5, 5500, 0.025, 50)
-f1 = call(formant, "Get value at time", 1, 0.5, "Hertz", "Linear")
+# After (praatfan_selector) — just change imports
+from praatfan_selector import Sound, call
+snd = Sound("audio.wav")  # Same constructor syntax
+pitch = call(snd, "To Pitch (ac)", 0, 75, 600)
 ```
 
-### Supported Commands
+Also supports backend switching:
+```python
+from praatfan_selector import set_backend
+set_backend("parselmouth")  # or "praatfan", "praatfan-core"
+```
+
+### praatfan — Clean API
+
+Use for **new code** or when you want a cleaner, more Pythonic API. Note the different Sound construction:
+
+```python
+from praatfan import Sound
+
+snd = Sound.from_file("audio.wav")  # Note: from_file(), not constructor
+pitch = snd.to_pitch()
+f0 = pitch.values()  # Returns numpy array directly
+```
+
+The `call()` function is also available but requires different Sound construction:
+```python
+from praatfan import Sound
+from praatfan.praat import call
+
+snd = Sound.from_file("audio.wav")  # Must use from_file()
+pitch = call(snd, "To Pitch (ac)", 0, 75, 600)
+```
+
+### API Differences Summary
+
+| Feature | parselmouth | praatfan | praatfan_selector |
+|---------|-------------|----------|-------------------|
+| Load from file | `Sound("path")` | `Sound.from_file("path")` | `Sound("path")` |
+| call() location | `parselmouth.praat` | `praatfan.praat` | `praatfan_selector` |
+| Frame indexing | 1-based | 0-based | 1-based (in call()) |
+| Backend switching | No | No | Yes |
+
+### Supported call() Commands
 
 | Object | Commands |
 |--------|----------|
-| Sound | `To Pitch (ac)`, `To Pitch (cc)`, `To Formant (burg)`, `To Intensity`, `To Harmonicity (ac)`, `To Harmonicity (cc)`, `To Spectrum`, `To Spectrogram`, `Get total duration`, `Extract part`, `Filter (pre-emphasis)` |
+| Sound | `To Pitch (ac)`, `To Pitch (cc)`, `To Formant (burg)`, `To Intensity`, `To Harmonicity (ac/cc)`, `To Spectrum`, `To Spectrogram`, `Get total duration`, `Extract part`, `Filter (pre-emphasis)` |
 | Pitch | `Get number of frames`, `Get time from frame number`, `Get value in frame`, `Get value at time`, `Get strength in frame` |
 | Formant | `Get number of frames`, `Get time from frame number`, `Get value at time`, `Get bandwidth at time`, `Get number of formants` |
 | Intensity | `Get number of frames`, `Get time from frame number`, `Get value in frame`, `Get value at time` |
 | Harmonicity | `Get number of frames`, `Get time from frame number`, `Get value in frame`, `Get value at time` |
 | Spectrum | `Get centre of gravity`, `Get standard deviation`, `Get skewness`, `Get kurtosis`, `Get band energy` |
 | Spectrogram | `Get number of frames`, `Get time from frame number`, `Get power at` |
-
-### Key Differences from parselmouth
-
-1. **Frame indexing**: Parselmouth uses 1-based indices, praatfan uses 0-based. The `call()` function converts automatically.
-2. **Backend flexibility**: Same code works with praatfan (Python), praatfan-core (Rust), or parselmouth.
-3. **Return types**: Results are unified wrapper objects with consistent methods like `xs()`, `values()`, `n_frames`.
 
 ---
 

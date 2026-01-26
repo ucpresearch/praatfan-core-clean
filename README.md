@@ -279,51 +279,11 @@ spectrogram.n_freqs   # Number of frequency bins
 
 ## Migrating from parselmouth
 
-If you're currently using parselmouth directly, here's how to migrate:
+There are two migration paths depending on your needs:
 
-### Before (parselmouth)
+### Option 1: Drop-in replacement (praatfan_selector)
 
-```python
-import parselmouth
-
-snd = parselmouth.Sound("audio.wav")
-pitch = snd.to_pitch_ac()
-f0 = pitch.selected_array['frequency']
-
-formant = snd.to_formant_burg()
-# Getting F1 requires Praat calls
-from parselmouth.praat import call
-f1_at_time = call(formant, "Get value at time", 1, 0.5, "Hertz", "Linear")
-```
-
-### After (praatfan)
-
-```python
-from praatfan import Sound
-
-snd = Sound("audio.wav")
-pitch = snd.to_pitch_ac()
-f0 = pitch.values()  # Unified API
-
-formant = snd.to_formant_burg()
-f1_values = formant.formant_values(1)  # All F1 values as array
-```
-
-### Keep using parselmouth as backend
-
-If you want the unified API but still use parselmouth under the hood:
-
-```python
-from praatfan import Sound, set_backend
-
-set_backend('parselmouth')
-# Now all analysis uses parselmouth internally
-# but you get the unified result API
-```
-
-### Parselmouth Compatibility Layer
-
-If you have existing code using `parselmouth.praat.call()`, you can use praatfan's compatibility layer with minimal changes:
+Use `praatfan_selector` for **minimal code changes**. The `Sound()` constructor and `call()` function match parselmouth's API:
 
 ```python
 # Before (parselmouth)
@@ -334,18 +294,71 @@ snd = parselmouth.Sound("audio.wav")
 pitch = call(snd, "To Pitch (ac)", 0, 75, 600)
 f0 = call(pitch, "Get value in frame", 10, "Hertz")
 
-# After (praatfan_selector)
-from praatfan_selector import Sound, call, set_backend
+# After (praatfan_selector) - just change the imports
+from praatfan_selector import Sound, call
 
-# Optionally choose a specific backend
-set_backend("parselmouth")  # or "praatfan", "praatfan-core"
-
-snd = Sound("audio.wav")
+snd = Sound("audio.wav")  # Same constructor syntax as parselmouth
 pitch = call(snd, "To Pitch (ac)", 0, 75, 600)
 f0 = call(pitch, "Get value in frame", 10, "Hertz")
 ```
 
-The `call()` function supports all common Praat commands for Sound, Pitch, Formant, Intensity, Harmonicity, Spectrum, and Spectrogram objects. Note that parselmouth uses 1-based frame indices while praatfan uses 0-based; the compatibility layer handles this conversion automatically.
+With `praatfan_selector`, you can also switch backends:
+
+```python
+from praatfan_selector import Sound, call, set_backend
+
+set_backend("parselmouth")  # Use parselmouth under the hood
+# or "praatfan" (Python), "praatfan-core" (Rust)
+
+snd = Sound("audio.wav")
+# ... rest of code unchanged
+```
+
+### Option 2: Clean API (praatfan)
+
+Use `praatfan` directly for a **cleaner, more Pythonic API**. Note the different Sound construction:
+
+```python
+# Before (parselmouth)
+import parselmouth
+from parselmouth.praat import call
+
+snd = parselmouth.Sound("audio.wav")
+pitch = snd.to_pitch_ac()
+f0 = pitch.selected_array['frequency']
+
+formant = snd.to_formant_burg()
+f1_at_time = call(formant, "Get value at time", 1, 0.5, "Hertz", "Linear")
+
+# After (praatfan) - cleaner API, but Sound construction differs
+from praatfan import Sound
+
+snd = Sound.from_file("audio.wav")  # Note: from_file(), not constructor
+pitch = snd.to_pitch()
+f0 = pitch.values()  # Returns numpy array directly
+
+formant = snd.to_formant_burg()
+f1_values = formant.formant_values(1)  # All F1 values as numpy array
+```
+
+### Which to choose?
+
+| Use case | Recommendation |
+|----------|----------------|
+| Migrating existing parselmouth scripts with minimal changes | `praatfan_selector` |
+| Writing new code | `praatfan` (cleaner API) |
+| Need to switch between backends at runtime | `praatfan_selector` |
+| Want parselmouth accuracy with MIT license | Either (both use same algorithms) |
+
+### API differences summary
+
+| Feature | parselmouth | praatfan | praatfan_selector |
+|---------|-------------|----------|-------------------|
+| Load from file | `Sound("path")` | `Sound.from_file("path")` | `Sound("path")` |
+| Load from array | `Sound(samples, sr)` | `Sound(samples, sr)` | `Sound(samples, sr)` |
+| call() function | `parselmouth.praat.call` | `praatfan.praat.call` | `praatfan_selector.call` |
+| Frame indexing | 1-based | 0-based | 1-based (in call()) |
+| Backend switching | No | No | Yes |
 
 ## Why Multiple Backends?
 
