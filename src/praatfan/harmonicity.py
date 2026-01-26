@@ -243,9 +243,13 @@ def sound_to_harmonicity_cc(
     """
     Compute harmonicity using cross-correlation method.
 
-    This function computes HNR directly from cross-correlation for all frames,
-    not just pitch-voiced frames. Uses the same frame timing as Pitch CC
-    (2-period window).
+    This function:
+    1. Computes Pitch using CC method
+    2. Extracts strength values from Pitch
+    3. Applies HNR formula to get dB values
+
+    The window duration is (periods_per_window + 1) / min_pitch to account
+    for the "forward" cross-correlation needing an extra period.
 
     Args:
         sound: Sound object
@@ -257,122 +261,38 @@ def sound_to_harmonicity_cc(
     Returns:
         Harmonicity object
     """
-    samples = sound.samples
-    sample_rate = sound.sample_rate
-    duration = sound.duration
+    # Step 1: Compute pitch using CC method
+    # HNR CC window = (ppw + 1) / min_pitch for "forward" cross-correlation
+    # Disable octave cost to get raw correlation strength for HNR
+    pitch = sound_to_pitch(
+        sound,
+        time_step=time_step,
+        pitch_floor=min_pitch,
+        pitch_ceiling=600.0,  # Standard ceiling
+        method="cc",
+        periods_per_window=periods_per_window + 1.0,  # +1 for forward CC
+        frame_timing="centered",
+        apply_octave_cost=False
+    )
 
-    max_pitch = 600.0
-
-    # Frame timing matches Pitch CC (2-period window)
-    window_duration = 2.0 / min_pitch
-    window_samples = int(round(window_duration * sample_rate))
-    if window_samples % 2 == 0:
-        window_samples += 1
-    half_window = window_samples // 2
-
-    min_lag = int(np.ceil(sample_rate / max_pitch))
-    max_lag = int(np.floor(sample_rate / min_pitch))
-
-    # Centered frame timing (same as Pitch CC)
-    n_frames = int(np.floor((duration - window_duration) / time_step + 1e-9)) + 1
-    if n_frames < 1:
-        n_frames = 1
-    t1 = (duration - (n_frames - 1) * time_step) / 2.0
-
-    global_peak = np.max(np.abs(samples))
-
-    times = []
+    # Step 2: Extract times and convert strengths to HNR
+    times = pitch.times()
     hnr_values = []
 
-    for i in range(n_frames):
-        t = t1 + i * time_step
-        times.append(t)
-
-        center = int(round(t * sample_rate))
-        start = center - half_window
-        end = start + window_samples
-
-        # Handle boundaries
-        if start < 0 or end > len(samples):
-            frame = np.zeros(window_samples)
-            src_start = max(0, start)
-            src_end = min(len(samples), end)
-            dst_start = src_start - start
-            dst_end = dst_start + (src_end - src_start)
-            frame[dst_start:dst_end] = samples[src_start:src_end]
-        else:
-            frame = samples[start:end].copy()
-
-        # Check for silence
-        local_peak = np.max(np.abs(frame))
-        local_intensity = local_peak / (global_peak + 1e-30)
-
-        if local_intensity < silence_threshold * 0.01:
-            hnr_values.append(-200.0)
-            continue
-
-        # Compute full-frame cross-correlation
-        n = len(frame)
-        best_r = 0.0
-        best_lag = 0
-
-        for lag in range(min_lag, min(max_lag + 1, n - 1)):
-            x1 = frame[:n-lag]
-            x2 = frame[lag:]
-            corr = np.sum(x1 * x2)
-            e1 = np.sum(x1 * x1)
-            e2 = np.sum(x2 * x2)
-
-            if e1 > 0 and e2 > 0:
-                r = corr / np.sqrt(e1 * e2)
-                # Check if this is a peak
-                if lag > min_lag:
-                    # We need to check if it's a local max
-                    # For simplicity, track the best correlation
-                    if r > best_r:
-                        best_r = r
-                        best_lag = lag
-
-        # Find actual peaks and apply parabolic interpolation
-        r_array = np.zeros(max_lag + 1)
-        for lag in range(min_lag, min(max_lag + 1, n)):
-            x1 = frame[:n-lag]
-            x2 = frame[lag:]
-            corr = np.sum(x1 * x2)
-            e1 = np.sum(x1 * x1)
-            e2 = np.sum(x2 * x2)
-            if e1 > 0 and e2 > 0:
-                r_array[lag] = corr / np.sqrt(e1 * e2)
-
-        best_r = 0.0
-        for lag in range(min_lag + 1, min(max_lag, len(r_array) - 1)):
-            if r_array[lag] > r_array[lag-1] and r_array[lag] > r_array[lag+1]:
-                # Parabolic interpolation for refined strength
-                r_prev = r_array[lag-1]
-                r_curr = r_array[lag]
-                r_next = r_array[lag+1]
-
-                denom = r_prev - 2*r_curr + r_next
-                if abs(denom) > 1e-10:
-                    delta = 0.5 * (r_prev - r_next) / denom
-                    if abs(delta) < 1:
-                        refined_r = r_curr - 0.25 * (r_prev - r_next) * delta
-                        if refined_r > best_r:
-                            best_r = refined_r
-                    elif r_curr > best_r:
-                        best_r = r_curr
-                elif r_curr > best_r:
-                    best_r = r_curr
-
-        if best_r > 0:
-            hnr = strength_to_hnr(best_r)
+    for frame in pitch.frames:
+        if frame.voiced:
+            # Only use strength if it's a valid correlation (0 < r < 1)
+            strength = frame.strength
+            if 0 < strength < 1:
+                hnr = strength_to_hnr(strength)
+            else:
+                hnr = -200.0
         else:
             hnr = -200.0
-
         hnr_values.append(hnr)
 
     return Harmonicity(
-        times=np.array(times),
+        times=times,
         values=np.array(hnr_values),
         time_step=time_step,
         min_pitch=min_pitch
