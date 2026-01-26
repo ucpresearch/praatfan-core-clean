@@ -47,8 +47,14 @@ class Sound:
         """
         Load audio from a file.
 
-        Supports WAV, FLAC, and other formats via soundfile.
-        Multi-channel files will raise an error.
+        Supported formats (via soundfile/libsndfile):
+            - WAV (PCM 8/16/24/32-bit, 32/64-bit float, u-law, a-law)
+            - FLAC (Free Lossless Audio Codec)
+            - MP3 (MPEG Audio Layer III) - requires libsndfile 1.1.0+
+            - OGG Vorbis
+            - AIFF, AU, CAF, and many others
+
+        Multi-channel files will raise an error - use from_file_channel() instead.
 
         Args:
             path: Path to audio file
@@ -58,6 +64,7 @@ class Sound:
 
         Raises:
             ValueError: If file has multiple channels
+            RuntimeError: If file format is not supported
         """
         import soundfile as sf
 

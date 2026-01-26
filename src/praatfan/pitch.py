@@ -477,7 +477,8 @@ def _find_autocorrelation_peaks(r: np.ndarray, r_w: np.ndarray,
                                  min_lag: int, max_lag: int,
                                  sample_rate: float,
                                  max_candidates: int = 15,
-                                 use_interpolation: bool = True) -> List[tuple]:
+                                 use_interpolation: bool = True,
+                                 local_intensity: float = 1.0) -> List[tuple]:
     """
     Find all autocorrelation peaks in the given lag range.
 
@@ -490,8 +491,22 @@ def _find_autocorrelation_peaks(r: np.ndarray, r_w: np.ndarray,
         max_candidates: Maximum number of candidates
         use_interpolation: Use parabolic interpolation for frequency (default True)
             Note: For strength, we always use raw peak to avoid overshoot
+        local_intensity: Frame intensity relative to global peak (0-1), used for
+            voicing strength adjustment
 
     Returns list of (frequency, strength) tuples, sorted by strength.
+
+    Note on strength adjustment:
+        The returned strength is adjusted by local_intensity to handle a edge case
+        where low-intensity frames (silence, DC offset) can have spuriously high
+        r_norm values (~1.0) that cause false voicing detections.
+
+        The adjustment formula is: strength = 0.5 * r_norm + 0.5 * local_intensity
+
+        This is an empirically-derived approximation found via black-box testing.
+        The actual formula used by Praat is unknown and could be different (possibly
+        a nonlinear function like GLM/GAM). The coefficients (0.5, 0.5) were tuned
+        on limited test data and may not be optimal for all audio types.
     """
     if max_lag >= len(r) or max_lag >= len(r_w):
         return []
@@ -515,6 +530,11 @@ def _find_autocorrelation_peaks(r: np.ndarray, r_w: np.ndarray,
         if r_norm[lag] > r_norm[lag-1] and r_norm[lag] > r_norm[lag+1]:
             r_curr = r_norm[lag]
 
+            # Apply intensity-periodicity interaction to adjust strength
+            # This handles the case where low-intensity frames have spuriously
+            # high r_norm values (e.g., DC offset gives r_norm ≈ 1.0)
+            adjusted_strength = 0.5 * r_curr + 0.5 * local_intensity
+
             if use_interpolation:
                 # Parabolic interpolation for sub-sample precision on frequency only
                 r_prev = r_norm[lag-1]
@@ -526,14 +546,14 @@ def _find_autocorrelation_peaks(r: np.ndarray, r_w: np.ndarray,
                     if abs(delta) < 1:
                         refined_lag = lag + delta
                         freq = sample_rate / refined_lag
-                        # Use raw peak strength to avoid overshoot
-                        candidates.append((freq, r_curr))
+                        # Use adjusted strength (intensity-weighted)
+                        candidates.append((freq, adjusted_strength))
                     else:
-                        candidates.append((sample_rate / lag, r_curr))
+                        candidates.append((sample_rate / lag, adjusted_strength))
                 else:
-                    candidates.append((sample_rate / lag, r_curr))
+                    candidates.append((sample_rate / lag, adjusted_strength))
             else:
-                candidates.append((sample_rate / lag, r_curr))
+                candidates.append((sample_rate / lag, adjusted_strength))
 
     # Sort by strength and return top candidates
     candidates.sort(key=lambda x: x[1], reverse=True)
@@ -825,7 +845,8 @@ def sound_to_pitch(
             # AC: Apply window and compute autocorrelation with normalization
             windowed = frame_samples * window
             r = _compute_autocorrelation(windowed, max_lag)
-            peaks = _find_autocorrelation_peaks(r, r_w, min_lag, max_lag, sample_rate)
+            peaks = _find_autocorrelation_peaks(r, r_w, min_lag, max_lag, sample_rate,
+                                                 local_intensity=local_intensity)
         else:
             # CC: Full-frame cross-correlation on raw samples
             r = _compute_cross_correlation(frame_samples, min_lag, max_lag)

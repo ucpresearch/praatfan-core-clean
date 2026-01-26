@@ -621,6 +621,20 @@ fn find_cc_peaks(
 /// * `max_lag` - Maximum lag to search
 /// * `sample_rate` - Sample rate for converting lag to frequency
 /// * `max_candidates` - Maximum number of candidates to return
+/// * `local_intensity` - Frame intensity relative to global peak (0-1)
+///
+/// # Note on strength adjustment
+///
+/// The returned strength is adjusted by local_intensity to handle an edge case
+/// where low-intensity frames (silence, DC offset) can have spuriously high
+/// r_norm values (~1.0) that cause false voicing detections.
+///
+/// The adjustment formula is: strength = 0.5 * r_norm + 0.5 * local_intensity
+///
+/// This is an empirically-derived approximation found via black-box testing.
+/// The actual formula used by Praat is unknown and could be different (possibly
+/// a nonlinear function like GLM/GAM). The coefficients (0.5, 0.5) were tuned
+/// on limited test data and may not be optimal for all audio types.
 fn find_autocorrelation_peaks(
     r: &[f64],
     r_w: &[f64],
@@ -628,6 +642,7 @@ fn find_autocorrelation_peaks(
     max_lag: usize,
     sample_rate: f64,
     max_candidates: usize,
+    local_intensity: f64,
 ) -> Vec<(f64, f64)> {
     // Validate inputs
     if max_lag >= r.len() || max_lag >= r_w.len() {
@@ -658,6 +673,11 @@ fn find_autocorrelation_peaks(
         if r_norm[lag] > r_norm[lag - 1] && r_norm[lag] > r_norm[lag + 1] {
             let r_curr = r_norm[lag];
 
+            // Apply intensity-periodicity interaction to adjust strength.
+            // This handles the case where low-intensity frames have spuriously
+            // high r_norm values (e.g., DC offset gives r_norm ≈ 1.0).
+            let adjusted_strength = 0.5 * r_curr + 0.5 * local_intensity;
+
             // Parabolic interpolation for sub-sample precision on frequency only
             let r_prev = r_norm[lag - 1];
             let r_next = r_norm[lag + 1];
@@ -668,13 +688,13 @@ fn find_autocorrelation_peaks(
                 if delta.abs() < 1.0 {
                     let refined_lag = lag as f64 + delta;
                     let freq = sample_rate / refined_lag;
-                    // Use raw peak strength to avoid overshoot
-                    candidates.push((freq, r_curr));
+                    // Use adjusted strength (intensity-weighted)
+                    candidates.push((freq, adjusted_strength));
                 } else {
-                    candidates.push((sample_rate / lag as f64, r_curr));
+                    candidates.push((sample_rate / lag as f64, adjusted_strength));
                 }
             } else {
-                candidates.push((sample_rate / lag as f64, r_curr));
+                candidates.push((sample_rate / lag as f64, adjusted_strength));
             }
         }
     }
@@ -1045,7 +1065,7 @@ pub fn sound_to_pitch_internal(
                 let r = compute_autocorrelation(&windowed, max_lag);
 
                 // Find peaks with window normalization
-                find_autocorrelation_peaks(&r, r_w, min_lag, max_lag, sample_rate, 15)
+                find_autocorrelation_peaks(&r, r_w, min_lag, max_lag, sample_rate, 15, local_intensity)
             }
             PitchMethod::Cc => {
                 // CC method: full-frame cross-correlation on raw samples

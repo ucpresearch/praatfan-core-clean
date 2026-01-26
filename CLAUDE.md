@@ -42,6 +42,24 @@ This implementation supports **mono audio only**.
 
 ---
 
+## 🎵 Supported Audio Formats
+
+praatfan uses **soundfile/libsndfile** for audio I/O, supporting a wide range of formats:
+
+| Format | Extensions | Notes |
+|--------|------------|-------|
+| WAV | `.wav` | PCM 8/16/24/32-bit, 32/64-bit float, u-law, a-law |
+| FLAC | `.flac` | Free Lossless Audio Codec |
+| MP3 | `.mp3` | Requires libsndfile 1.1.0+ |
+| OGG Vorbis | `.ogg` | Lossy compressed |
+| AIFF | `.aiff`, `.aif` | Apple audio format |
+| AU | `.au` | Sun/NeXT audio |
+| CAF | `.caf` | Core Audio Format |
+
+**Note:** Multi-channel files require explicit channel selection via `Sound.from_file_channel(path, channel=0)`.
+
+---
+
 ## 📚 Documentation Categories
 
 When implementing, every formula/constant falls into one of three categories:
