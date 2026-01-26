@@ -75,6 +75,9 @@ except ImportError:
     from .spectrum import Spectrum
     from .spectrogram import Spectrogram
 
+# Import praat compatibility module for use as praatfan.praat
+from . import praat
+
 __version__ = "0.1.0"
 __all__ = [
     "Sound",
@@ -88,4 +91,5 @@ __all__ = [
     "Harmonicity",
     "Spectrum",
     "Spectrogram",
+    "praat",
 ]

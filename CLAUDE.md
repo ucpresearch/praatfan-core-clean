@@ -336,7 +336,8 @@ praatfan-core-clean/
 │       ├── pitch.py       # Pitch detection (AC and CC methods)
 │       ├── harmonicity.py # HNR (wraps pitch)
 │       ├── formant.py     # Formant analysis (Burg LPC)
-│       └── spectrogram.py # STFT spectrogram
+│       ├── spectrogram.py # STFT spectrogram
+│       └── praat.py       # Parselmouth compatibility layer (call() function)
 └── rust/                  # Rust implementation
     ├── Cargo.toml         # Dependencies and feature flags (wasm, python)
     ├── Cargo.lock         # Locked dependency versions
@@ -537,4 +538,114 @@ Available platforms:
 - `rust/examples/dump_f*.rs` - Rust example programs for formant extraction
 - `scripts/*.py` - Comparison and debug scripts used during development
 - `src/praatfan/__pycache__/` - Python cache (gitignored)
+
+---
+
+## 🔄 Parselmouth Compatibility Layer
+
+The `praatfan.praat` module provides a parselmouth-compatible `call()` function, enabling existing parselmouth scripts to work with praatfan objects with minimal changes.
+
+### Usage
+
+```python
+# Instead of:
+# import parselmouth
+# from parselmouth.praat import call
+
+import praatfan
+from praatfan.praat import call
+
+# Load sound (use from_file instead of constructor)
+sound = praatfan.Sound.from_file("audio.wav")
+
+# All call() commands work the same way
+pitch = call(sound, "To Pitch (ac)", 0, 75, 600)
+f0 = call(pitch, "Get value at time", 0.5, "Hertz", "Linear")
+
+formant = call(sound, "To Formant (burg)", 0.005, 5, 5500, 0.025, 50)
+f1 = call(formant, "Get value at time", 1, 0.5, "Hertz", "Linear")
+```
+
+### Supported Commands
+
+#### Sound Commands
+| Command | Description |
+|---------|-------------|
+| `"To Pitch"` / `"To Pitch (ac)"` / `"To Pitch (cc)"` | Create Pitch object |
+| `"To Formant (burg)"` | Create Formant object (Burg's LPC) |
+| `"To Intensity"` | Create Intensity object |
+| `"To Harmonicity (ac)"` / `"To Harmonicity (cc)"` | Create Harmonicity object |
+| `"To Spectrum"` | Create Spectrum object (single-frame FFT) |
+| `"To Spectrogram"` | Create Spectrogram object |
+| `"Get total duration"` | Get sound duration in seconds |
+| `"Extract part"` | Extract a portion of the sound |
+| `"Filter (pre-emphasis)"` | Apply pre-emphasis filter |
+
+#### Query Commands (Pitch, Formant, Intensity, Harmonicity)
+| Command | Description |
+|---------|-------------|
+| `"Get number of frames"` | Number of analysis frames |
+| `"Get time from frame number"` | Time at frame N (1-based index) |
+| `"Get value at time"` | Interpolated value at time t |
+| `"Get value in frame"` | Value at frame N (1-based index) |
+
+#### Formant-specific
+| Command | Description |
+|---------|-------------|
+| `"Get bandwidth at time"` | Bandwidth at time t |
+| `"Get number of formants"` | Number of formants in frame |
+
+#### Pitch-specific
+| Command | Description |
+|---------|-------------|
+| `"Get strength at time"` | Voicing strength at time t |
+| `"Get strength in frame"` | Voicing strength at frame N |
+
+#### Spectrum Commands
+| Command | Description |
+|---------|-------------|
+| `"Get centre of gravity"` / `"Get center of gravity"` | Spectral centroid |
+| `"Get standard deviation"` | Spectral spread |
+| `"Get skewness"` | Spectral asymmetry |
+| `"Get kurtosis"` | Spectral peakedness |
+| `"Get band energy"` | Energy in frequency range |
+
+#### Spectrogram Commands
+| Command | Description |
+|---------|-------------|
+| `"Get number of frames"` | Number of time frames |
+| `"Get number of frequencies"` | Number of frequency bins |
+| `"Get time from frame number"` | Time at frame N |
+| `"Get power at"` | Power at (time, frequency) |
+
+### Key Differences from Parselmouth
+
+1. **Sound loading**: Use `praatfan.Sound.from_file(path)` instead of `parselmouth.Sound(path)`
+2. **Index conversion**: The compatibility layer handles 1-based to 0-based index conversion automatically
+3. **Case insensitive**: Commands are matched case-insensitively
+
+### Files
+
+- `src/praatfan/praat.py` - The compatibility layer implementation
+- `tests/test_praat_compat.py` - Comprehensive tests (52 tests)
+
+### Example: Migrating from Parselmouth
+
+```python
+# Before (parselmouth)
+import parselmouth
+from parselmouth.praat import call
+
+snd = parselmouth.Sound("audio.wav")
+pitch = call(snd, "To Pitch", 0.01, 75, 600)
+formant = call(snd, "To Formant (burg)", 0.005, 5, 5500, 0.025, 50)
+
+# After (praatfan)
+import praatfan
+from praatfan.praat import call
+
+snd = praatfan.Sound.from_file("audio.wav")  # Only this line changes
+pitch = call(snd, "To Pitch", 0.01, 75, 600)
+formant = call(snd, "To Formant (burg)", 0.005, 5, 5500, 0.025, 50)
+```
 

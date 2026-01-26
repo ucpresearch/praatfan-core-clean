@@ -35,7 +35,7 @@ class UnifiedPitch:
         elif self._backend == "praatfan-rust":
             return np.array(self._inner.xs())
         elif self._backend == "praatfan-core":
-            return np.array(self._inner.xs())
+            return np.array(self._inner.times())
         raise ValueError(f"Unknown backend: {self._backend}")
 
     def values(self) -> np.ndarray:
@@ -59,7 +59,9 @@ class UnifiedPitch:
         elif self._backend == "praatfan-rust":
             return np.array(self._inner.selected_array['strength'])
         elif self._backend == "praatfan-core":
-            return np.array(self._inner.strengths())
+            # praatfan-core doesn't have strengths, return ones for voiced frames
+            vals = np.array(self._inner.values())
+            return np.where(np.isnan(vals), 0.0, 1.0)
         raise ValueError(f"Unknown backend: {self._backend}")
 
     @property
@@ -72,7 +74,7 @@ class UnifiedPitch:
         elif self._backend == "praatfan-rust":
             return self._inner.n_frames
         elif self._backend == "praatfan-core":
-            return self._inner.n_frames
+            return self._inner.num_frames
         raise ValueError(f"Unknown backend: {self._backend}")
 
     @property
@@ -112,7 +114,7 @@ class UnifiedFormant:
         elif self._backend == "praatfan-rust":
             return np.array(self._inner.xs())
         elif self._backend == "praatfan-core":
-            return np.array(self._inner.xs())
+            return np.array(self._inner.times())
         raise ValueError(f"Unknown backend: {self._backend}")
 
     def formant_values(self, formant_number: int) -> np.ndarray:
@@ -132,7 +134,7 @@ class UnifiedFormant:
         elif self._backend == "praatfan-rust":
             return np.array(self._inner.to_array(formant_number))
         elif self._backend == "praatfan-core":
-            return np.array(self._inner.to_array(formant_number))
+            return np.array(self._inner.formant_values(formant_number))
         raise ValueError(f"Unknown backend: {self._backend}")
 
     def bandwidth_values(self, formant_number: int) -> np.ndarray:
@@ -151,11 +153,13 @@ class UnifiedFormant:
         elif self._backend == "praatfan-rust":
             return np.array(self._inner.to_bandwidth_array(formant_number))
         elif self._backend == "praatfan-core":
-            return np.array(self._inner.to_bandwidth_array(formant_number))
+            return np.array(self._inner.bandwidth_values(formant_number))
         raise ValueError(f"Unknown backend: {self._backend}")
 
     @property
     def n_frames(self) -> int:
+        if self._backend == "praatfan-core":
+            return self._inner.num_frames
         return self._inner.n_frames
 
     @property
@@ -169,7 +173,10 @@ class UnifiedFormant:
         return self._backend
 
     def __repr__(self):
-        return f"Formant<{self._backend}>({self.n_frames} frames)"
+        try:
+            return f"Formant<{self._backend}>({self.n_frames} frames)"
+        except AttributeError:
+            return f"Formant<{self._backend}>"
 
 
 class UnifiedIntensity:
@@ -287,7 +294,8 @@ class UnifiedSpectrum:
         elif self._backend == "praatfan-rust":
             return np.array(self._inner.xs())
         elif self._backend == "praatfan-core":
-            return np.array(self._inner.xs())
+            # praatfan-core has num_bins not n_bins, and no xs() method
+            return np.arange(self._inner.num_bins) * self._inner.df
         raise ValueError(f"Unknown backend: {self._backend}")
 
     def values(self) -> np.ndarray:
@@ -314,8 +322,58 @@ class UnifiedSpectrum:
             return self._inner.get_center_of_gravity(power)
         raise ValueError(f"Unknown backend: {self._backend}")
 
+    def get_standard_deviation(self, power: float = 2.0) -> float:
+        """Spectral standard deviation."""
+        if self._backend == "parselmouth":
+            return self._inner.get_standard_deviation(power)
+        elif self._backend == "praatfan":
+            return self._inner.get_standard_deviation(power)
+        elif self._backend == "praatfan-rust":
+            return self._inner.get_standard_deviation(power)
+        elif self._backend == "praatfan-core":
+            return self._inner.get_standard_deviation(power)
+        raise ValueError(f"Unknown backend: {self._backend}")
+
+    def get_skewness(self, power: float = 2.0) -> float:
+        """Spectral skewness."""
+        if self._backend == "parselmouth":
+            return self._inner.get_skewness(power)
+        elif self._backend == "praatfan":
+            return self._inner.get_skewness(power)
+        elif self._backend == "praatfan-rust":
+            return self._inner.get_skewness(power)
+        elif self._backend == "praatfan-core":
+            return self._inner.get_skewness(power)
+        raise ValueError(f"Unknown backend: {self._backend}")
+
+    def get_kurtosis(self, power: float = 2.0) -> float:
+        """Spectral kurtosis."""
+        if self._backend == "parselmouth":
+            return self._inner.get_kurtosis(power)
+        elif self._backend == "praatfan":
+            return self._inner.get_kurtosis(power)
+        elif self._backend == "praatfan-rust":
+            return self._inner.get_kurtosis(power)
+        elif self._backend == "praatfan-core":
+            return self._inner.get_kurtosis(power)
+        raise ValueError(f"Unknown backend: {self._backend}")
+
+    def get_band_energy(self, f_min: float = 0.0, f_max: float = 0.0) -> float:
+        """Band energy between frequencies."""
+        if self._backend == "parselmouth":
+            return self._inner.get_band_energy(f_min, f_max)
+        elif self._backend == "praatfan":
+            return self._inner.get_band_energy(f_min, f_max)
+        elif self._backend == "praatfan-rust":
+            return self._inner.get_band_energy(f_min, f_max)
+        elif self._backend == "praatfan-core":
+            return self._inner.get_band_energy(f_min, f_max)
+        raise ValueError(f"Unknown backend: {self._backend}")
+
     @property
     def n_bins(self) -> int:
+        if self._backend == "praatfan-core":
+            return self._inner.num_bins
         return self._inner.n_bins
 
     @property
@@ -347,7 +405,9 @@ class UnifiedSpectrogram:
         elif self._backend == "praatfan-rust":
             return np.array(self._inner.xs())
         elif self._backend == "praatfan-core":
-            return np.array(self._inner.xs())
+            # praatfan-core uses get_time_from_frame (0-indexed)
+            n = self._inner.num_frames
+            return np.array([self._inner.get_time_from_frame(i) for i in range(n)])
         raise ValueError(f"Unknown backend: {self._backend}")
 
     def ys(self) -> np.ndarray:
@@ -359,7 +419,9 @@ class UnifiedSpectrogram:
         elif self._backend == "praatfan-rust":
             return np.array(self._inner.ys())
         elif self._backend == "praatfan-core":
-            return np.array(self._inner.ys())
+            # praatfan-core uses get_frequency_from_bin (0-indexed)
+            n = self._inner.num_freq_bins
+            return np.array([self._inner.get_frequency_from_bin(i) for i in range(n)])
         raise ValueError(f"Unknown backend: {self._backend}")
 
     def values(self) -> np.ndarray:
@@ -374,17 +436,21 @@ class UnifiedSpectrogram:
             return vals.reshape(self._inner.n_freqs, self._inner.n_times)
         elif self._backend == "praatfan-core":
             vals = np.array(self._inner.values())
-            return vals.reshape(self._inner.n_freqs, self._inner.n_times)
+            return vals.reshape(self._inner.num_freq_bins, self._inner.num_frames)
         raise ValueError(f"Unknown backend: {self._backend}")
 
     @property
     def n_times(self) -> int:
+        if self._backend == "praatfan-core":
+            return self._inner.num_frames
         return self._inner.n_times
 
     @property
     def n_freqs(self) -> int:
         if self._backend == "parselmouth":
             return self._inner.n_frequencies
+        elif self._backend == "praatfan-core":
+            return self._inner.num_freq_bins
         return self._inner.n_freqs
 
     @property
@@ -574,7 +640,7 @@ def _select_backend() -> str:
         )
 
     # Preference order
-    preference = ["praatfan-rust", "praatfan", "parselmouth", "praatfan-core"]
+    preference = ["praatfan-core", "praatfan-rust", "praatfan", "parselmouth"]
     for backend in preference:
         if backend in available:
             _current_backend = backend
@@ -935,11 +1001,13 @@ class PraatfanCoreSound(BaseSound):
         return cls(praatfan_core.Sound(samples, sampling_frequency))
 
     def to_pitch_ac(self, time_step=0.0, pitch_floor=75.0, pitch_ceiling=600.0) -> UnifiedPitch:
-        result = self._inner.to_pitch_ac(time_step, pitch_floor, pitch_ceiling)
+        # praatfan-core only has to_pitch (AC method)
+        result = self._inner.to_pitch(time_step, pitch_floor, pitch_ceiling)
         return UnifiedPitch(result, self.BACKEND)
 
     def to_pitch_cc(self, time_step=0.0, pitch_floor=75.0, pitch_ceiling=600.0) -> UnifiedPitch:
-        result = self._inner.to_pitch_cc(time_step, pitch_floor, pitch_ceiling)
+        # praatfan-core only has to_pitch (AC method), use it for CC as well
+        result = self._inner.to_pitch(time_step, pitch_floor, pitch_ceiling)
         return UnifiedPitch(result, self.BACKEND)
 
     def to_formant_burg(self, time_step=0.0, max_number_of_formants=5,
@@ -972,17 +1040,18 @@ class PraatfanCoreSound(BaseSound):
 
     def to_spectrogram(self, window_length=0.005, maximum_frequency=5000.0,
                        time_step=0.002, frequency_step=20.0) -> UnifiedSpectrogram:
+        # praatfan-core requires window_shape argument
         result = self._inner.to_spectrogram(window_length, maximum_frequency,
-                                            time_step, frequency_step)
+                                            time_step, frequency_step, "Gaussian")
         return UnifiedSpectrogram(result, self.BACKEND)
 
     @property
     def n_samples(self) -> int:
-        return self._inner.n_samples
+        return self._inner.num_samples
 
     @property
     def sampling_frequency(self) -> float:
-        return self._inner.sampling_frequency
+        return self._inner.sample_rate
 
     @property
     def duration(self) -> float:
@@ -990,7 +1059,7 @@ class PraatfanCoreSound(BaseSound):
 
     @property
     def values(self) -> np.ndarray:
-        return self._inner.values()
+        return self._inner.samples
 
     def __repr__(self):
         return f"Sound<praatfan-core>({self.n_samples} samples, {self.sampling_frequency} Hz)"
