@@ -510,6 +510,8 @@ wasm-pack build --target nodejs --features wasm  # For Node.js
 cargo test
 ```
 
+**For rebuilding and uploading release wheels, see `REBUILD.md`.**
+
 ### Release Status
 
 **Current version:** v0.1.0 (Pre-release)
@@ -520,9 +522,9 @@ This is a **pre-release** - the API is stabilizing but may still change. Use at 
 
 Available platforms:
 - Pure Python: `praatfan-0.1.0-py3-none-any.whl` (works everywhere)
-- Linux x86_64: Python 3.8, 3.9, 3.10, 3.11, 3.12
-- macOS ARM64: Python 3.12
-- Windows x86_64: Python 3.12
+- Linux x86_64: Python 3.9, 3.10, 3.11, 3.12
+- macOS ARM64: Python 3.9, 3.10, 3.11, 3.12
+- Windows x86_64: Python 3.9, 3.10, 3.11, 3.12
 
 ### Repository
 
