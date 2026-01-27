@@ -3,7 +3,7 @@ requires = ["maturin>=1.0,<2.0"]
 build-backend = "maturin"
 
 [project]
-name = "praatfan"
+name = "praatfan_rust"
 version = "0.1.0"
 description = "Clean-room reimplementation of Praat's acoustic analysis algorithms"
 license = { text = "MIT OR Apache-2.0" }
@@ -40,4 +40,4 @@ Homepage = "https://github.com/your-org/praatfan-core-clean"
 
 [tool.maturin]
 features = ["python"]
-module-name = "praatfan"
+module-name = "praatfan_rust"

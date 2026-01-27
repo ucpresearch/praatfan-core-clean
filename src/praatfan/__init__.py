@@ -2,8 +2,8 @@
 praatfan - Clean room reimplementation of Praat's acoustic analysis algorithms.
 
 This package provides a unified API for acoustic analysis that can use
-different backends (parselmouth, praatfan-core, or the built-in Python/Rust
-implementations).
+different backends (parselmouth, praatfan_rust, praatfan_gpl, or the built-in
+Python implementation).
 
 Usage:
     from praatfan import Sound
@@ -20,76 +20,67 @@ Usage:
 Backend selection (in order of preference):
     1. PRAATFAN_BACKEND environment variable
     2. Config file (~/.praatfan/config.toml or ./praatfan.toml)
-    3. First available: praatfan-rust, praatfan, parselmouth, praatfan-core
+    3. First available: praatfan_gpl, praatfan_rust, praatfan, parselmouth
+
+Parselmouth compatibility:
+    from praatfan import Sound, call
+
+    sound = Sound("audio.wav")
+    pitch = call(sound, "To Pitch (ac)", 0, 75, 600)
+    f0 = call(pitch, "Get value in frame", 10, "Hertz")
 
 For direct access to the Python implementation (bypassing selector):
     from praatfan.sound import Sound as PythonSound
 """
 
-# Try to use the selector for unified backend support
-try:
-    from praatfan_selector import (
-        Sound,
-        get_backend,
-        set_backend,
-        get_available_backends,
-        BackendNotAvailableError,
-        Pitch,
-        Formant,
-        Intensity,
-        Harmonicity,
-        Spectrum,
-        Spectrogram,
-    )
-    _HAS_SELECTOR = True
-except ImportError:
-    # Selector not available, use native Python implementation
-    from .sound import Sound
-    _HAS_SELECTOR = False
+# Import from local selector module
+from .selector import (
+    Sound,
+    get_backend,
+    set_backend,
+    get_available_backends,
+    BackendNotAvailableError,
+    # Unified result types
+    UnifiedPitch,
+    UnifiedFormant,
+    UnifiedIntensity,
+    UnifiedHarmonicity,
+    UnifiedSpectrum,
+    UnifiedSpectrogram,
+)
 
-    def get_backend():
-        """Get the current backend name."""
-        return "praatfan"
+# Import parselmouth compatibility
+from .compatibility import call, PraatCallError
 
-    def set_backend(name):
-        """Set the backend (no-op when selector not installed)."""
-        if name != "praatfan":
-            raise ImportError(
-                f"Backend '{name}' not available. Install praatfan_selector for "
-                "multi-backend support, or install the requested backend directly."
-            )
-
-    def get_available_backends():
-        """Return list of available backends."""
-        return ["praatfan"]
-
-    class BackendNotAvailableError(Exception):
-        """Raised when no suitable backend is available."""
-        pass
-
-    # Re-export result types from Python implementation
-    from .pitch import Pitch
-    from .formant import Formant
-    from .intensity import Intensity
-    from .harmonicity import Harmonicity
-    from .spectrum import Spectrum
-    from .spectrogram import Spectrogram
+# Convenient aliases for result types
+Pitch = UnifiedPitch
+Formant = UnifiedFormant
+Intensity = UnifiedIntensity
+Harmonicity = UnifiedHarmonicity
+Spectrum = UnifiedSpectrum
+Spectrogram = UnifiedSpectrogram
 
 # Import praat compatibility module for use as praatfan.praat
 from . import praat
 
 __version__ = "0.1.0"
 __all__ = [
+    # Core types
     "Sound",
+    # Backend management
     "get_backend",
     "set_backend",
     "get_available_backends",
     "BackendNotAvailableError",
+    # Result types
     "Pitch",
     "Formant",
     "Intensity",
     "Harmonicity",
     "Spectrum",
     "Spectrogram",
+    # Parselmouth compatibility
+    "call",
+    "PraatCallError",
     "praat",
 ]

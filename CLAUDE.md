@@ -62,9 +62,9 @@ praatfan uses **soundfile/libsndfile** for audio I/O, supporting a wide range of
 
 ## 🔄 Parselmouth Compatibility
 
-There are two modules for parselmouth compatibility with different purposes:
+The praatfan package provides full parselmouth compatibility with backend switching.
 
-### praatfan_selector — Drop-in replacement
+### Drop-in Replacement for parselmouth
 
 Use for **minimal code changes** when migrating from parselmouth. The `Sound()` constructor matches parselmouth's API:
 
@@ -75,47 +75,50 @@ from parselmouth.praat import call
 snd = parselmouth.Sound("audio.wav")
 pitch = call(snd, "To Pitch (ac)", 0, 75, 600)
 
-# After (praatfan_selector) — just change imports
-from praatfan_selector import Sound, call
+# After (praatfan) — just change imports
+from praatfan import Sound, call
 snd = Sound("audio.wav")  # Same constructor syntax
 pitch = call(snd, "To Pitch (ac)", 0, 75, 600)
 ```
 
 Also supports backend switching:
 ```python
-from praatfan_selector import set_backend
-set_backend("parselmouth")  # or "praatfan", "praatfan-rust", "praatfan-core"
+from praatfan import set_backend
+set_backend("parselmouth")  # or "praatfan", "praatfan_rust", "praatfan_gpl"
 ```
 
-### praatfan — Clean API
+### Clean API
 
-Use for **new code** or when you want a cleaner, more Pythonic API. Note the different Sound construction:
+The same package also supports a cleaner, more Pythonic API:
 
 ```python
 from praatfan import Sound
 
-snd = Sound.from_file("audio.wav")  # Note: from_file(), not constructor
+snd = Sound("audio.wav")
 pitch = snd.to_pitch()
 f0 = pitch.values()  # Returns numpy array directly
 ```
 
-The `call()` function is also available but requires different Sound construction:
+### API Summary
+
+| Feature | parselmouth | praatfan |
+|---------|-------------|----------|
+| Load from file | `Sound("path")` | `Sound("path")` |
+| call() function | `from parselmouth.praat import call` | `from praatfan import call` |
+| Frame indexing | 1-based | 1-based (in call()) |
+| Backend switching | No | Yes |
+
+### Legacy: praatfan_selector
+
+**DEPRECATED:** The `praatfan_selector` package has been merged into `praatfan`. Existing code will continue to work with a deprecation warning:
+
 ```python
-from praatfan import Sound
-from praatfan.praat import call
+# Old (deprecated)
+from praatfan_selector import Sound, call
 
-snd = Sound.from_file("audio.wav")  # Must use from_file()
-pitch = call(snd, "To Pitch (ac)", 0, 75, 600)
+# New (preferred)
+from praatfan import Sound, call
 ```
-
-### API Differences Summary
-
-| Feature | parselmouth | praatfan | praatfan_selector |
-|---------|-------------|----------|-------------------|
-| Load from file | `Sound("path")` | `Sound.from_file("path")` | `Sound("path")` |
-| call() location | `parselmouth.praat` | `praatfan.praat` | `praatfan_selector` |
-| Frame indexing | 1-based | 0-based | 1-based (in call()) |
-| Backend switching | No | No | Yes |
 
 ### Supported call() Commands
 
@@ -131,21 +134,21 @@ pitch = call(snd, "To Pitch (ac)", 0, 75, 600)
 
 ### Available Backends
 
-praatfan_selector supports four backends:
+praatfan supports four backends:
 
 | Backend | Package | License | Description |
 |---------|---------|---------|-------------|
 | `praatfan` | Built-in (src/praatfan) | MIT | Pure Python clean-room implementation |
-| `praatfan-rust` | Built with maturin | MIT | Rust implementation with PyO3 bindings |
+| `praatfan_rust` | `praatfan_rust` (built with maturin) | MIT | Rust implementation with PyO3 bindings |
 | `parselmouth` | `praat-parselmouth` | GPL | Python bindings to Praat |
-| `praatfan-core` | `praatfan-core` | MIT | Separate Rust implementation |
+| `praatfan_gpl` | `praatfan_gpl` | MIT | Separate Rust implementation (formerly praatfan-core) |
 
 **Selection priority** (first available wins):
 1. `PRAATFAN_BACKEND` environment variable
 2. Config file (`./praatfan.toml` or `~/.praatfan/config.toml`)
-3. Auto-detect: praatfan-core → praatfan-rust → praatfan → parselmouth
+3. Auto-detect: praatfan_gpl → praatfan_rust → praatfan → parselmouth
 
-**Note:** `praatfan` and `praatfan-rust` share the same package name. If the Rust wheel is installed, it masks the Python version. To use both, set PYTHONPATH to include `src/` for the Python version.
+**Note:** The Rust wheel (`praatfan_rust`) is a separate package from the Python implementation (`praatfan`). Both can be installed simultaneously.
 
 ---
 
@@ -435,24 +438,26 @@ praatfan-core-clean/
 │   ├── README.md          # Validation script instructions
 │   └── compare_*.py       # Comparison scripts against parselmouth
 ├── src/
-│   ├── praatfan/          # Python implementation (reference)
-│   │   ├── __init__.py
+│   ├── praatfan/          # Python implementation with backend selector
+│   │   ├── __init__.py    # Main exports: Sound, call, set_backend, etc.
+│   │   ├── selector.py    # Backend detection and unified wrappers
+│   │   ├── compatibility.py # Parselmouth call() re-export
+│   │   ├── praat.py       # Parselmouth compatibility layer (call() function)
 │   │   ├── sound.py       # Sound loading and basic operations
 │   │   ├── spectrum.py    # FFT and spectral moments
 │   │   ├── intensity.py   # Intensity analysis
 │   │   ├── pitch.py       # Pitch detection (AC and CC methods)
 │   │   ├── harmonicity.py # HNR (wraps pitch)
 │   │   ├── formant.py     # Formant analysis (Burg LPC)
-│   │   ├── spectrogram.py # STFT spectrogram
-│   │   └── praat.py       # Parselmouth compatibility layer (call() function)
-│   └── praatfan_selector/ # Backend selector with unified API
-│       ├── __init__.py    # Exports Sound, call, set_backend, etc.
-│       ├── selector.py    # Backend detection and unified wrappers
-│       └── compatibility.py # Parselmouth call() compatibility layer
-└── rust/                  # Rust implementation
+│   │   └── spectrogram.py # STFT spectrogram
+│   └── praatfan_selector/ # DEPRECATED: re-exports from praatfan
+│       ├── __init__.py    # Deprecation wrapper
+│       ├── selector.py    # Re-exports from praatfan.selector
+│       └── compatibility.py # Re-exports from praatfan.compatibility
+└── rust/                  # Rust implementation (praatfan_rust)
     ├── Cargo.toml         # Dependencies and feature flags (wasm, python)
     ├── Cargo.lock         # Locked dependency versions
-    ├── pyproject.toml     # Maturin config for Python builds
+    ├── pyproject.toml     # Maturin config for Python builds (praatfan_rust)
     ├── src/
     │   ├── lib.rs         # Library root with re-exports
     │   ├── sound.rs       # Sound type and WAV loading
@@ -606,7 +611,7 @@ moments = sound.get_spectral_moments_at_times(times)
 energy = sound.get_band_energy_at_times(times, f_min=0, f_max=1000)
 ```
 
-These work with all backends via praatfan_selector (fallback to iterative calls if backend doesn't have native implementation).
+These work with all backends via praatfan (fallback to iterative calls if backend doesn't have native implementation).
 
 ### Key Files
 
@@ -617,7 +622,7 @@ rust/
 ├── src/
 │   ├── lib.rs          # Main library with re-exports
 │   ├── wasm.rs         # WASM bindings (wasm-bindgen)
-│   ├── python.rs       # Python bindings (PyO3, parselmouth-compatible)
+│   ├── python.rs       # Python bindings (PyO3, exports as praatfan_rust)
 │   ├── sound.rs        # Sound type and WAV loading
 │   ├── pitch.rs        # Pitch analysis (AC/CC methods)
 │   ├── formant.rs      # Formant analysis (Burg LPC)
@@ -657,9 +662,10 @@ This is a **pre-release** - the API is stabilizing but may still change. Use at 
 
 Available platforms:
 - Pure Python: `praatfan-0.1.0-py3-none-any.whl` (works everywhere)
-- Linux x86_64: Python 3.9, 3.10, 3.11, 3.12
-- macOS ARM64: Python 3.9, 3.10, 3.11, 3.12
-- Windows x86_64: Python 3.9, 3.10, 3.11, 3.12
+- Rust (praatfan_rust): `praatfan_rust-0.1.0-*.whl`
+  - Linux x86_64: Python 3.9, 3.10, 3.11, 3.12
+  - macOS ARM64: Python 3.9, 3.10, 3.11, 3.12
+  - Windows x86_64: Python 3.9, 3.10, 3.11, 3.12
 
 ### Repository
 

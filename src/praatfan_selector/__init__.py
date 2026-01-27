@@ -1,44 +1,51 @@
 """
-praatfan-selector - Backend selector for acoustic analysis.
+praatfan_selector - DEPRECATED: Use praatfan instead.
 
-Provides a unified API that can use different backends:
-- parselmouth (Praat Python bindings, GPL)
-- praatfan-core-rs (original Rust implementation)
-- praatfan (clean-room Python implementation)
-- praatfan-rust (clean-room Rust implementation with PyO3)
+This package has been merged into praatfan. All functionality is now available
+directly from the praatfan package. This module re-exports from praatfan for
+backwards compatibility, but will be removed in a future version.
 
-Backend selection priority:
-1. PRAATFAN_BACKEND environment variable
-2. Configuration file (~/.praatfan/config.toml or ./praatfan.toml)
-3. First available backend in order: praatfan-rust, praatfan, parselmouth, praatfan-core-rs
+Migration:
+    # Before
+    from praatfan_selector import Sound, call, set_backend
 
-Usage:
-    from praatfan_selector import Sound
+    # After
+    from praatfan import Sound, call, set_backend
 
-    sound = Sound.from_file("audio.wav")
-    pitch = sound.to_pitch_ac()
-    formant = sound.to_formant_burg()
-
-    # Or explicitly select backend:
-    from praatfan_selector import set_backend, get_backend
-    set_backend("parselmouth")
-    print(get_backend())  # "parselmouth"
-
-Parselmouth compatibility:
-    from praatfan_selector import Sound, call
-
-    sound = Sound("audio.wav")
-    pitch = call(sound, "To Pitch (ac)", 0, 75, 600)
-    f0 = call(pitch, "Get value in frame", 10, "Hertz")
+The API is identical - no code changes required except for the import statement.
 """
 
-from .selector import (
+import warnings
+
+# Issue deprecation warning on import
+warnings.warn(
+    "praatfan_selector is deprecated and will be removed in a future version. "
+    "Use 'from praatfan import ...' instead.",
+    DeprecationWarning,
+    stacklevel=2
+)
+
+# Re-export everything from praatfan
+from praatfan import (
     Sound,
     get_backend,
     set_backend,
     get_available_backends,
     BackendNotAvailableError,
-    # Unified result types
+    # Result types
+    Pitch,
+    Formant,
+    Intensity,
+    Harmonicity,
+    Spectrum,
+    Spectrogram,
+    # Parselmouth compatibility
+    call,
+    PraatCallError,
+)
+
+# Also export as UnifiedXxx for backwards compatibility
+from praatfan.selector import (
     UnifiedPitch,
     UnifiedFormant,
     UnifiedIntensity,
@@ -46,15 +53,6 @@ from .selector import (
     UnifiedSpectrum,
     UnifiedSpectrogram,
 )
-from .compatibility import call, PraatCallError
-
-# Convenient aliases
-Pitch = UnifiedPitch
-Formant = UnifiedFormant
-Intensity = UnifiedIntensity
-Harmonicity = UnifiedHarmonicity
-Spectrum = UnifiedSpectrum
-Spectrogram = UnifiedSpectrogram
 
 __version__ = "0.1.0"
 __all__ = [
@@ -70,6 +68,13 @@ __all__ = [
     "Harmonicity",
     "Spectrum",
     "Spectrogram",
+    # Unified result types (backwards compatibility)
+    "UnifiedPitch",
+    "UnifiedFormant",
+    "UnifiedIntensity",
+    "UnifiedHarmonicity",
+    "UnifiedSpectrum",
+    "UnifiedSpectrogram",
     # Parselmouth compatibility
     "call",
     "PraatCallError",

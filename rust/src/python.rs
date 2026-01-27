@@ -1,20 +1,20 @@
-//! Python bindings for praatfan using PyO3.
+//! Python bindings for praatfan_rust using PyO3.
 //!
 //! This module provides Python bindings that are compatible with parselmouth's API,
-//! allowing praatfan to be used as a drop-in replacement in many cases.
+//! allowing praatfan_rust to be used as a drop-in replacement in many cases.
 //!
 //! # Usage from Python
 //!
 //! ```python
-//! import praatfan
+//! import praatfan_rust
 //!
 //! # Load from file
-//! sound = praatfan.Sound("audio.wav")
+//! sound = praatfan_rust.Sound("audio.wav")
 //!
 //! # Or create from numpy array
 //! import numpy as np
 //! samples = np.array([...], dtype=np.float64)
-//! sound = praatfan.Sound(samples, sampling_frequency=44100)
+//! sound = praatfan_rust.Sound(samples, sampling_frequency=44100)
 //!
 //! # Analyze
 //! pitch = sound.to_pitch_ac(time_step=0, pitch_floor=75, pitch_ceiling=600)
@@ -952,11 +952,11 @@ impl PySpectrogram {
 // Module definition
 // ============================================================================
 
-/// praatfan - Clean-room reimplementation of Praat's acoustic analysis algorithms.
+/// praatfan_rust - Clean-room reimplementation of Praat's acoustic analysis algorithms.
 ///
 /// This module provides Python bindings compatible with parselmouth's API.
 #[pymodule]
-fn praatfan(m: &Bound<'_, PyModule>) -> PyResult<()> {
+fn praatfan_rust(m: &Bound<'_, PyModule>) -> PyResult<()> {
     m.add_class::<PySound>()?;
     m.add_class::<PyPitch>()?;
     m.add_class::<PyFormant>()?;

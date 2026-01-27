@@ -1,4 +1,4 @@
-//! # praatfan
+//! # praatfan_rust
 //!
 //! Clean-room reimplementation of Praat's acoustic analysis algorithms.
 //!
@@ -28,7 +28,7 @@
 //! # Quick Start
 //!
 //! ```no_run
-//! use praatfan::Sound;
+//! use praatfan_rust::Sound;
 //!
 //! // Load a mono WAV file
 //! let sound = Sound::from_file("audio.wav").unwrap();
