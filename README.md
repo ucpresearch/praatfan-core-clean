@@ -20,13 +20,13 @@ Pre-compiled wheels with Rust acceleration are available from [GitHub Releases](
 
 ```bash
 # Linux x86_64, Python 3.12
-pip install "https://github.com/ucpresearch/praatfan-core-clean/releases/download/v0.1.0/praatfan-0.1.0-cp312-cp312-manylinux_2_17_x86_64.manylinux2014_x86_64.whl"
+pip install "https://github.com/ucpresearch/praatfan-core-clean/releases/download/v0.1.0/praatfan_rust-0.1.0-cp312-cp312-manylinux_2_17_x86_64.manylinux2014_x86_64.whl"
 
 # macOS ARM64 (Apple Silicon), Python 3.9 (default macOS Python)
-pip install "https://github.com/ucpresearch/praatfan-core-clean/releases/download/v0.1.0/praatfan-0.1.0-cp39-cp39-macosx_11_0_arm64.whl"
+pip install "https://github.com/ucpresearch/praatfan-core-clean/releases/download/v0.1.0/praatfan_rust-0.1.0-cp39-cp39-macosx_11_0_arm64.whl"
 
 # Windows x86_64, Python 3.12
-pip install "https://github.com/ucpresearch/praatfan-core-clean/releases/download/v0.1.0/praatfan-0.1.0-cp312-cp312-win_amd64.whl"
+pip install "https://github.com/ucpresearch/praatfan-core-clean/releases/download/v0.1.0/praatfan_rust-0.1.0-cp312-cp312-win_amd64.whl"
 ```
 
 Available wheels:
@@ -67,17 +67,17 @@ praatfan supports multiple acoustic analysis backends through a unified API. You
 | Backend | Package | License | Description |
 |---------|---------|---------|-------------|
 | `praatfan` | Built-in | MIT | Pure Python clean-room implementation |
-| `praatfan-rust` | Built-in (requires build) | MIT | Rust implementation with PyO3 bindings |
+| `praatfan_rust` | `praatfan_rust` (from wheels or maturin) | MIT | Rust implementation with PyO3 bindings |
 | `parselmouth` | `praat-parselmouth` | GPL | Python bindings to Praat |
-| `praatfan-core` | `praatfan-core` | MIT | Separate Rust implementation |
+| `praatfan_gpl` | `praatfan_gpl` | MIT | Separate Rust implementation |
 
 ### Backend Selection
 
 Backends are selected automatically in this order of preference:
-1. `praatfan-rust` (if compiled)
-2. `praatfan` (always available)
-3. `parselmouth` (if installed)
-4. `praatfan-core` (if installed)
+1. `praatfan_gpl` (if installed)
+2. `praatfan_rust` (if installed)
+3. `praatfan` (always available)
+4. `parselmouth` (if installed)
 
 You can override this through:
 
@@ -124,11 +124,9 @@ pip install praat-parselmouth
 
 Note: parselmouth is GPL-licensed. If you need a permissive license, use the built-in `praatfan` backend.
 
-#### praatfan-rust
+#### praatfan_rust
 
-The Rust-accelerated backend is included when you install from [pre-built wheels](#option-2-pre-built-rust-wheels-faster).
-
-To build from source (requires Rust toolchain):
+The Rust-accelerated backend. Install from [pre-built wheels](#option-2-pre-built-rust-wheels-faster), or build from source (requires Rust toolchain):
 
 ```bash
 cd rust
@@ -136,12 +134,12 @@ pip install maturin
 maturin develop --features python
 ```
 
-#### praatfan-core
+#### praatfan_gpl
 
-A separate Rust implementation with pre-built wheels:
+A separate Rust implementation:
 
 ```bash
-pip install git+https://github.com/ucpresearch/praatfan-core-rs.git
+pip install praatfan_gpl
 ```
 
 ## Unified API
@@ -305,9 +303,9 @@ energy = sound.get_band_energy_at_times(times, f_min=0, f_max=1000)
 
 There are two migration paths depending on your needs:
 
-### Option 1: Drop-in replacement (praatfan_selector)
+### Option 1: Drop-in replacement (minimal code changes)
 
-Use `praatfan_selector` for **minimal code changes**. The `Sound()` constructor and `call()` function match parselmouth's API:
+Use `praatfan` with the `call()` function for **minimal code changes**. The `Sound()` constructor and `call()` function match parselmouth's API:
 
 ```python
 # Before (parselmouth)
@@ -318,46 +316,44 @@ snd = parselmouth.Sound("audio.wav")
 pitch = call(snd, "To Pitch (ac)", 0, 75, 600)
 f0 = call(pitch, "Get value in frame", 10, "Hertz")
 
-# After (praatfan_selector) - just change the imports
-from praatfan_selector import Sound, call
+# After (praatfan) - just change the imports
+from praatfan import Sound, call
 
 snd = Sound("audio.wav")  # Same constructor syntax as parselmouth
 pitch = call(snd, "To Pitch (ac)", 0, 75, 600)
 f0 = call(pitch, "Get value in frame", 10, "Hertz")
 ```
 
-With `praatfan_selector`, you can also switch backends:
+You can also switch backends at runtime:
 
 ```python
-from praatfan_selector import Sound, call, set_backend
+from praatfan import Sound, call, set_backend
 
 set_backend("parselmouth")  # Use parselmouth under the hood
-# or "praatfan" (Python), "praatfan-core" (Rust)
+# or "praatfan", "praatfan_rust", "praatfan_gpl"
 
 snd = Sound("audio.wav")
 # ... rest of code unchanged
 ```
 
-### Option 2: Clean API (praatfan)
+### Option 2: Clean API (more Pythonic)
 
-Use `praatfan` directly for a **cleaner, more Pythonic API**. Note the different Sound construction:
+Use `praatfan` with the direct methods for a **cleaner, more Pythonic API**:
 
 ```python
 # Before (parselmouth)
 import parselmouth
-from parselmouth.praat import call
 
 snd = parselmouth.Sound("audio.wav")
 pitch = snd.to_pitch_ac()
 f0 = pitch.selected_array['frequency']
 
 formant = snd.to_formant_burg()
-f1_at_time = call(formant, "Get value at time", 1, 0.5, "Hertz", "Linear")
 
-# After (praatfan) - cleaner API, but Sound construction differs
+# After (praatfan) - cleaner API
 from praatfan import Sound
 
-snd = Sound.from_file("audio.wav")  # Note: from_file(), not constructor
+snd = Sound("audio.wav")
 pitch = snd.to_pitch()
 f0 = pitch.values()  # Returns numpy array directly
 
@@ -369,20 +365,20 @@ f1_values = formant.formant_values(1)  # All F1 values as numpy array
 
 | Use case | Recommendation |
 |----------|----------------|
-| Migrating existing parselmouth scripts with minimal changes | `praatfan_selector` |
-| Writing new code | `praatfan` (cleaner API) |
-| Need to switch between backends at runtime | `praatfan_selector` |
-| Want parselmouth accuracy with MIT license | Either (both use same algorithms) |
+| Migrating existing parselmouth scripts with `call()` | Option 1 (drop-in replacement) |
+| Writing new code | Option 2 (cleaner API) |
+| Need to switch between backends at runtime | Either (both support `set_backend()`) |
+| Want parselmouth accuracy with MIT license | Either |
 
 ### API differences summary
 
-| Feature | parselmouth | praatfan | praatfan_selector |
-|---------|-------------|----------|-------------------|
-| Load from file | `Sound("path")` | `Sound.from_file("path")` | `Sound("path")` |
-| Load from array | `Sound(samples, sr)` | `Sound(samples, sr)` | `Sound(samples, sr)` |
-| call() function | `parselmouth.praat.call` | `praatfan.praat.call` | `praatfan_selector.call` |
-| Frame indexing | 1-based | 0-based | 1-based (in call()) |
-| Backend switching | No | No | Yes |
+| Feature | parselmouth | praatfan |
+|---------|-------------|----------|
+| Load from file | `Sound("path")` | `Sound("path")` |
+| Load from array | `Sound(samples, sr)` | `Sound(samples, sampling_frequency=sr)` |
+| call() function | `parselmouth.praat.call` | `praatfan.call` |
+| Frame indexing in call() | 1-based | 1-based |
+| Backend switching | No | Yes (`set_backend()`) |
 
 ## Why Multiple Backends?
 
