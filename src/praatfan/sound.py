@@ -1,7 +1,54 @@
 """
 Sound - Audio samples with sample rate.
 
-This is the foundation type for all acoustic analysis.
+This module provides the Sound class, which is the foundation type for all
+acoustic analysis in praatfan. A Sound object holds audio samples and sample
+rate, and provides methods to compute various acoustic analyses.
+
+Design Principles:
+------------------
+1. Mono only: Multi-channel audio is not supported. Use from_file_channel()
+   to select a specific channel from multi-channel files.
+
+2. Float64 samples: Audio is stored as 64-bit floating point, normalized
+   to the range [-1, 1] for PCM formats.
+
+3. Lazy imports: Analysis modules (pitch, formant, etc.) are imported only
+   when the corresponding method is called. This keeps the base Sound class
+   lightweight.
+
+4. Praat-compatible timing: The x1 property gives the time of the first
+   sample center (0.5 * dx), matching Praat's convention.
+
+Supported Audio Formats:
+------------------------
+Via soundfile/libsndfile:
+  - WAV (PCM 8/16/24/32-bit, 32/64-bit float, u-law, a-law)
+  - FLAC (Free Lossless Audio Codec)
+  - MP3 (requires libsndfile 1.1.0+)
+  - OGG Vorbis
+  - AIFF, AU, CAF, and many others
+
+Usage:
+------
+    from praatfan import Sound
+
+    # Load from file
+    sound = Sound.from_file("audio.wav")
+
+    # Or from numpy array
+    import numpy as np
+    samples = np.sin(2 * np.pi * 440 * np.linspace(0, 1, 16000))
+    sound = Sound(samples, sample_rate=16000)
+
+    # Analyze
+    pitch = sound.to_pitch()
+    formant = sound.to_formant_burg()
+    intensity = sound.to_intensity()
+
+    # Per-window spectral features
+    spectrum = sound.get_spectrum_at_time(0.5)
+    moments = sound.get_spectral_moments_at_times(times)
 """
 
 import numpy as np
@@ -294,7 +341,22 @@ class Sound:
         )
 
     # =========================================================================
-    # Per-window spectral feature extraction
+    # Per-Window Spectral Feature Extraction
+    # =========================================================================
+    #
+    # These methods support extracting spectral features at specific time points.
+    # This is useful for:
+    #   - Analyzing spectral characteristics at formant measurement points
+    #   - Computing spectral tilt or balance features aligned with F0 tracks
+    #   - Extracting spectral moments at regular intervals for feature vectors
+    #
+    # The approach is:
+    #   1. extract_part() - slice out a time window
+    #   2. to_spectrum() - compute single-frame FFT
+    #   3. Spectral moment methods - compute CoG, std, skewness, kurtosis
+    #
+    # This modular design reuses existing spectrum code rather than duplicating
+    # the FFT and moment calculations.
     # =========================================================================
 
     def extract_part(self, start_time: float, end_time: float) -> "Sound":

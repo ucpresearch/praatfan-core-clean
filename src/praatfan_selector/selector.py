@@ -1,5 +1,58 @@
 """
 Backend selector and unified API for acoustic analysis.
+
+This module provides a unified interface for acoustic analysis that works with
+multiple backends (parselmouth, praatfan, praatfan-rust, praatfan-core). The
+key design principle is that user code should work identically regardless of
+which backend is installed or selected.
+
+Architecture Overview:
+----------------------
+1. Unified Result Types (UnifiedPitch, UnifiedFormant, etc.)
+   - Wrap backend-specific result objects
+   - Provide consistent API for accessing analysis results
+   - Handle differences in method names, return types, and data structures
+
+2. Backend Detection Functions (_try_import_*)
+   - Check availability of each backend
+   - Distinguish between Python and Rust versions of praatfan
+
+3. Backend Adapters (ParselmouthSound, PraatfanPythonSound, etc.)
+   - Wrap backend-specific Sound objects
+   - Translate unified API calls to backend-specific method calls
+   - Handle parameter differences (e.g., 0.0 vs None for auto time_step)
+
+4. Unified Sound Class
+   - Public API that users interact with
+   - Delegates to appropriate backend adapter
+   - Provides fallback implementations for methods not in all backends
+
+Backend Selection Priority:
+---------------------------
+1. PRAATFAN_BACKEND environment variable (if set)
+2. Config file (~/.praatfan/config.toml or ./praatfan.toml)
+3. Auto-detect in order: praatfan-core, praatfan-rust, praatfan, parselmouth
+
+Usage:
+------
+    from praatfan_selector import Sound, set_backend, get_available_backends
+
+    # Check available backends
+    print(get_available_backends())  # ['praatfan', 'parselmouth', ...]
+
+    # Load sound (uses auto-selected backend)
+    sound = Sound("audio.wav")
+
+    # Analyze
+    pitch = sound.to_pitch_ac()
+    formant = sound.to_formant_burg()
+
+    # Access results (same API regardless of backend)
+    f0_values = pitch.values()  # numpy array
+    times = pitch.xs()          # numpy array
+
+    # Switch backends at runtime
+    set_backend("parselmouth")
 """
 
 import os
@@ -11,12 +64,22 @@ import numpy as np
 
 
 class BackendNotAvailableError(Exception):
-    """Raised when no suitable backend is available."""
+    """Raised when the requested backend is not installed or available."""
     pass
 
 
 # =============================================================================
-# Unified result types - same interface regardless of backend
+# Unified Result Types
+# =============================================================================
+#
+# These classes wrap backend-specific result objects and provide a consistent
+# API. Each backend may have different:
+#   - Method names (xs() vs times(), values() vs selected_array)
+#   - Return types (numpy array vs list, 1D vs 2D)
+#   - Property names (n_frames vs num_frames)
+#
+# The Unified* classes normalize these differences so user code works the same
+# regardless of which backend produced the result.
 # =============================================================================
 
 class UnifiedPitch:
@@ -466,11 +529,28 @@ class UnifiedSpectrogram:
 
 
 # =============================================================================
-# Backend detection
+# Backend Detection
+# =============================================================================
+#
+# These functions detect which acoustic analysis backends are installed.
+# The challenge is that both Python and Rust versions of praatfan use the
+# same package name 'praatfan', so we need to distinguish them by checking
+# for native extension files (.so/.pyd/.dylib).
+#
+# Available backends:
+#   - parselmouth: Python bindings to Praat (GPL licensed)
+#   - praatfan: Pure Python clean-room implementation (MIT licensed)
+#   - praatfan-rust: Rust implementation with PyO3 bindings (MIT licensed)
+#   - praatfan-core: Separate Rust implementation (MIT licensed)
 # =============================================================================
 
-def _try_import_parselmouth():
-    """Try to import parselmouth."""
+def _try_import_parselmouth() -> bool:
+    """
+    Check if parselmouth (Praat Python bindings) is installed.
+
+    Returns:
+        True if parselmouth can be imported, False otherwise.
+    """
     try:
         import parselmouth
         return True
@@ -478,8 +558,16 @@ def _try_import_parselmouth():
         return False
 
 
-def _try_import_praatfan_core():
-    """Try to import praatfan-core (original Rust implementation)."""
+def _try_import_praatfan_core() -> bool:
+    """
+    Check if praatfan-core (original Rust implementation) is installed.
+
+    praatfan-core is a separate package from praatfan, with its own
+    namespace (praatfan_core).
+
+    Returns:
+        True if praatfan_core can be imported, False otherwise.
+    """
     try:
         import praatfan_core
         return True
@@ -487,8 +575,17 @@ def _try_import_praatfan_core():
         return False
 
 
-def _try_import_praatfan():
-    """Try to import praatfan (clean-room Python implementation)."""
+def _try_import_praatfan() -> bool:
+    """
+    Check if praatfan (Python or Rust) is installed.
+
+    Note: This returns True for both Python and Rust versions since they
+    share the same package name. Use _try_import_praatfan_rust() to
+    specifically check for the Rust version.
+
+    Returns:
+        True if praatfan can be imported, False otherwise.
+    """
     try:
         import praatfan
         return True
@@ -496,19 +593,30 @@ def _try_import_praatfan():
         return False
 
 
-def _try_import_praatfan_rust():
-    """Try to import praatfan Rust bindings (PyO3).
+def _try_import_praatfan_rust() -> bool:
+    """
+    Check if the Rust version of praatfan (PyO3 bindings) is installed.
 
-    Note: The Rust bindings are also named 'praatfan' when built with maturin.
-    We distinguish by checking for a .so/.pyd/.dylib file in the package directory.
+    The Rust bindings are built with maturin and installed as 'praatfan',
+    the same package name as the Python version. We distinguish them by
+    checking for native extension files in the package directory:
+      - .so files on Linux
+      - .pyd files on Windows
+      - .dylib files on macOS
+
+    Returns:
+        True if the Rust praatfan is installed, False if only Python
+        version is available or praatfan is not installed.
     """
     try:
         import praatfan
         import os
-        # Check if this is the Rust version by looking for native extension in package
+
+        # Check if this is the Rust version by looking for native extension
         if hasattr(praatfan, '__file__') and praatfan.__file__:
             pkg_dir = os.path.dirname(praatfan.__file__)
             if os.path.isdir(pkg_dir):
+                # Look for compiled extension files
                 for f in os.listdir(pkg_dir):
                     if f.endswith(('.so', '.pyd', '.dylib')):
                         return True
@@ -518,14 +626,27 @@ def _try_import_praatfan_rust():
 
 
 def get_available_backends() -> List[str]:
-    """Return list of available backend names."""
+    """
+    Return list of available backend names.
+
+    Checks which acoustic analysis backends are installed and returns
+    their names. The order in the returned list does not indicate
+    preference - see _select_backend() for preference order.
+
+    Note: praatfan and praatfan-rust are mutually exclusive since they
+    share the same package name. If the Rust version is installed, it
+    masks the Python version.
+
+    Returns:
+        List of backend names, e.g., ['praatfan', 'parselmouth']
+    """
     available = []
 
-    # Check each backend
+    # praatfan-rust and praatfan share the same package name.
+    # If Rust version is installed, it masks the Python version.
     if _try_import_praatfan_rust():
         available.append("praatfan-rust")
     elif _try_import_praatfan():
-        # Only add Python version if Rust version isn't masking it
         available.append("praatfan")
 
     if _try_import_parselmouth():
@@ -540,18 +661,44 @@ def get_available_backends() -> List[str]:
 # =============================================================================
 # Configuration
 # =============================================================================
+#
+# Backend selection follows this priority:
+#   1. Programmatic: set_backend() called by user code
+#   2. Environment: PRAATFAN_BACKEND environment variable
+#   3. Config file: ./praatfan.toml or ~/.praatfan/config.toml
+#   4. Auto-detect: First available in preference order
+#
+# The preference order for auto-detection is:
+#   praatfan-core > praatfan-rust > praatfan > parselmouth
+#
+# This prioritizes MIT-licensed backends and Rust implementations for
+# performance, while still supporting parselmouth as a fallback.
+# =============================================================================
 
+# Global state: currently selected backend (None = not yet selected)
 _current_backend: Optional[str] = None
 
 
 def _read_config_file() -> Optional[str]:
-    """Read backend preference from config file."""
-    # Try local config first
+    """
+    Read backend preference from TOML config file.
+
+    Checks for config files in this order:
+      1. ./praatfan.toml (project-local config)
+      2. ~/.praatfan/config.toml (user config)
+
+    Config file format:
+        backend = "parselmouth"
+
+    Returns:
+        Backend name from config, or None if no config file found.
+    """
+    # Try local config first (project-specific settings)
     local_config = Path("praatfan.toml")
     if local_config.exists():
         return _parse_toml_backend(local_config)
 
-    # Try user config
+    # Try user config (global user preferences)
     user_config = Path.home() / ".praatfan" / "config.toml"
     if user_config.exists():
         return _parse_toml_backend(user_config)
@@ -560,7 +707,20 @@ def _read_config_file() -> Optional[str]:
 
 
 def _parse_toml_backend(path: Path) -> Optional[str]:
-    """Parse backend from TOML config file."""
+    """
+    Parse backend name from a TOML config file.
+
+    Tries multiple TOML parsers in order of preference:
+      1. tomllib (Python 3.11+ built-in)
+      2. tomli (popular third-party library)
+      3. Simple regex-based fallback parser
+
+    Args:
+        path: Path to the TOML config file.
+
+    Returns:
+        Backend name if found in config, None otherwise.
+    """
     try:
         # Try tomllib (Python 3.11+) or tomli
         try:
@@ -681,11 +841,32 @@ def set_backend(name: str) -> None:
 
 
 # =============================================================================
-# Backend adapters
+# Backend Adapters
+# =============================================================================
+#
+# Each backend has its own Sound class with slightly different APIs:
+#   - Different method signatures (time_step=0.0 vs time_step=None)
+#   - Different property names (sample_rate vs sampling_frequency)
+#   - Different return types (numpy array vs list)
+#
+# The adapter classes normalize these differences by:
+#   1. Inheriting from BaseSound (defines the expected interface)
+#   2. Translating unified API calls to backend-specific calls
+#   3. Wrapping results in Unified* classes for consistent access
+#
+# Each adapter has two factory methods:
+#   - from_file(path): Load audio from a file
+#   - from_samples(samples, sr): Create from numpy array
 # =============================================================================
 
 class BaseSound(ABC):
-    """Abstract base class for Sound across backends."""
+    """
+    Abstract base class defining the Sound interface.
+
+    All backend adapters must implement these methods. This ensures
+    that the unified Sound class can delegate to any backend adapter
+    without knowing which specific backend is being used.
+    """
 
     @abstractmethod
     def to_pitch_ac(self, time_step=0.0, pitch_floor=75.0, pitch_ceiling=600.0) -> UnifiedPitch:
@@ -1086,7 +1267,18 @@ class PraatfanCoreSound(BaseSound):
 
 
 # =============================================================================
-# Unified Sound class
+# Unified Sound Class
+# =============================================================================
+#
+# This is the main public API. Users create Sound objects and call analysis
+# methods on them. The Sound class:
+#   1. Selects the appropriate backend (or uses the user-specified one)
+#   2. Creates a backend-specific adapter
+#   3. Delegates method calls to the adapter
+#   4. Returns Unified* result objects for consistent access
+#
+# The Sound class also provides fallback implementations for methods that
+# aren't available in all backends (e.g., per-window spectral extraction).
 # =============================================================================
 
 class Sound:
@@ -1094,10 +1286,27 @@ class Sound:
     Unified Sound class that delegates to the selected backend.
 
     This class provides a consistent API regardless of which backend is used.
-    The backend is selected based on:
-    1. PRAATFAN_BACKEND environment variable
-    2. Config file (~/.praatfan/config.toml or ./praatfan.toml)
-    3. First available in order: praatfan-rust, praatfan, parselmouth, praatfan-core
+    Users should interact with this class rather than backend-specific classes.
+
+    The backend is selected based on (in order of priority):
+        1. set_backend() if called programmatically
+        2. PRAATFAN_BACKEND environment variable
+        3. Config file (~/.praatfan/config.toml or ./praatfan.toml)
+        4. Auto-detect: praatfan-core > praatfan-rust > praatfan > parselmouth
+
+    Example:
+        # Load from file
+        sound = Sound("audio.wav")
+
+        # Or from numpy array
+        sound = Sound(samples, sampling_frequency=16000)
+
+        # Analyze
+        pitch = sound.to_pitch_ac()
+        formant = sound.to_formant_burg()
+
+        # Results have consistent API
+        f0 = pitch.values()  # numpy array of F0 values
     """
 
     def __init__(self, samples_or_path: Union[str, Path, np.ndarray],
@@ -1234,21 +1443,51 @@ class Sound:
         """The backend being used."""
         return self._backend
 
-    # Per-window spectral feature extraction
-    # These methods delegate to backend if available, otherwise compose from simpler methods
+    # =========================================================================
+    # Per-Window Spectral Feature Extraction
+    # =========================================================================
+    #
+    # These methods extract spectral features at specific time points. They are
+    # useful for analyzing spectral characteristics aligned with other measurements
+    # like formants or pitch.
+    #
+    # Design principle: If the backend has a native implementation, use it.
+    # Otherwise, compose from simpler methods that all backends support:
+    #   extract_part() -> to_spectrum() -> spectral moment methods
+    #
+    # This ensures all backends work, even if some are more efficient than others.
+    # =========================================================================
 
     def extract_part(self, start_time: float, end_time: float) -> "Sound":
-        """Extract a portion of the sound."""
+        """
+        Extract a portion of the sound between two time points.
+
+        Args:
+            start_time: Start time in seconds.
+            end_time: End time in seconds.
+
+        Returns:
+            New Sound object containing the extracted portion.
+
+        Note:
+            If the backend has a native extract_part method, it is used.
+            Otherwise, falls back to slicing the samples array directly.
+        """
         if hasattr(self._inner, 'extract_part'):
+            # Backend has native implementation - use it
             result = self._inner.extract_part(start_time, end_time)
-            # Wrap result - create new Sound with same backend
+            # Wrap result in a new Sound with the same backend
             new_sound = Sound.__new__(Sound)
-            new_sound._inner = self._load_from_samples(self._backend,
+            # Handle different property names across backends
+            new_sound._inner = self._load_from_samples(
+                self._backend,
                 np.asarray(result.values if hasattr(result, 'values') else result.samples),
-                result.sampling_frequency if hasattr(result, 'sampling_frequency') else result.sample_rate)
+                result.sampling_frequency if hasattr(result, 'sampling_frequency') else result.sample_rate
+            )
             new_sound._backend = self._backend
             return new_sound
-        # Fallback: slice samples and create new Sound
+
+        # Fallback: slice samples array directly
         samples = np.asarray(self.values)
         sr = self.sampling_frequency
         start_sample = max(0, int(start_time * sr))
@@ -1256,9 +1495,27 @@ class Sound:
         return Sound(samples[start_sample:end_sample].copy(), sr)
 
     def get_spectrum_at_time(self, time: float, window_length: float = 0.025) -> UnifiedSpectrum:
-        """Extract spectrum for a window centered at a specific time."""
+        """
+        Extract spectrum for a window centered at a specific time.
+
+        This extracts a short segment of audio around the specified time,
+        applies a window, and computes the FFT.
+
+        Args:
+            time: Center time in seconds.
+            window_length: Window length in seconds (default 25ms).
+
+        Returns:
+            UnifiedSpectrum object for the extracted window.
+
+        Note:
+            If time is near the start or end of the sound, the window
+            will be truncated to fit within the sound duration.
+        """
         if hasattr(self._inner, 'get_spectrum_at_time'):
+            # Backend has native implementation
             return self._inner.get_spectrum_at_time(time, window_length)
+
         # Fallback: extract_part + to_spectrum
         half_window = window_length / 2.0
         start = max(0.0, time - half_window)
@@ -1267,22 +1524,49 @@ class Sound:
 
     def get_spectral_moments_at_times(self, times: np.ndarray, window_length: float = 0.025,
                                        power: float = 2.0) -> dict:
-        """Compute spectral moments at specified time points."""
+        """
+        Compute spectral moments at multiple time points.
+
+        This is useful for extracting spectral features (center of gravity,
+        spread, skewness, kurtosis) at time points aligned with other
+        measurements like formant tracks.
+
+        Args:
+            times: Array of time points in seconds.
+            window_length: Window length in seconds (default 25ms).
+            power: Power parameter for moment calculation (default 2.0).
+
+        Returns:
+            Dictionary with keys:
+                - 'times': Input time array
+                - 'center_of_gravity': Spectral centroid in Hz
+                - 'standard_deviation': Spectral spread in Hz
+                - 'skewness': Spectral asymmetry (dimensionless)
+                - 'kurtosis': Spectral peakedness (dimensionless)
+
+        Note:
+            If the backend has a native batch implementation, it is used.
+            Otherwise, falls back to calling get_spectrum_at_time() in a loop.
+        """
         if hasattr(self._inner, 'get_spectral_moments_at_times'):
+            # Backend has native batch implementation
             return self._inner.get_spectral_moments_at_times(times, window_length, power)
-        # Fallback: loop and call existing spectrum methods
+
+        # Fallback: loop and compute moments for each time point
         times = np.asarray(times)
         n = len(times)
         cog = np.zeros(n)
         std = np.zeros(n)
         skew = np.zeros(n)
         kurt = np.zeros(n)
+
         for i, t in enumerate(times):
             spectrum = self.get_spectrum_at_time(t, window_length)
             cog[i] = spectrum.get_center_of_gravity(power)
             std[i] = spectrum.get_standard_deviation(power)
             skew[i] = spectrum.get_skewness(power)
             kurt[i] = spectrum.get_kurtosis(power)
+
         return {
             'times': times,
             'center_of_gravity': cog,
@@ -1293,16 +1577,38 @@ class Sound:
 
     def get_band_energy_at_times(self, times: np.ndarray, f_min: float, f_max: float,
                                   window_length: float = 0.025) -> np.ndarray:
-        """Compute band energy at specified time points."""
+        """
+        Compute band energy at multiple time points.
+
+        This computes the energy in a frequency band at each time point,
+        useful for features like spectral tilt or band-limited energy ratios.
+
+        Args:
+            times: Array of time points in seconds.
+            f_min: Minimum frequency in Hz.
+            f_max: Maximum frequency in Hz.
+            window_length: Window length in seconds (default 25ms).
+
+        Returns:
+            Numpy array of band energy values (one per time point).
+
+        Note:
+            If the backend has a native batch implementation, it is used.
+            Otherwise, falls back to calling get_spectrum_at_time() in a loop.
+        """
         if hasattr(self._inner, 'get_band_energy_at_times'):
+            # Backend has native batch implementation
             return self._inner.get_band_energy_at_times(times, f_min, f_max, window_length)
-        # Fallback: loop and call existing spectrum methods
+
+        # Fallback: loop and compute band energy for each time point
         times = np.asarray(times)
         n = len(times)
         energy = np.zeros(n)
+
         for i, t in enumerate(times):
             spectrum = self.get_spectrum_at_time(t, window_length)
             energy[i] = spectrum.get_band_energy(f_min, f_max)
+
         return energy
 
     def __repr__(self):
