@@ -1156,6 +1156,173 @@ class PraatfanRustSound(BaseSound):
     def values(self) -> np.ndarray:
         return self._inner.values()
 
+    def get_band_energy_at_times(self, times: np.ndarray, f_min: float, f_max: float,
+                                  window_length: float = 0.025) -> np.ndarray:
+        """
+        Compute band energy at multiple time points efficiently.
+
+        Uses a single spectrogram computation instead of per-frame spectrum calls,
+        avoiding PyO3 boundary crossing overhead for each time point.
+        """
+        times = np.asarray(times)
+
+        # Compute spectrogram with parameters matching the requested window
+        # Use time_step close to minimum time spacing for good resolution
+        time_step = min(0.01, np.min(np.diff(times)) if len(times) > 1 else 0.01)
+        spec = self._inner.to_spectrogram(
+            window_length=window_length,
+            maximum_frequency=max(f_max * 1.1, 5000),  # Ensure we cover the band
+            time_step=time_step,
+            frequency_step=20.0
+        )
+
+        # Extract spectrogram data
+        spec_times = np.array(spec.xs())
+        spec_freqs = np.array(spec.ys())
+        n_times = len(spec_times)
+        n_freqs = len(spec_freqs)
+        spec_values = np.array(spec.values()).reshape(n_times, n_freqs)
+
+        # Create frequency mask for the band
+        mask = (spec_freqs >= f_min) & (spec_freqs <= f_max)
+
+        # Compute band energy at each spectrogram time
+        band_energy_spec = np.sum(spec_values[:, mask], axis=1)
+
+        # Interpolate to requested times
+        return np.interp(times, spec_times, band_energy_spec, left=np.nan, right=np.nan)
+
+    def get_spectral_moments_at_times(self, times: np.ndarray, window_length: float = 0.025,
+                                       power: float = 2.0) -> dict:
+        """
+        Compute spectral moments at multiple time points efficiently.
+
+        Uses a single spectrogram computation instead of per-frame spectrum calls,
+        avoiding PyO3 boundary crossing overhead for each time point.
+        """
+        times = np.asarray(times)
+
+        # Compute spectrogram
+        time_step = min(0.01, np.min(np.diff(times)) if len(times) > 1 else 0.01)
+        spec = self._inner.to_spectrogram(
+            window_length=window_length,
+            maximum_frequency=8000,  # Cover full speech range for moments
+            time_step=time_step,
+            frequency_step=20.0
+        )
+
+        # Extract spectrogram data
+        spec_times = np.array(spec.xs())
+        spec_freqs = np.array(spec.ys())
+        n_times = len(spec_times)
+        n_freqs = len(spec_freqs)
+        spec_values = np.array(spec.values()).reshape(n_times, n_freqs)
+
+        # Apply power weighting
+        weighted = spec_values ** (power / 2)
+
+        # Normalize each frame to get probability distribution
+        total = np.sum(weighted, axis=1, keepdims=True)
+        p = np.where(total > 0, weighted / total, 0)
+
+        # Center of gravity (first moment)
+        cog_spec = np.sum(spec_freqs * p, axis=1)
+
+        # Standard deviation (second central moment)
+        variance = np.sum(((spec_freqs - cog_spec[:, np.newaxis]) ** 2) * p, axis=1)
+        std_spec = np.sqrt(np.maximum(variance, 0))
+
+        # Skewness (third standardized moment)
+        with np.errstate(divide='ignore', invalid='ignore'):
+            skew_spec = np.where(
+                std_spec > 0,
+                np.sum(((spec_freqs - cog_spec[:, np.newaxis]) ** 3) * p, axis=1) / (std_spec ** 3),
+                0
+            )
+
+        # Kurtosis (fourth standardized moment)
+        with np.errstate(divide='ignore', invalid='ignore'):
+            kurt_spec = np.where(
+                std_spec > 0,
+                np.sum(((spec_freqs - cog_spec[:, np.newaxis]) ** 4) * p, axis=1) / (std_spec ** 4),
+                0
+            )
+
+        # Interpolate to requested times
+        cog = np.interp(times, spec_times, cog_spec, left=np.nan, right=np.nan)
+        std = np.interp(times, spec_times, std_spec, left=np.nan, right=np.nan)
+        skew = np.interp(times, spec_times, skew_spec, left=np.nan, right=np.nan)
+        kurt = np.interp(times, spec_times, kurt_spec, left=np.nan, right=np.nan)
+
+        return {
+            'times': times,
+            'center_of_gravity': cog,
+            'standard_deviation': std,
+            'skewness': skew,
+            'kurtosis': kurt
+        }
+
+    def get_variable_band_energy_at_times(self, times: np.ndarray, f_mins: np.ndarray,
+                                           f_maxs: np.ndarray, window_length: float = 0.025) -> np.ndarray:
+        """
+        Compute band energy at multiple time points with variable frequency bands.
+
+        This is useful for A1-P0 nasal ratio where the band depends on F0 at each time.
+        Uses a single spectrogram computation for efficiency.
+
+        Args:
+            times: Array of time points in seconds.
+            f_mins: Array of minimum frequencies (one per time point).
+            f_maxs: Array of maximum frequencies (one per time point).
+            window_length: Window length in seconds (default 25ms).
+
+        Returns:
+            Numpy array of band energy values (one per time point).
+            NaN for time points where f_min or f_max is NaN.
+        """
+        times = np.asarray(times)
+        f_mins = np.asarray(f_mins)
+        f_maxs = np.asarray(f_maxs)
+
+        # Compute spectrogram once
+        max_freq = np.nanmax(f_maxs) * 1.1 if not np.all(np.isnan(f_maxs)) else 5000
+        time_step = min(0.01, np.min(np.diff(times)) if len(times) > 1 else 0.01)
+        spec = self._inner.to_spectrogram(
+            window_length=window_length,
+            maximum_frequency=max(max_freq, 1000),
+            time_step=time_step,
+            frequency_step=20.0
+        )
+
+        # Extract spectrogram data
+        spec_times = np.array(spec.xs())
+        spec_freqs = np.array(spec.ys())
+        n_times_spec = len(spec_times)
+        n_freqs = len(spec_freqs)
+        spec_values = np.array(spec.values()).reshape(n_times_spec, n_freqs)
+
+        # Initialize result
+        result = np.full(len(times), np.nan)
+
+        # For each requested time, find nearest spectrogram frame and sum appropriate band
+        for i, (t, f_min, f_max) in enumerate(zip(times, f_mins, f_maxs)):
+            if np.isnan(f_min) or np.isnan(f_max):
+                continue
+
+            # Find nearest spectrogram time index
+            idx = np.searchsorted(spec_times, t)
+            if idx >= n_times_spec:
+                idx = n_times_spec - 1
+            elif idx > 0 and abs(spec_times[idx-1] - t) < abs(spec_times[idx] - t):
+                idx = idx - 1
+
+            # Sum energy in the frequency band
+            mask = (spec_freqs >= f_min) & (spec_freqs <= f_max)
+            if np.any(mask):
+                result[i] = np.sum(spec_values[idx, mask])
+
+        return result
+
     def __repr__(self):
         return f"Sound<praatfan_rust>({self.n_samples} samples, {self.sampling_frequency} Hz)"
 
@@ -1584,6 +1751,45 @@ class Sound:
         energy = np.zeros(n)
 
         for i, t in enumerate(times):
+            spectrum = self.get_spectrum_at_time(t, window_length)
+            energy[i] = spectrum.get_band_energy(f_min, f_max)
+
+        return energy
+
+    def get_variable_band_energy_at_times(self, times: np.ndarray, f_mins: np.ndarray,
+                                           f_maxs: np.ndarray, window_length: float = 0.025) -> np.ndarray:
+        """
+        Compute band energy at multiple time points with variable frequency bands.
+
+        This is useful for A1-P0 nasal ratio where the band depends on F0 at each time.
+
+        Args:
+            times: Array of time points in seconds.
+            f_mins: Array of minimum frequencies (one per time point).
+            f_maxs: Array of maximum frequencies (one per time point).
+            window_length: Window length in seconds (default 25ms).
+
+        Returns:
+            Numpy array of band energy values (one per time point).
+            NaN for time points where f_min or f_max is NaN.
+
+        Note:
+            If the backend has a native batch implementation, it is used.
+            Otherwise, falls back to calling get_spectrum_at_time() in a loop.
+        """
+        if hasattr(self._inner, 'get_variable_band_energy_at_times'):
+            return self._inner.get_variable_band_energy_at_times(times, f_mins, f_maxs, window_length)
+
+        # Fallback: loop (slow but correct)
+        times = np.asarray(times)
+        f_mins = np.asarray(f_mins)
+        f_maxs = np.asarray(f_maxs)
+        n = len(times)
+        energy = np.full(n, np.nan)
+
+        for i, (t, f_min, f_max) in enumerate(zip(times, f_mins, f_maxs)):
+            if np.isnan(f_min) or np.isnan(f_max):
+                continue
             spectrum = self.get_spectrum_at_time(t, window_length)
             energy[i] = spectrum.get_band_energy(f_min, f_max)
 
