@@ -488,7 +488,7 @@ class UnifiedSpectrogram:
         raise ValueError(f"Unknown backend: {self._backend}")
 
     def values(self) -> np.ndarray:
-        """Power values as 2D array (frequency x time)."""
+        """Power values as 2D array (frequency × time)."""
         if self._backend == "parselmouth":
             return np.array(self._inner.values)
         elif self._backend == "praatfan":
@@ -525,7 +525,7 @@ class UnifiedSpectrogram:
         return self._backend
 
     def __repr__(self):
-        return f"Spectrogram<{self._backend}>({self.n_times} times x {self.n_freqs} freqs)"
+        return f"Spectrogram<{self._backend}>({self.n_times} times × {self.n_freqs} freqs)"
 
 
 # =============================================================================
@@ -541,7 +541,7 @@ class UnifiedSpectrogram:
 #   - parselmouth: Python bindings to Praat (GPL licensed)
 #   - praatfan: Pure Python clean-room implementation (MIT licensed)
 #   - praatfan_rust: Rust implementation with PyO3 bindings (MIT licensed)
-#   - praatfan_gpl: Separate Rust implementation (MIT licensed, was praatfan-core)
+#   - praatfan_gpl: Separate Rust implementation (MIT licensed)
 # =============================================================================
 
 def _try_import_parselmouth() -> bool:
@@ -560,10 +560,10 @@ def _try_import_parselmouth() -> bool:
 
 def _try_import_praatfan_gpl() -> bool:
     """
-    Check if praatfan_gpl (formerly praatfan-core) is installed.
+    Check if praatfan_gpl (original Rust implementation) is installed.
 
     praatfan_gpl is a separate package from praatfan, with its own
-    namespace.
+    namespace (praatfan_gpl).
 
     Returns:
         True if praatfan_gpl can be imported, False otherwise.
@@ -579,14 +579,13 @@ def _try_import_praatfan() -> bool:
     """
     Check if praatfan (Python) is installed.
 
-    Note: This checks for the Python version by looking for
-    the sound submodule which exists in Python but not Rust.
+    This checks specifically for the Python version by looking for
+    the sound submodule which only exists in the Python implementation.
 
     Returns:
-        True if praatfan (Python) can be imported, False otherwise.
+        True if praatfan Python can be imported, False otherwise.
     """
     try:
-        # Check for the Python-specific submodule
         from praatfan import sound
         return True
     except ImportError:
@@ -740,24 +739,6 @@ def _simple_toml_parse(path: Path) -> Optional[str]:
     return None
 
 
-def _normalize_backend_name(name: str) -> str:
-    """
-    Normalize backend name to handle old naming conventions.
-
-    Args:
-        name: Backend name (possibly using old naming convention)
-
-    Returns:
-        Normalized backend name using new conventions
-    """
-    # Map old names to new names
-    name_map = {
-        "praatfan-rust": "praatfan_rust",
-        "praatfan-core": "praatfan_gpl",
-    }
-    return name_map.get(name, name)
-
-
 def _select_backend() -> str:
     """Select backend based on configuration and availability."""
     global _current_backend
@@ -768,7 +749,6 @@ def _select_backend() -> str:
     # 1. Check environment variable
     env_backend = os.environ.get("PRAATFAN_BACKEND")
     if env_backend:
-        env_backend = _normalize_backend_name(env_backend)
         available = get_available_backends()
         if env_backend in available:
             _current_backend = env_backend
@@ -781,7 +761,6 @@ def _select_backend() -> str:
     # 2. Check config file
     config_backend = _read_config_file()
     if config_backend:
-        config_backend = _normalize_backend_name(config_backend)
         available = get_available_backends()
         if config_backend in available:
             _current_backend = config_backend
@@ -798,7 +777,7 @@ def _select_backend() -> str:
     if not available:
         raise BackendNotAvailableError(
             "No acoustic analysis backend available. Install one of: "
-            "praatfan, praatfan_rust, praat-parselmouth, praatfan_gpl"
+            "praatfan, praat-parselmouth, praatfan_gpl"
         )
 
     # Preference order
@@ -830,7 +809,6 @@ def set_backend(name: str) -> None:
     """
     global _current_backend
 
-    name = _normalize_backend_name(name)
     available = get_available_backends()
     if name not in available:
         raise BackendNotAvailableError(
@@ -1103,7 +1081,7 @@ class PraatfanPythonSound(BaseSound):
 
 
 class PraatfanRustSound(BaseSound):
-    """Adapter for praatfan_rust (Rust/PyO3) backend."""
+    """Adapter for praatfan Rust/PyO3 backend."""
 
     BACKEND = "praatfan_rust"
 
@@ -1182,8 +1160,8 @@ class PraatfanRustSound(BaseSound):
         return f"Sound<praatfan_rust>({self.n_samples} samples, {self.sampling_frequency} Hz)"
 
 
-class PraatfanGplSound(BaseSound):
-    """Adapter for praatfan_gpl (formerly praatfan-core) backend."""
+class PraatfanCoreSound(BaseSound):
+    """Adapter for praatfan_gpl backend."""
 
     BACKEND = "praatfan_gpl"
 
@@ -1191,12 +1169,12 @@ class PraatfanGplSound(BaseSound):
         self._inner = inner
 
     @classmethod
-    def from_file(cls, path: Union[str, Path]) -> "PraatfanGplSound":
+    def from_file(cls, path: Union[str, Path]) -> "PraatfanCoreSound":
         import praatfan_gpl
         return cls(praatfan_gpl.Sound.from_file(str(path)))
 
     @classmethod
-    def from_samples(cls, samples: np.ndarray, sampling_frequency: float) -> "PraatfanGplSound":
+    def from_samples(cls, samples: np.ndarray, sampling_frequency: float) -> "PraatfanCoreSound":
         import praatfan_gpl
         return cls(praatfan_gpl.Sound(samples, sampling_frequency))
 
@@ -1338,7 +1316,7 @@ class Sound:
         elif backend == "praatfan_rust":
             return PraatfanRustSound.from_file(path)
         elif backend == "praatfan_gpl":
-            return PraatfanGplSound.from_file(path)
+            return PraatfanCoreSound.from_file(path)
         else:
             raise BackendNotAvailableError(f"Unknown backend: {backend}")
 
@@ -1351,7 +1329,7 @@ class Sound:
         elif backend == "praatfan_rust":
             return PraatfanRustSound.from_samples(samples, sampling_frequency)
         elif backend == "praatfan_gpl":
-            return PraatfanGplSound.from_samples(samples, sampling_frequency)
+            return PraatfanCoreSound.from_samples(samples, sampling_frequency)
         else:
             raise BackendNotAvailableError(f"Unknown backend: {backend}")
 
