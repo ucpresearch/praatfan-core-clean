@@ -129,6 +129,24 @@ pitch = call(snd, "To Pitch (ac)", 0, 75, 600)
 | Spectrum | `Get centre of gravity`, `Get standard deviation`, `Get skewness`, `Get kurtosis`, `Get band energy` |
 | Spectrogram | `Get number of frames`, `Get time from frame number`, `Get power at` |
 
+### Available Backends
+
+praatfan_selector supports four backends:
+
+| Backend | Package | License | Description |
+|---------|---------|---------|-------------|
+| `praatfan` | Built-in (src/praatfan) | MIT | Pure Python clean-room implementation |
+| `praatfan-rust` | Built with maturin | MIT | Rust implementation with PyO3 bindings |
+| `parselmouth` | `praat-parselmouth` | GPL | Python bindings to Praat |
+| `praatfan-core` | `praatfan-core` | MIT | Separate Rust implementation |
+
+**Selection priority** (first available wins):
+1. `PRAATFAN_BACKEND` environment variable
+2. Config file (`./praatfan.toml` or `~/.praatfan/config.toml`)
+3. Auto-detect: praatfan-core → praatfan-rust → praatfan → parselmouth
+
+**Note:** `praatfan` and `praatfan-rust` share the same package name. If the Rust wheel is installed, it masks the Python version. To use both, set PYTHONPATH to include `src/` for the Python version.
+
 ---
 
 ## 📚 Documentation Categories
@@ -566,6 +584,29 @@ Error distribution (Hz):
 | Harmonicity | ✅ | ✅ | ✅ | ✅ |
 | Formant | ✅ | ✅ | ✅ | ✅ |
 | Spectrogram | ✅ | ✅ | ✅ | ✅ |
+| Per-window Spectral | ✅ | - | - | - |
+
+### Per-Window Spectral Methods (New)
+
+The following methods extract spectral features at specific time points:
+
+```python
+# Extract a portion of the sound
+part = sound.extract_part(0.1, 0.2)
+
+# Get spectrum at a specific time
+spectrum = sound.get_spectrum_at_time(0.15, window_length=0.025)
+
+# Batch extraction of spectral moments
+times = np.array([0.1, 0.15, 0.2])
+moments = sound.get_spectral_moments_at_times(times)
+# Returns: {'times', 'center_of_gravity', 'standard_deviation', 'skewness', 'kurtosis'}
+
+# Batch extraction of band energy
+energy = sound.get_band_energy_at_times(times, f_min=0, f_max=1000)
+```
+
+These work with all backends via praatfan_selector (fallback to iterative calls if backend doesn't have native implementation).
 
 ### Key Files
 
