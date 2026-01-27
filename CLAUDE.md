@@ -84,7 +84,7 @@ pitch = call(snd, "To Pitch (ac)", 0, 75, 600)
 Also supports backend switching:
 ```python
 from praatfan_selector import set_backend
-set_backend("parselmouth")  # or "praatfan", "praatfan-core"
+set_backend("parselmouth")  # or "praatfan", "praatfan-rust", "praatfan-core"
 ```
 
 ### praatfan — Clean API

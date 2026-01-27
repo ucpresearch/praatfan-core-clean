@@ -277,6 +277,30 @@ spectrogram.n_times   # Number of time frames
 spectrogram.n_freqs   # Number of frequency bins
 ```
 
+### Per-Window Spectral Analysis
+
+Extract spectral features at specific time points (useful for analyzing spectral characteristics aligned with other measurements like formants or pitch):
+
+```python
+import numpy as np
+
+# Extract a portion of the sound
+part = sound.extract_part(0.1, 0.2)  # 100ms segment
+
+# Get spectrum at a specific time
+spectrum = sound.get_spectrum_at_time(0.15, window_length=0.025)
+cog = spectrum.get_center_of_gravity()
+
+# Batch extraction of spectral moments at multiple time points
+times = np.array([0.1, 0.15, 0.2, 0.25])
+moments = sound.get_spectral_moments_at_times(times, window_length=0.025)
+# Returns dict with: 'times', 'center_of_gravity', 'standard_deviation',
+#                    'skewness', 'kurtosis'
+
+# Batch extraction of band energy
+energy = sound.get_band_energy_at_times(times, f_min=0, f_max=1000)
+```
+
 ## Migrating from parselmouth
 
 There are two migration paths depending on your needs:
