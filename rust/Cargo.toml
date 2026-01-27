@@ -26,8 +26,8 @@ num-complex = "0.4"
 # Numeric traits
 num-traits = "0.2"
 
-# WAV file reading
-hound = "3.5"
+# Audio file reading (WAV, MP3, OGG, FLAC)
+symphonia = { version = "0.5", features = ["mp3", "ogg", "flac", "wav", "pcm", "aac"] }
 
 # Error handling
 thiserror = "2.0"

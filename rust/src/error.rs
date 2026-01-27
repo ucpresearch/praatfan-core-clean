@@ -38,15 +38,15 @@ pub type Result<T> = std::result::Result<T, Error>;
 /// - Analysis failures
 #[derive(Error, Debug)]
 pub enum Error {
-    /// Error reading audio file.
+    /// Error decoding audio file.
     ///
-    /// This wraps errors from the `hound` WAV library.
+    /// This covers errors from symphonia audio decoding.
     /// Common causes:
     /// - File not found
-    /// - File is not a valid WAV file
-    /// - Corrupted audio data
-    #[error("Failed to read audio file: {0}")]
-    AudioRead(#[from] hound::Error),
+    /// - Unsupported or corrupted audio format
+    /// - Decoding failure
+    #[error("Failed to decode audio file: {0}")]
+    AudioDecodeError(String),
 
     /// Error with I/O operations.
     ///
@@ -56,8 +56,8 @@ pub enum Error {
 
     /// Audio file has unsupported format.
     ///
-    /// Currently, praatfan only supports WAV files.
-    /// This error is returned for other formats.
+    /// Praatfan supports WAV, MP3, OGG Vorbis, FLAC, and AAC via symphonia.
+    /// This error is returned for formats outside this set.
     #[error("Unsupported audio format: {0}")]
     UnsupportedFormat(String),
 

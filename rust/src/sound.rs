@@ -19,9 +19,16 @@
 //! the range [-1.0, 1.0] for integer formats. This provides maximum precision
 //! for acoustic analysis algorithms.
 
+use std::fs::File;
 use std::path::Path;
 
 use ndarray::Array1;
+use symphonia::core::audio::{AudioBufferRef, Signal};
+use symphonia::core::codecs::{DecoderOptions, CODEC_TYPE_NULL};
+use symphonia::core::formats::FormatOptions;
+use symphonia::core::io::MediaSourceStream;
+use symphonia::core::meta::MetadataOptions;
+use symphonia::core::probe::Hint;
 
 use crate::error::{Error, Result};
 use crate::spectrum::Spectrum;
@@ -61,6 +68,239 @@ pub struct Sound {
     sample_rate: f64,
 }
 
+/// Decode an audio file using symphonia.
+///
+/// Returns (samples, sample_rate, n_channels).
+/// If `channel` is Some, extracts only that channel; otherwise returns interleaved samples.
+fn decode_audio_file(path: &Path, channel: Option<usize>) -> Result<(Vec<f64>, f64, usize)> {
+    // Open the file
+    let file = File::open(path).map_err(|e| {
+        Error::AudioDecodeError(format!("Failed to open file: {}", e))
+    })?;
+
+    // Create a media source stream
+    let mss = MediaSourceStream::new(Box::new(file), Default::default());
+
+    // Use file extension as a hint for format detection
+    let mut hint = Hint::new();
+    if let Some(ext) = path.extension().and_then(|e| e.to_str()) {
+        hint.with_extension(ext);
+    }
+
+    // Probe the file to detect format
+    let format_opts = FormatOptions::default();
+    let metadata_opts = MetadataOptions::default();
+
+    let probed = symphonia::default::get_probe()
+        .format(&hint, mss, &format_opts, &metadata_opts)
+        .map_err(|e| Error::AudioDecodeError(format!("Failed to probe file format: {}", e)))?;
+
+    let mut format = probed.format;
+
+    // Find the first audio track
+    let track = format
+        .tracks()
+        .iter()
+        .find(|t| t.codec_params.codec != CODEC_TYPE_NULL)
+        .ok_or_else(|| Error::AudioDecodeError("No audio track found".to_string()))?;
+
+    let track_id = track.id;
+
+    // Get audio parameters
+    let sample_rate = track
+        .codec_params
+        .sample_rate
+        .ok_or_else(|| Error::AudioDecodeError("Unknown sample rate".to_string()))? as f64;
+
+    let n_channels = track
+        .codec_params
+        .channels
+        .map(|c| c.count())
+        .unwrap_or(1);
+
+    // Validate channel index if specified
+    if let Some(ch) = channel {
+        if ch >= n_channels {
+            return Err(Error::InvalidParameter(format!(
+                "Channel {} does not exist. File has {} channels.",
+                ch, n_channels
+            )));
+        }
+    }
+
+    // Create a decoder
+    let decoder_opts = DecoderOptions::default();
+    let mut decoder = symphonia::default::get_codecs()
+        .make(&track.codec_params, &decoder_opts)
+        .map_err(|e| Error::AudioDecodeError(format!("Failed to create decoder: {}", e)))?;
+
+    // Decode all packets
+    let mut all_samples: Vec<f64> = Vec::new();
+
+    loop {
+        let packet = match format.next_packet() {
+            Ok(packet) => packet,
+            Err(symphonia::core::errors::Error::IoError(ref e))
+                if e.kind() == std::io::ErrorKind::UnexpectedEof =>
+            {
+                break; // End of file
+            }
+            Err(e) => {
+                return Err(Error::AudioDecodeError(format!("Failed to read packet: {}", e)));
+            }
+        };
+
+        // Skip packets from other tracks
+        if packet.track_id() != track_id {
+            continue;
+        }
+
+        // Decode the packet
+        let decoded = match decoder.decode(&packet) {
+            Ok(decoded) => decoded,
+            Err(symphonia::core::errors::Error::DecodeError(_)) => {
+                continue; // Skip decode errors
+            }
+            Err(e) => {
+                return Err(Error::AudioDecodeError(format!("Decode error: {}", e)));
+            }
+        };
+
+        // Convert samples to f64
+        append_samples(&decoded, &mut all_samples, channel, n_channels);
+    }
+
+    Ok((all_samples, sample_rate, n_channels))
+}
+
+/// Append samples from an audio buffer to the output vector.
+/// If `channel` is Some, extracts only that channel; otherwise extracts all channels interleaved.
+fn append_samples(
+    buffer: &AudioBufferRef,
+    output: &mut Vec<f64>,
+    channel: Option<usize>,
+    _n_channels: usize,
+) {
+    macro_rules! process_buffer {
+        ($buf:expr, $convert:expr) => {{
+            let buf = $buf;
+            let n_frames = buf.frames();
+            let actual_channels = buf.spec().channels.count();
+            let convert = $convert;
+
+            match channel {
+                Some(ch) if ch < actual_channels => {
+                    // Extract single channel
+                    for frame in 0..n_frames {
+                        let sample = buf.chan(ch)[frame];
+                        output.push(convert(sample));
+                    }
+                }
+                Some(_) => {
+                    // Channel out of range - should have been caught earlier
+                }
+                None => {
+                    // For mono, just copy; otherwise interleave
+                    if actual_channels == 1 {
+                        for frame in 0..n_frames {
+                            output.push(convert(buf.chan(0)[frame]));
+                        }
+                    } else {
+                        for frame in 0..n_frames {
+                            for ch in 0..actual_channels {
+                                output.push(convert(buf.chan(ch)[frame]));
+                            }
+                        }
+                    }
+                }
+            }
+        }};
+    }
+
+    match buffer {
+        AudioBufferRef::U8(buf) => {
+            process_buffer!(&**buf, |s: u8| (s as f64 - 128.0) / 128.0);
+        }
+        AudioBufferRef::U16(buf) => {
+            process_buffer!(&**buf, |s: u16| (s as f64 - 32768.0) / 32768.0);
+        }
+        AudioBufferRef::U24(buf) => {
+            let buf = &**buf;
+            let n_frames = buf.frames();
+            let actual_channels = buf.spec().channels.count();
+
+            match channel {
+                Some(ch) if ch < actual_channels => {
+                    for frame in 0..n_frames {
+                        let sample = buf.chan(ch)[frame];
+                        output.push((sample.inner() as f64 - 8388608.0) / 8388608.0);
+                    }
+                }
+                Some(_) => {}
+                None => {
+                    if actual_channels == 1 {
+                        for frame in 0..n_frames {
+                            output.push((buf.chan(0)[frame].inner() as f64 - 8388608.0) / 8388608.0);
+                        }
+                    } else {
+                        for frame in 0..n_frames {
+                            for ch in 0..actual_channels {
+                                output.push((buf.chan(ch)[frame].inner() as f64 - 8388608.0) / 8388608.0);
+                            }
+                        }
+                    }
+                }
+            }
+        }
+        AudioBufferRef::U32(buf) => {
+            process_buffer!(&**buf, |s: u32| (s as f64 - 2147483648.0) / 2147483648.0);
+        }
+        AudioBufferRef::S8(buf) => {
+            process_buffer!(&**buf, |s: i8| s as f64 / 128.0);
+        }
+        AudioBufferRef::S16(buf) => {
+            process_buffer!(&**buf, |s: i16| s as f64 / 32768.0);
+        }
+        AudioBufferRef::S24(buf) => {
+            let buf = &**buf;
+            let n_frames = buf.frames();
+            let actual_channels = buf.spec().channels.count();
+
+            match channel {
+                Some(ch) if ch < actual_channels => {
+                    for frame in 0..n_frames {
+                        let sample = buf.chan(ch)[frame];
+                        output.push(sample.inner() as f64 / 8388608.0);
+                    }
+                }
+                Some(_) => {}
+                None => {
+                    if actual_channels == 1 {
+                        for frame in 0..n_frames {
+                            output.push(buf.chan(0)[frame].inner() as f64 / 8388608.0);
+                        }
+                    } else {
+                        for frame in 0..n_frames {
+                            for ch in 0..actual_channels {
+                                output.push(buf.chan(ch)[frame].inner() as f64 / 8388608.0);
+                            }
+                        }
+                    }
+                }
+            }
+        }
+        AudioBufferRef::S32(buf) => {
+            process_buffer!(&**buf, |s: i32| s as f64 / 2147483648.0);
+        }
+        AudioBufferRef::F32(buf) => {
+            process_buffer!(&**buf, |s: f32| s as f64);
+        }
+        AudioBufferRef::F64(buf) => {
+            process_buffer!(&**buf, |s: f64| s);
+        }
+    }
+}
+
 impl Sound {
     /// Create a Sound from samples and sample rate.
     ///
@@ -98,20 +338,20 @@ impl Sound {
         }
     }
 
-    /// Load audio from a WAV file.
+    /// Load audio from a file.
+    ///
+    /// Supports multiple formats via symphonia: WAV, MP3, OGG Vorbis, FLAC, AAC.
     ///
     /// Only mono files are supported. Multi-channel files will return an error.
     /// For multi-channel files, use `from_file_channel()` to select a specific channel.
     ///
     /// # Sample Format Handling
     ///
-    /// - **Integer formats** (8, 16, 24, 32 bit): Normalized to [-1.0, 1.0]
-    ///   by dividing by the maximum value (2^(bits-1))
-    /// - **Float formats**: Loaded as-is (typically already normalized)
+    /// All samples are normalized to the range [-1.0, 1.0].
     ///
     /// # Arguments
     ///
-    /// * `path` - Path to the WAV file
+    /// * `path` - Path to the audio file
     ///
     /// # Returns
     ///
@@ -120,37 +360,14 @@ impl Sound {
     /// # Errors
     ///
     /// - `Error::NotMono` if the file has more than one channel
-    /// - `Error::WavError` if the file cannot be read
+    /// - `Error::AudioDecodeError` if the file cannot be read or decoded
     pub fn from_file<P: AsRef<Path>>(path: P) -> Result<Self> {
-        // Use the hound crate for WAV file reading
-        let reader = hound::WavReader::open(path)?;
-        let spec = reader.spec();
+        let (samples, sample_rate, n_channels) = decode_audio_file(path.as_ref(), None)?;
 
         // Enforce mono audio requirement
-        if spec.channels != 1 {
-            return Err(Error::NotMono(spec.channels));
+        if n_channels != 1 {
+            return Err(Error::NotMono(n_channels as u16));
         }
-
-        let sample_rate = spec.sample_rate as f64;
-
-        // Convert samples to f64, normalizing integer formats
-        let samples: Vec<f64> = match spec.sample_format {
-            hound::SampleFormat::Float => {
-                // Float samples: convert f32 to f64 directly
-                reader.into_samples::<f32>()
-                    .map(|s| s.map(|v| v as f64))
-                    .collect::<std::result::Result<Vec<f64>, _>>()?
-            }
-            hound::SampleFormat::Int => {
-                // Integer samples: normalize to [-1.0, 1.0]
-                // max_val = 2^(bits-1), e.g., 32768 for 16-bit audio
-                let bits = spec.bits_per_sample;
-                let max_val = (1i64 << (bits - 1)) as f64;
-                reader.into_samples::<i32>()
-                    .map(|s| s.map(|v| v as f64 / max_val))
-                    .collect::<std::result::Result<Vec<f64>, _>>()?
-            }
-        };
 
         Ok(Self {
             samples: Array1::from_vec(samples),
@@ -158,20 +375,16 @@ impl Sound {
         })
     }
 
-    /// Load a specific channel from a WAV file.
+    /// Load a specific channel from an audio file.
+    ///
+    /// Supports multiple formats via symphonia: WAV, MP3, OGG Vorbis, FLAC, AAC.
     ///
     /// Use this method for multi-channel files when you want to analyze
     /// a specific channel (e.g., left channel = 0, right channel = 1).
     ///
-    /// # Channel Extraction
-    ///
-    /// WAV files store interleaved samples: [L0, R0, L1, R1, ...]
-    /// This method extracts every Nth sample starting at index `channel`,
-    /// where N is the number of channels.
-    ///
     /// # Arguments
     ///
-    /// * `path` - Path to the WAV file
+    /// * `path` - Path to the audio file
     /// * `channel` - Channel index (0-based)
     ///
     /// # Returns
@@ -181,46 +394,17 @@ impl Sound {
     /// # Errors
     ///
     /// - `Error::InvalidParameter` if the channel index is out of range
-    /// - `Error::WavError` if the file cannot be read
+    /// - `Error::AudioDecodeError` if the file cannot be read or decoded
     pub fn from_file_channel<P: AsRef<Path>>(path: P, channel: usize) -> Result<Self> {
-        let reader = hound::WavReader::open(path)?;
-        let spec = reader.spec();
-        let n_channels = spec.channels as usize;
+        let (samples, sample_rate, n_channels) = decode_audio_file(path.as_ref(), Some(channel))?;
 
-        // Validate channel index
+        // Validate channel index (also checked in decode_audio_file, but be explicit)
         if channel >= n_channels {
             return Err(Error::InvalidParameter(format!(
                 "Channel {} does not exist. File has {} channels.",
                 channel, n_channels
             )));
         }
-
-        let sample_rate = spec.sample_rate as f64;
-
-        // Read all interleaved samples
-        let all_samples: Vec<f64> = match spec.sample_format {
-            hound::SampleFormat::Float => {
-                reader.into_samples::<f32>()
-                    .map(|s| s.map(|v| v as f64))
-                    .collect::<std::result::Result<Vec<f64>, _>>()?
-            }
-            hound::SampleFormat::Int => {
-                let bits = spec.bits_per_sample;
-                let max_val = (1i64 << (bits - 1)) as f64;
-                reader.into_samples::<i32>()
-                    .map(|s| s.map(|v| v as f64 / max_val))
-                    .collect::<std::result::Result<Vec<f64>, _>>()?
-            }
-        };
-
-        // Extract the specified channel by taking every Nth sample
-        // starting at the channel index
-        let samples: Vec<f64> = all_samples
-            .iter()
-            .skip(channel)        // Start at the channel offset
-            .step_by(n_channels)  // Take every Nth sample
-            .copied()
-            .collect();
 
         Ok(Self {
             samples: Array1::from_vec(samples),
