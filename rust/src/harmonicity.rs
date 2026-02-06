@@ -399,7 +399,7 @@ pub fn sound_to_harmonicity_cc(
     time_step: f64,
     min_pitch: f64,
     silence_threshold: f64,
-    _periods_per_window: f64,  // Ignored - CC uses 2-period window
+    periods_per_window: f64,
 ) -> Harmonicity {
     let samples = sound.samples();
     let sample_rate = sound.sample_rate();
@@ -408,8 +408,9 @@ pub fn sound_to_harmonicity_cc(
     // Standard pitch ceiling
     let max_pitch = 600.0;
 
-    // CC method uses 2-period window (matching Pitch CC)
-    let window_duration = 2.0 / min_pitch;
+    // CC window = (ppw + 1) / min_pitch to account for forward cross-correlation
+    // needing an extra period (DP29)
+    let window_duration = (periods_per_window + 1.0) / min_pitch;
     let mut window_samples = (window_duration * sample_rate).round() as usize;
     if window_samples % 2 == 0 {
         window_samples += 1;  // Ensure odd for symmetric window
@@ -420,11 +421,10 @@ pub fn sound_to_harmonicity_cc(
     let min_lag = (sample_rate / max_pitch).ceil() as usize;
     let max_lag = (sample_rate / min_pitch).floor() as usize;
 
-    // Left-aligned frame timing (matching Harmonicity AC for consistency)
-    let n_frames = ((duration - 2.0 * window_duration) / time_step + 1e-9).floor() as usize + 1;
+    // Centered frame timing (matching Pitch CC)
+    let n_frames = ((duration - window_duration) / time_step + 1e-9).floor() as usize + 1;
     let n_frames = n_frames.max(1);
-    let remaining = duration - 2.0 * window_duration - (n_frames - 1) as f64 * time_step;
-    let t1 = window_duration + remaining / 2.0;
+    let t1 = (duration - (n_frames - 1) as f64 * time_step) / 2.0;
 
     // Global peak for silence detection
     let global_peak = samples.iter().map(|&s| s.abs()).fold(0.0f64, f64::max);
