@@ -3,6 +3,9 @@ PLAN.md
 .venv
 .claude
 local/
+__pycache__/
+*.egg-info/
+dist/
 
 tests/fixtures/tam-haʃaʁav-haɡadol.wav
 REBUILD.md
