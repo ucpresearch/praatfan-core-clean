@@ -643,6 +643,7 @@ fn find_autocorrelation_peaks(
     sample_rate: f64,
     max_candidates: usize,
     local_intensity: f64,
+    apply_intensity_adjustment: bool,
 ) -> Vec<(f64, f64)> {
     // Validate inputs
     if max_lag >= r.len() || max_lag >= r_w.len() {
@@ -676,7 +677,13 @@ fn find_autocorrelation_peaks(
             // Apply intensity-periodicity interaction to adjust strength.
             // This handles the case where low-intensity frames have spuriously
             // high r_norm values (e.g., DC offset gives r_norm ≈ 1.0).
-            let adjusted_strength = 0.5 * r_curr + 0.5 * local_intensity;
+            // Skip for harmonicity (apply_intensity_adjustment=false) to get
+            // raw correlation strength for the HNR formula.
+            let adjusted_strength = if apply_intensity_adjustment {
+                0.5 * r_curr + 0.5 * local_intensity
+            } else {
+                r_curr
+            };
 
             // Parabolic interpolation for sub-sample precision on frequency only
             let r_prev = r_norm[lag - 1];
@@ -877,6 +884,7 @@ pub fn sound_to_pitch_ac(
         3.0,   // periods_per_window (3 for AC)
         FrameTiming::Centered,
         true,  // apply_octave_cost
+        true,  // apply_intensity_adjustment
     )
 }
 
@@ -911,6 +919,7 @@ pub fn sound_to_pitch_cc(
         2.0,   // periods_per_window (2 for CC, shorter than AC)
         FrameTiming::Centered,
         true,  // apply_octave_cost
+        true,  // apply_intensity_adjustment
     )
 }
 
@@ -947,6 +956,7 @@ pub fn sound_to_pitch_internal(
     periods_per_window: f64,
     frame_timing: FrameTiming,
     apply_octave_cost: bool,
+    apply_intensity_adjustment: bool,
 ) -> Pitch {
     let samples = sound.samples();
     let sample_rate = sound.sample_rate();
@@ -1065,7 +1075,7 @@ pub fn sound_to_pitch_internal(
                 let r = compute_autocorrelation(&windowed, max_lag);
 
                 // Find peaks with window normalization
-                find_autocorrelation_peaks(&r, r_w, min_lag, max_lag, sample_rate, 15, local_intensity)
+                find_autocorrelation_peaks(&r, r_w, min_lag, max_lag, sample_rate, 15, local_intensity, apply_intensity_adjustment)
             }
             PitchMethod::Cc => {
                 // CC method: full-frame cross-correlation on raw samples

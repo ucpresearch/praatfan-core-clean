@@ -211,7 +211,8 @@ def sound_to_harmonicity_ac(
         method="ac",
         periods_per_window=periods_per_window,
         frame_timing="left",
-        apply_octave_cost=False
+        apply_octave_cost=False,
+        apply_intensity_adjustment=False
     )
 
     # Step 2: Extract times and convert strengths to HNR
@@ -272,7 +273,8 @@ def sound_to_harmonicity_cc(
         method="cc",
         periods_per_window=periods_per_window + 1.0,  # +1 for forward CC
         frame_timing="centered",
-        apply_octave_cost=False
+        apply_octave_cost=False,
+        apply_intensity_adjustment=False
     )
 
     # Step 2: Extract times and convert strengths to HNR

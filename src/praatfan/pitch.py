@@ -478,7 +478,8 @@ def _find_autocorrelation_peaks(r: np.ndarray, r_w: np.ndarray,
                                  sample_rate: float,
                                  max_candidates: int = 15,
                                  use_interpolation: bool = True,
-                                 local_intensity: float = 1.0) -> List[tuple]:
+                                 local_intensity: float = 1.0,
+                                 apply_intensity_adjustment: bool = True) -> List[tuple]:
     """
     Find all autocorrelation peaks in the given lag range.
 
@@ -533,7 +534,10 @@ def _find_autocorrelation_peaks(r: np.ndarray, r_w: np.ndarray,
             # Apply intensity-periodicity interaction to adjust strength
             # This handles the case where low-intensity frames have spuriously
             # high r_norm values (e.g., DC offset gives r_norm ≈ 1.0)
-            adjusted_strength = 0.5 * r_curr + 0.5 * local_intensity
+            if apply_intensity_adjustment:
+                adjusted_strength = 0.5 * r_curr + 0.5 * local_intensity
+            else:
+                adjusted_strength = r_curr
 
             if use_interpolation:
                 # Parabolic interpolation for sub-sample precision on frequency only
@@ -729,7 +733,8 @@ def sound_to_pitch(
     voiced_unvoiced_cost: float = 0.14,
     periods_per_window: float = 3.0,
     frame_timing: str = "centered",
-    apply_octave_cost: bool = True
+    apply_octave_cost: bool = True,
+    apply_intensity_adjustment: bool = True
 ) -> Pitch:
     """
     Compute pitch from sound using autocorrelation or cross-correlation method.
@@ -753,6 +758,9 @@ def sound_to_pitch(
         frame_timing: Frame timing mode ("centered" for Pitch, "left" for Harmonicity)
         apply_octave_cost: Whether to apply octave cost to strength (default True).
             Set to False for Harmonicity to get raw correlation strength.
+        apply_intensity_adjustment: Whether to apply intensity-periodicity
+            interaction to strength (default True). Set to False for Harmonicity
+            to get raw correlation strength for HNR formula.
 
     Returns:
         Pitch object
@@ -846,7 +854,8 @@ def sound_to_pitch(
             windowed = frame_samples * window
             r = _compute_autocorrelation(windowed, max_lag)
             peaks = _find_autocorrelation_peaks(r, r_w, min_lag, max_lag, sample_rate,
-                                                 local_intensity=local_intensity)
+                                                 local_intensity=local_intensity,
+                                                 apply_intensity_adjustment=apply_intensity_adjustment)
         else:
             # CC: Full-frame cross-correlation on raw samples
             r = _compute_cross_correlation(frame_samples, min_lag, max_lag)

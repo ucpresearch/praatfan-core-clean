@@ -342,6 +342,7 @@ pub fn sound_to_harmonicity_ac(
         periods_per_window,
         FrameTiming::Left, // Left-aligned for harmonicity
         false,             // apply_octave_cost = false for raw correlation
+        false,             // apply_intensity_adjustment = false for raw correlation
     );
 
     // Step 2: Extract times and convert correlation strengths to HNR
