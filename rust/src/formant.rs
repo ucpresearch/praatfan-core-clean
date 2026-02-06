@@ -366,13 +366,18 @@ fn gaussian_window(n: usize) -> Vec<f64> {
     // Center point of the window
     let mid = (n - 1) as f64 / 2.0;
 
+    // Edge value to subtract so window goes to zero at boundaries
+    let edge = (-alpha as f64).exp();
+    let norm = 1.0 / (1.0 - edge);
+
     (0..n)
         .map(|i| {
             // Normalize position to range [-1, 1]
             let x = (i as f64 - mid) / mid;
-            // Gaussian function
-            (-alpha * x * x).exp()
+            // Gaussian function with edge correction
+            ((-alpha * x * x).exp() - edge) * norm
         })
+        .map(|v| v.max(0.0))
         .collect()
 }
 
