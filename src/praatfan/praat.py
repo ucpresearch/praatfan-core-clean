@@ -1193,20 +1193,41 @@ def _call_spectrogram(obj: Any, command: str, args: tuple) -> Any:
         n_times = _get_spectrogram_n_times(obj)
         n_freqs = _get_spectrogram_n_freqs(obj)
 
-        # Find nearest time frame
-        time_step = times[1] - times[0] if len(times) > 1 else getattr(obj, 'time_step', 0.002)
-        time_idx = int(round((time - times[0]) / time_step))
-        time_idx = max(0, min(n_times - 1, time_idx))
-
-        # Find nearest frequency bin
-        freq_step = freqs[1] - freqs[0] if len(freqs) > 1 else 1.0
-        freq_idx = int(round((freq - freqs[0]) / freq_step))
-        freq_idx = max(0, min(n_freqs - 1, freq_idx))
-
         values = _get_spectrogram_values(obj)
-        if values.ndim == 2:
-            return float(values[freq_idx, time_idx])
-        return None
+        if values is None or values.ndim != 2:
+            return None
+
+        # Bilinear interpolation in time and frequency
+        time_step = times[1] - times[0] if len(times) > 1 else getattr(obj, 'time_step', 0.002)
+        freq_step = freqs[1] - freqs[0] if len(freqs) > 1 else 1.0
+
+        # Continuous indices
+        t_cont = (time - times[0]) / time_step
+        f_cont = (freq - freqs[0]) / freq_step
+
+        # Integer indices and fractions
+        t_lo = int(np.floor(t_cont))
+        f_lo = int(np.floor(f_cont))
+        t_frac = t_cont - t_lo
+        f_frac = f_cont - f_lo
+
+        # Clamp to valid range
+        t_lo = max(0, min(n_times - 2, t_lo))
+        t_hi = t_lo + 1
+        f_lo = max(0, min(n_freqs - 2, f_lo))
+        f_hi = f_lo + 1
+
+        # Bilinear interpolation
+        v00 = values[f_lo, t_lo]
+        v01 = values[f_lo, t_hi]
+        v10 = values[f_hi, t_lo]
+        v11 = values[f_hi, t_hi]
+
+        v0 = v00 * (1 - t_frac) + v01 * t_frac
+        v1 = v10 * (1 - t_frac) + v11 * t_frac
+        result = v0 * (1 - f_frac) + v1 * f_frac
+
+        return float(result)
 
     else:
         raise PraatCallError(f"Unknown Spectrogram command: '{command}'")

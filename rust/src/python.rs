@@ -924,22 +924,42 @@ impl PySpectrogram {
         values.to_pyarray(py)
     }
 
-    /// Get power value at a specific time and frequency.
+    /// Get power value at a specific time and frequency using bilinear interpolation.
     fn get_power_at(&self, time: f64, frequency: f64) -> f64 {
-        // Find nearest frame index using first frame time (t1), not time_min
         let first_frame_time = self.inner.get_time_from_frame(0);
-        let t_idx = ((time - first_frame_time) / self.inner.time_step()).round() as isize;
-        let f_idx = ((frequency - self.inner.freq_min()) / self.inner.freq_step()).round() as isize;
+        let n_times = self.inner.n_times();
+        let n_freqs = self.inner.n_freqs();
 
-        if t_idx >= 0
-            && (t_idx as usize) < self.inner.n_times()
-            && f_idx >= 0
-            && (f_idx as usize) < self.inner.n_freqs()
-        {
-            self.inner.values()[[f_idx as usize, t_idx as usize]]
-        } else {
-            f64::NAN
+        if n_times == 0 || n_freqs == 0 {
+            return f64::NAN;
         }
+
+        // Continuous indices
+        let t_cont = (time - first_frame_time) / self.inner.time_step();
+        let f_cont = (frequency - self.inner.freq_min()) / self.inner.freq_step();
+
+        // Integer indices and fractions
+        let t_lo = t_cont.floor() as isize;
+        let f_lo = f_cont.floor() as isize;
+        let t_frac = t_cont - t_lo as f64;
+        let f_frac = f_cont - f_lo as f64;
+
+        // Clamp to valid range
+        let t_lo = t_lo.max(0).min(n_times as isize - 2) as usize;
+        let t_hi = t_lo + 1;
+        let f_lo = f_lo.max(0).min(n_freqs as isize - 2) as usize;
+        let f_hi = f_lo + 1;
+
+        let values = self.inner.values();
+        let v00 = values[[f_lo, t_lo]];
+        let v01 = values[[f_lo, t_hi]];
+        let v10 = values[[f_hi, t_lo]];
+        let v11 = values[[f_hi, t_hi]];
+
+        // Bilinear interpolation
+        let v0 = v00 * (1.0 - t_frac) + v01 * t_frac;
+        let v1 = v10 * (1.0 - t_frac) + v11 * t_frac;
+        v0 * (1.0 - f_frac) + v1 * f_frac
     }
 
     fn __repr__(&self) -> String {

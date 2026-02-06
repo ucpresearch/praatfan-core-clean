@@ -216,10 +216,6 @@ def sound_to_spectrogram(
         n_frames = 1
     t1 = (duration - (n_frames - 1) * time_step) / 2.0
 
-    # Frequency bins from 0 to max_frequency (exclusive at max)
-    n_freq_bins = int(round(max_frequency / frequency_step))
-    freq_step_actual = frequency_step
-
     # FFT size - must be large enough for desired frequency resolution
     # The frequency resolution of FFT is sample_rate / fft_size
     # We need fft_size >= sample_rate / frequency_step
@@ -228,8 +224,12 @@ def sound_to_spectrogram(
     while fft_size < max(window_samples, min_fft_size):
         fft_size *= 2
 
-    # Frequency resolution from FFT
+    # Actual frequency resolution from FFT (may be finer than user-requested)
+    # Store at FFT bin resolution, matching Praat's behavior
     df_fft = sample_rate / fft_size
+
+    # Number of frequency bins from 0 to max_frequency at FFT resolution
+    n_freq_bins = int(round(max_frequency / df_fft))
 
     # Compute spectrogram
     # Values array is (n_freq_bins, n_frames)
@@ -268,13 +268,8 @@ def sound_to_spectrogram(
         # Window is already energy-normalized, so no additional scaling needed
         power = np.abs(fft_result[:fft_size // 2 + 1]) ** 2
 
-        # Extract power at desired frequency bins
-        for j in range(n_freq_bins):
-            freq = j * frequency_step
-            # Find nearest FFT bin
-            fft_bin = int(round(freq / df_fft))
-            if fft_bin < len(power):
-                values[j, i] = power[fft_bin]
+        # Store power directly at FFT bin resolution
+        values[:, i] = power[:n_freq_bins]
 
     return Spectrogram(
         values=values,
@@ -283,6 +278,6 @@ def sound_to_spectrogram(
         freq_min=0.0,
         freq_max=max_frequency,
         time_step=time_step,
-        freq_step=frequency_step,
+        freq_step=df_fft,
         t1=t1
     )

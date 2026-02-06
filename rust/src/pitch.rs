@@ -962,9 +962,12 @@ pub fn sound_to_pitch_internal(
     let sample_rate = sound.sample_rate();
     let duration = sound.duration();
 
-    // Default time step (documented: 0.75 / floor)
+    // Default time step: AC uses 0.75/floor, CC uses 0.25/floor
     let time_step = if time_step <= 0.0 {
-        0.75 / pitch_floor
+        match method {
+            PitchMethod::Cc => 0.25 / pitch_floor,
+            PitchMethod::Ac => 0.75 / pitch_floor,
+        }
     } else {
         time_step
     };

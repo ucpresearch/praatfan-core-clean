@@ -704,9 +704,9 @@ def sound_to_pitch(
     sample_rate = sound.sample_rate
     duration = sound.duration
 
-    # Default time step (documented: 0.75 / floor)
+    # Default time step: AC uses 0.75/floor, CC uses 0.25/floor
     if time_step <= 0:
-        time_step = 0.75 / pitch_floor
+        time_step = 0.25 / pitch_floor if method == "cc" else 0.75 / pitch_floor
 
     # Window duration: periods_per_window periods of minimum pitch
     window_duration = periods_per_window / pitch_floor

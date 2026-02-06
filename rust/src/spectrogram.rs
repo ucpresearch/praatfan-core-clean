@@ -415,9 +415,6 @@ pub fn sound_to_spectrogram_with_shape(
     // Center frames symmetrically in signal
     let t1 = (duration - (n_frames - 1) as f64 * time_step) / 2.0;
 
-    // Number of frequency bins (0 to max_frequency)
-    let n_freq_bins = (max_frequency / frequency_step).round() as usize;
-
     // FFT size determination
     // Must be large enough for:
     // - The window samples (obviously)
@@ -428,8 +425,12 @@ pub fn sound_to_spectrogram_with_shape(
         fft_size *= 2;  // Use power of 2 for efficient FFT
     }
 
-    // Actual frequency resolution from FFT
+    // Actual frequency resolution from FFT (may be finer than user-requested)
+    // Store at FFT bin resolution, matching Praat's behavior
     let df_fft = sample_rate / fft_size as f64;
+
+    // Number of frequency bins from 0 to max_frequency at FFT resolution
+    let n_freq_bins = (max_frequency / df_fft).round() as usize;
 
     // Set up FFT
     let mut planner = FftPlanner::new();
@@ -491,14 +492,9 @@ pub fn sound_to_spectrogram_with_shape(
             .map(|c| c.norm_sqr())  // |c|² = Re² + Im²
             .collect();
 
-        // Extract power at desired frequency bins
-        // Map from desired frequency grid to FFT bins
-        for j in 0..n_freq_bins {
-            let freq = j as f64 * frequency_step;
-            let fft_bin = (freq / df_fft).round() as usize;
-            if fft_bin < power.len() {
-                values[[j, i]] = power[fft_bin];
-            }
+        // Store power directly at FFT bin resolution
+        for j in 0..n_freq_bins.min(power.len()) {
+            values[[j, i]] = power[j];
         }
     }
 
@@ -509,7 +505,7 @@ pub fn sound_to_spectrogram_with_shape(
         0.0,           // freq_min
         max_frequency, // freq_max
         time_step,
-        frequency_step,
+        df_fft,        // actual FFT frequency resolution
         t1,
     )
 }

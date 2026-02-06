@@ -254,3 +254,177 @@ sinc resampling. Key requirements from the Praat manual:
 This is a significant implementation effort that must be done without consulting Praat's
 source code (clean-room constraint). The zero-padding fix provides 40% of the possible
 improvement with minimal code change.
+
+---
+
+## Intensity Accuracy Investigation
+
+### Current Accuracy (one_two_three_four_five.wav, min_pitch=100)
+
+| Time step | P50 | P95 | Max | Frames > 1 dB |
+|-----------|-----|-----|-----|----------------|
+| Default (0.008s) | 0.005 dB | 0.34 dB | 2.04 dB | 5/196 |
+| 0.01s | 0.005 dB | 0.40 dB | 10.98 dB | 4/157 |
+
+**Note:** The full_comparison.py previously reported P95=9.155 / Max=12.59 dB due to a bug:
+`pm_call(pm_snd, "To Intensity", 100, 0.01)` defaults to `subtract_mean=False` in
+parselmouth, while our implementation always uses `subtract_mean=True`. Adding the explicit
+`True` argument fixes this. The actual intensity errors are much smaller than reported.
+
+### Investigation Summary
+
+**Confirmed correct:**
+- Energy formula: `sum(s² × w) / sum(w)` matches Praat's `subtract_mean=False` to 0.03 dB
+- Window type: Gaussian with α=13.2 and edge correction (tested Kaiser-20 through Kaiser-30,
+  plus Gaussians with α=12-25; current Gaussian gives best P50)
+- Physical/effective ratio: 2.25 (tested 2.0 and 2.5; 2.25 is clearly best)
+- DC removal: unweighted per-frame mean gives best P50
+
+**Root cause of outlier errors:**
+The 5 frames with > 1 dB error are all at speech onset/offset transitions. At these frames,
+signal energy is concentrated at one edge of the analysis window. The unweighted per-frame
+mean is dominated by this edge signal, giving a DC estimate with the wrong sign relative to
+the Gaussian-weighted center. Subtracting this wrong-sign DC INCREASES the windowed energy
+instead of reducing it.
+
+**What was tested for DC removal:**
+
+| Method | P50 | P95 | Max | Notes |
+|--------|-----|-----|-----|-------|
+| Unweighted mean (current) | 0.005 | 0.40 | 10.98 | Best P50 |
+| Weighted mean (Gaussian) | 0.006 | 1.23 | 10.03 | Worse overall |
+| Global mean | 0.006 | 8.28 | 13.58 | Too small to help |
+| No DC removal | 0.006 | 8.19 | 12.05 | Matches PM no-DC |
+| Mean scope=0.90 | 0.005 | 0.22 | 4.09 | Best P95 (ts=0.01) |
+| Mean scope=0.90 (default ts) | 0.005 | 0.15 | 1.35 | Best overall? |
+| Running Gaussian convolution | 0.006 | 3.87 | 13.20 | Worse |
+
+**Window type tests (at frame 9, ts=0.01):**
+
+All window types (Gaussian α=12-25, Kaiser β=15-30) give essentially the same max error
+(~10.9 dB). The issue is not the window shape but the mean subtraction.
+
+### Potential Fix: Narrower Mean Scope
+
+Computing the per-frame mean over the central 90% of the physical window (instead of 100%)
+prevents edge signal from biasing the DC estimate. This reduces:
+- Default ts: Max 2.04 → 1.35 dB, P95 0.34 → 0.15 dB
+- ts=0.01: Max 10.98 → 4.09 dB, P95 0.40 → 0.22 dB
+
+**Status:** Not implemented. The improvement is modest and may not generalize to all audio.
+The Praat manual says "subtracting the mean pressure around this point" but doesn't specify
+the exact scope. Further investigation needed to determine if this is what Praat does.
+
+### Comparison Script Fix
+
+**Bug:** `pm_call(pm_snd, "To Intensity", 100, 0.01)` in full_comparison.py must include
+the `True` argument for `subtract_mean`, as parselmouth defaults to `False` when not
+specified (unlike Praat's GUI which defaults to `True`).
+
+**Fix:** Changed to `pm_call(pm_snd, "To Intensity", 100, 0.01, True)`.
+
+---
+
+## Spectrogram Accuracy Investigation
+
+### Root Cause Found: FFT Bin Alignment + Missing Interpolation
+
+**Discovered:** 2026-02-06
+
+The original implementation stored spectrogram power values at user-specified frequency
+intervals (e.g., every 20 Hz), mapping each to the nearest FFT bin. Praat instead stores
+values at the actual FFT frequency resolution (sample_rate / fft_size), which is typically
+finer than the user-requested step.
+
+For example, with window_length=0.025 and frequency_step=20 Hz:
+- FFT size: 2048 (next power of 2 above sr/freq_step)
+- Actual FFT resolution: 24000/2048 = 11.7188 Hz
+- Original code: stored 250 bins at 20 Hz step (snapping to nearest FFT bin)
+- Praat: stores 426 bins at 11.7188 Hz step (actual FFT bins)
+
+Additionally, Praat's "Get power at" performs interpolation between grid points, while
+our implementation used nearest-bin lookup.
+
+### The Fixes
+
+1. **Store at FFT bin resolution** (Python + Rust): Changed `n_freq_bins = round(max_freq / freq_step)`
+   to `n_freq_bins = round(max_freq / df_fft)` and store FFT bins directly instead of
+   mapping via nearest-bin lookup.
+
+2. **Bilinear interpolation** in `Get power at` (praat.py + Rust python.rs): Changed from
+   nearest-bin lookup to bilinear interpolation in both time and frequency dimensions.
+
+### Results
+
+| Metric | Before | After | Improvement |
+|--------|--------|-------|-------------|
+| P50 | 0.22 (22%) | 0.0025 (0.25%) | **88x better** |
+| P90 | 0.87 | 0.0075 | 116x better |
+| P95 | - | 0.0095 | - |
+| Max | 1.74 | 0.023 | 76x better |
+
+92.5% of comparison points now have < 1% relative error. The remaining ~0.3% median
+error likely comes from minor differences in window normalization between our Gaussian
+and Praat's (ratio ≈ 0.997 at exact bin-aligned points).
+
+### Validation
+
+At exact FFT bin frequencies (no interpolation needed), the power ratio is:
+- Mean: 0.997, Median: 0.999, Std: 0.009
+This confirms the underlying FFT computation matches Praat almost exactly.
+
+---
+
+## Pitch CC Accuracy Investigation
+
+### Root Cause #1 Found: Wrong Default Time Step
+
+**Discovered:** 2026-02-06
+
+The default time_step for Pitch CC was `0.75 / pitch_floor` (same as AC), but Praat uses
+`0.25 / pitch_floor` for CC. With pitch_floor=75 Hz:
+- Our default: 0.010s → 161 frames
+- Praat's default: 0.003333s → 482 frames
+
+**Fix:** In both Python (`pitch.py:708`) and Rust (`pitch.rs:965`), changed the default
+time_step to be method-dependent: `0.25/floor` for CC, `0.75/floor` for AC.
+
+### Results After Time Step Fix
+
+| Metric | Before | After |
+|--------|--------|-------|
+| Frame count | 161 (vs PM=482) | 482 (matching PM) |
+| Frame timing | t1=0.016, dt=0.010 | t1=0.01433, dt=0.00333 (matching PM) |
+| P50 | 0.93 Hz | 0.84 Hz |
+| P95 | 6.87 Hz | 5.70 Hz |
+| Max | 23.39 Hz | 31.93 Hz |
+
+### Remaining Error Analysis (P50=0.84 Hz)
+
+The CC errors are strongly frequency-dependent:
+
+| F0 range | Frames | P50 error | Max error |
+|----------|--------|-----------|-----------|
+| 100-150 Hz | 72 | 0.20 Hz | 3.10 Hz |
+| 150-200 Hz | 35 | 1.12 Hz | 22.03 Hz |
+| 200-300 Hz | 196 | 1.12 Hz | 31.93 Hz |
+
+For comparison, Pitch AC has P50=0.014 Hz — 60x better than CC.
+
+The worst CC frames (>10 Hz error) are at phoneme transition points (~0.15s, ~0.93s, ~1.16s)
+where the Viterbi path tracking picks different candidates. The best frames match to 0.00 Hz.
+
+### Possible Deeper Causes (Not Yet Investigated)
+
+1. **CC normalization difference**: Our cross-correlation normalization may differ from Praat's
+   at shorter lags (higher F0 = fewer samples in the correlation window).
+
+2. **Viterbi cost computation**: Different cost weighting between AC and CC paths may cause
+   different candidate selection at transition frames.
+
+3. **Window function for CC**: CC may use a different window shape or no window at all
+   for the cross-correlation computation.
+
+**Status:** Frame count and timing fixed. Remaining errors are algorithmic differences
+in the CC correlation computation. Further investigation would require deep-diving into
+the per-frame correlation values and candidate strengths.
