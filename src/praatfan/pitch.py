@@ -564,78 +564,6 @@ def _find_autocorrelation_peaks(r: np.ndarray, r_w: np.ndarray,
     return candidates[:max_candidates]
 
 
-def _find_autocorrelation_peak(r: np.ndarray, r_w: np.ndarray,
-                                min_lag: int, max_lag: int,
-                                sample_rate: float) -> tuple:
-    """
-    Find the best autocorrelation peak in the given lag range.
-
-    From Boersma (1993) Eq. 9:
-        r_x(τ) ≈ r_a(τ) / r_w(τ)
-
-    This normalized autocorrelation should be between -1 and 1 for
-    properly normalized signals.
-
-    Args:
-        r: Raw autocorrelation of windowed signal (r_a)
-        r_w: Autocorrelation of window function
-        min_lag: Minimum lag (1/ceiling in samples)
-        max_lag: Maximum lag (1/floor in samples)
-        sample_rate: Sample rate
-
-    Returns:
-        (frequency, strength) tuple, or (0, 0) if no valid peak
-    """
-    if max_lag >= len(r) or max_lag >= len(r_w):
-        return (0.0, 0.0)
-
-    # Normalize r[0] (energy normalization)
-    r_0 = r[0]
-    if r_0 <= 0:
-        return (0.0, 0.0)
-
-    # Compute normalized autocorrelation array
-    r_norm = np.zeros(max_lag + 1)
-    for lag in range(max_lag + 1):
-        if r_w[lag] > 0 and r_w[0] > 0:
-            # Boersma (1993) Eq. 9: r_x(τ) = r_a(τ) / r_w(τ)
-            # Normalized so r_x(0) = 1
-            r_norm[lag] = (r[lag] / r_0) / (r_w[lag] / r_w[0])
-        else:
-            r_norm[lag] = 0
-
-    best_freq = 0.0
-    best_strength = 0.0
-
-    # Find peaks in normalized autocorrelation
-    for lag in range(min_lag, min(max_lag + 1, len(r_norm) - 1)):
-        # Check if this is a local maximum
-        if r_norm[lag] > r_norm[lag-1] and r_norm[lag] > r_norm[lag+1]:
-            if r_norm[lag] > best_strength:
-                # Parabolic interpolation for sub-sample precision
-                r_prev = r_norm[lag-1]
-                r_curr = r_norm[lag]
-                r_next = r_norm[lag+1]
-
-                denom = r_prev - 2*r_curr + r_next
-                if abs(denom) > 1e-10:
-                    delta = 0.5 * (r_prev - r_next) / denom
-                    if abs(delta) < 1:
-                        refined_lag = lag + delta
-                        # Interpolate strength at refined position
-                        refined_strength = r_curr - 0.25 * (r_prev - r_next) * delta
-                        best_freq = sample_rate / refined_lag
-                        best_strength = refined_strength
-                    else:
-                        best_freq = sample_rate / lag
-                        best_strength = r_curr
-                else:
-                    best_freq = sample_rate / lag
-                    best_strength = r_curr
-
-    return (best_freq, best_strength)
-
-
 def _viterbi_path(frames: List[PitchFrame], time_step: float,
                    octave_jump_cost: float = 0.35,
                    voiced_unvoiced_cost: float = 0.14) -> None:
@@ -731,7 +659,7 @@ def sound_to_pitch(
     octave_cost: float = 0.01,
     octave_jump_cost: float = 0.35,
     voiced_unvoiced_cost: float = 0.14,
-    periods_per_window: float = 3.0,
+    periods_per_window: float = None,
     frame_timing: str = "centered",
     apply_octave_cost: bool = True,
     apply_intensity_adjustment: bool = True
@@ -768,9 +696,9 @@ def sound_to_pitch(
     if method not in ("ac", "cc"):
         raise NotImplementedError(f"Method '{method}' not implemented, only 'ac' and 'cc' supported")
 
-    # CC uses 2 periods by default, AC uses 3
-    if method == "cc" and periods_per_window == 3.0:
-        periods_per_window = 2.0
+    # Set default periods_per_window based on method if not explicitly provided
+    if periods_per_window is None:
+        periods_per_window = 2.0 if method == "cc" else 3.0
 
     samples = sound.samples
     sample_rate = sound.sample_rate

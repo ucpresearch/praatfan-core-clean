@@ -217,7 +217,7 @@ def sound_to_spectrogram(
     t1 = (duration - (n_frames - 1) * time_step) / 2.0
 
     # Frequency bins from 0 to max_frequency (exclusive at max)
-    n_freq_bins = int(max_frequency / frequency_step)
+    n_freq_bins = int(round(max_frequency / frequency_step))
     freq_step_actual = frequency_step
 
     # FFT size - must be large enough for desired frequency resolution

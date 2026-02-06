@@ -266,7 +266,11 @@ class Formant:
 
 
 def _gaussian_window(n: int) -> np.ndarray:
-    """Generate Gaussian window for formant analysis."""
+    """Generate Gaussian window for formant analysis.
+
+    Subtracts edge value so window goes to zero at boundaries,
+    matching standard Gaussian window practice.
+    """
     if n <= 1:
         return np.array([1.0])
 
@@ -274,7 +278,11 @@ def _gaussian_window(n: int) -> np.ndarray:
     mid = (n - 1) / 2.0
     i = np.arange(n)
     x = (i - mid) / mid
-    return np.exp(-alpha * x * x)
+    w = np.exp(-alpha * x * x)
+    edge = np.exp(-alpha)
+    w = (w - edge) / (1.0 - edge)
+    w = np.maximum(w, 0.0)
+    return w
 
 
 def _burg_lpc(samples: np.ndarray, order: int) -> np.ndarray:
@@ -292,7 +300,9 @@ def _burg_lpc(samples: np.ndarray, order: int) -> np.ndarray:
     """
     n = len(samples)
     if n <= order:
-        return np.zeros(order + 1)
+        a = np.zeros(order + 1)
+        a[0] = 1.0  # Identity filter (pass-through)
+        return a
 
     # Initialize
     a = np.zeros(order + 1)

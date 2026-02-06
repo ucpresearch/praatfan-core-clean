@@ -1007,45 +1007,53 @@ class PraatfanPythonSound(BaseSound):
         return cls(PfSound(samples, sampling_frequency))
 
     def to_pitch_ac(self, time_step=0.0, pitch_floor=75.0, pitch_ceiling=600.0) -> UnifiedPitch:
-        result = self._inner.to_pitch(time_step, pitch_floor, pitch_ceiling, method="ac")
+        result = self._inner.to_pitch(time_step=time_step, pitch_floor=pitch_floor,
+                                      pitch_ceiling=pitch_ceiling, method="ac")
         return UnifiedPitch(result, self.BACKEND)
 
     def to_pitch_cc(self, time_step=0.0, pitch_floor=75.0, pitch_ceiling=600.0) -> UnifiedPitch:
-        result = self._inner.to_pitch(time_step, pitch_floor, pitch_ceiling, method="cc")
+        result = self._inner.to_pitch(time_step=time_step, pitch_floor=pitch_floor,
+                                      pitch_ceiling=pitch_ceiling, method="cc")
         return UnifiedPitch(result, self.BACKEND)
 
     def to_formant_burg(self, time_step=0.0, max_number_of_formants=5,
                         maximum_formant=5500.0, window_length=0.025,
                         pre_emphasis_from=50.0) -> UnifiedFormant:
-        result = self._inner.to_formant_burg(time_step, max_number_of_formants,
-                                             maximum_formant, window_length,
-                                             pre_emphasis_from)
+        result = self._inner.to_formant_burg(time_step=time_step,
+                                             max_num_formants=max_number_of_formants,
+                                             max_formant_hz=maximum_formant,
+                                             window_length=window_length,
+                                             pre_emphasis_from=pre_emphasis_from)
         return UnifiedFormant(result, self.BACKEND)
 
     def to_intensity(self, minimum_pitch=100.0, time_step=0.0) -> UnifiedIntensity:
-        result = self._inner.to_intensity(minimum_pitch, time_step)
+        result = self._inner.to_intensity(min_pitch=minimum_pitch, time_step=time_step)
         return UnifiedIntensity(result, self.BACKEND)
 
     def to_harmonicity_ac(self, time_step=0.01, minimum_pitch=75.0,
                           silence_threshold=0.1, periods_per_window=4.5) -> UnifiedHarmonicity:
-        result = self._inner.to_harmonicity_ac(time_step, minimum_pitch,
-                                               silence_threshold, periods_per_window)
+        result = self._inner.to_harmonicity_ac(time_step=time_step, min_pitch=minimum_pitch,
+                                               silence_threshold=silence_threshold,
+                                               periods_per_window=periods_per_window)
         return UnifiedHarmonicity(result, self.BACKEND)
 
     def to_harmonicity_cc(self, time_step=0.01, minimum_pitch=75.0,
                           silence_threshold=0.1, periods_per_window=1.0) -> UnifiedHarmonicity:
-        result = self._inner.to_harmonicity_cc(time_step, minimum_pitch,
-                                               silence_threshold, periods_per_window)
+        result = self._inner.to_harmonicity_cc(time_step=time_step, min_pitch=minimum_pitch,
+                                               silence_threshold=silence_threshold,
+                                               periods_per_window=periods_per_window)
         return UnifiedHarmonicity(result, self.BACKEND)
 
     def to_spectrum(self, fast=True) -> UnifiedSpectrum:
-        result = self._inner.to_spectrum(fast)
+        result = self._inner.to_spectrum(fast=fast)
         return UnifiedSpectrum(result, self.BACKEND)
 
     def to_spectrogram(self, window_length=0.005, maximum_frequency=5000.0,
                        time_step=0.002, frequency_step=20.0) -> UnifiedSpectrogram:
-        result = self._inner.to_spectrogram(window_length, maximum_frequency,
-                                            time_step, frequency_step)
+        result = self._inner.to_spectrogram(window_length=window_length,
+                                            max_frequency=maximum_frequency,
+                                            time_step=time_step,
+                                            frequency_step=frequency_step)
         return UnifiedSpectrogram(result, self.BACKEND)
 
     @property

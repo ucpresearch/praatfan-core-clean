@@ -316,6 +316,7 @@ impl Sound {
     ///
     /// A new Sound object.
     pub fn new(samples: Array1<f64>, sample_rate: f64) -> Self {
+        assert!(sample_rate > 0.0, "sample_rate must be positive");
         Self {
             samples,
             sample_rate,

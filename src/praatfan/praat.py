@@ -682,8 +682,6 @@ def _call_formant(obj: Any, command: str, args: tuple) -> Any:
                     values = obj.formant_values(i)
                     if frame_idx < len(values) and not np.isnan(values[frame_idx]):
                         count = i
-                    else:
-                        break
                 except (IndexError, ValueError):
                     break
             return count

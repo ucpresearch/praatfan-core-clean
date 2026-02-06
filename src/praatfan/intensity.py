@@ -277,10 +277,8 @@ def sound_to_intensity(
     times = np.zeros(n_frames)
     values = np.zeros(n_frames)
 
-    # Reference pressure (standard: 2e-5 Pa)
-    # But Praat may use 1.0 for normalized audio - need to verify
-    # For now, use 1.0 (relative intensity in arbitrary units)
-    p_ref = 4e-10  # (2e-5)² for pressure squared reference
+    # Reference pressure squared: (2e-5 Pa)² = 4e-10
+    p_ref = 4e-10
 
     for i in range(n_frames):
         t = t1 + i * time_step

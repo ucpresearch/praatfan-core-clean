@@ -416,7 +416,7 @@ pub fn sound_to_spectrogram_with_shape(
     let t1 = (duration - (n_frames - 1) as f64 * time_step) / 2.0;
 
     // Number of frequency bins (0 to max_frequency)
-    let n_freq_bins = (max_frequency / frequency_step) as usize;
+    let n_freq_bins = (max_frequency / frequency_step).round() as usize;
 
     // FFT size determination
     // Must be large enough for:
