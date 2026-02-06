@@ -926,12 +926,17 @@ impl PySpectrogram {
 
     /// Get power value at a specific time and frequency.
     fn get_power_at(&self, time: f64, frequency: f64) -> f64 {
-        // Find nearest indices
-        let t_idx = ((time - self.inner.time_min()) / self.inner.time_step()).round() as usize;
-        let f_idx = ((frequency - self.inner.freq_min()) / self.inner.freq_step()).round() as usize;
+        // Find nearest frame index using first frame time (t1), not time_min
+        let first_frame_time = self.inner.get_time_from_frame(0);
+        let t_idx = ((time - first_frame_time) / self.inner.time_step()).round() as isize;
+        let f_idx = ((frequency - self.inner.freq_min()) / self.inner.freq_step()).round() as isize;
 
-        if t_idx < self.inner.n_times() && f_idx < self.inner.n_freqs() {
-            self.inner.values()[[f_idx, t_idx]]
+        if t_idx >= 0
+            && (t_idx as usize) < self.inner.n_times()
+            && f_idx >= 0
+            && (f_idx as usize) < self.inner.n_freqs()
+        {
+            self.inner.values()[[f_idx as usize, t_idx as usize]]
         } else {
             f64::NAN
         }

@@ -370,8 +370,8 @@ class Sound:
         Returns:
             New Sound object containing the extracted portion
         """
-        start_sample = int(start_time * self._sample_rate)
-        end_sample = int(end_time * self._sample_rate)
+        start_sample = round(start_time * self._sample_rate)
+        end_sample = round(end_time * self._sample_rate)
 
         # Clamp to valid range
         start_sample = max(0, start_sample)

@@ -420,10 +420,11 @@ pub fn sound_to_harmonicity_cc(
     let min_lag = (sample_rate / max_pitch).ceil() as usize;
     let max_lag = (sample_rate / min_pitch).floor() as usize;
 
-    // Centered frame timing (matching Pitch CC)
-    let n_frames = ((duration - window_duration) / time_step + 1e-9).floor() as usize + 1;
+    // Left-aligned frame timing (matching Harmonicity AC for consistency)
+    let n_frames = ((duration - 2.0 * window_duration) / time_step + 1e-9).floor() as usize + 1;
     let n_frames = n_frames.max(1);
-    let t1 = (duration - (n_frames - 1) as f64 * time_step) / 2.0;
+    let remaining = duration - 2.0 * window_duration - (n_frames - 1) as f64 * time_step;
+    let t1 = window_duration + remaining / 2.0;
 
     // Global peak for silence detection
     let global_peak = samples.iter().map(|&s| s.abs()).fold(0.0f64, f64::max);

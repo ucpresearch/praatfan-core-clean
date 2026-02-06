@@ -317,8 +317,8 @@ def _call_sound(obj: Any, command: str, args: tuple) -> Any:
         if samples is not None and hasattr(obj, 'sampling_frequency'):
             sr = obj.sampling_frequency
             samples = np.array(samples)
-            start_sample = int(start_time * sr)
-            end_sample = int(end_time * sr) if end_time else len(samples)
+            start_sample = round(start_time * sr)
+            end_sample = round(end_time * sr) if end_time else len(samples)
             extracted_samples = samples[start_sample:end_sample]
             # Create a new Sound object using the class constructor
             # The unified Sound class accepts (samples, sampling_frequency)
@@ -958,13 +958,25 @@ def _call_harmonicity(obj: Any, command: str, args: tuple) -> Any:
 # =============================================================================
 
 def _get_spectrum_values(obj: Any) -> np.ndarray:
-    """Get spectrum magnitude values, handling both API styles."""
+    """Get spectrum magnitude values, handling both API styles.
+
+    Always returns real-valued magnitude (absolute value for complex spectra).
+    """
+    if hasattr(obj, 'real') and hasattr(obj, 'imag'):
+        # Prefer explicit real/imag to compute magnitude correctly
+        real = np.array(obj.real() if callable(obj.real) else obj.real)
+        imag = np.array(obj.imag() if callable(obj.imag) else obj.imag)
+        return np.sqrt(real**2 + imag**2)
     if hasattr(obj, 'values') and callable(obj.values):
-        return np.array(obj.values())
+        vals = np.array(obj.values())
+        if np.iscomplexobj(vals):
+            return np.abs(vals)
+        return vals
     elif hasattr(obj, 'values'):
-        return np.array(obj.values)
-    elif hasattr(obj, 'real') and hasattr(obj, 'imag'):
-        return np.sqrt(np.array(obj.real)**2 + np.array(obj.imag)**2)
+        vals = np.array(obj.values)
+        if np.iscomplexobj(vals):
+            return np.abs(vals)
+        return vals
     return np.array([])
 
 
@@ -1072,14 +1084,25 @@ def _call_spectrum(obj: Any, command: str, args: tuple) -> Any:
         f_max = args[1] if len(args) > 1 else 0.0
         if hasattr(obj, 'get_band_energy'):
             return obj.get_band_energy(f_min=f_min, f_max=f_max)
-        # Manual calculation (simplified - no negative frequency handling)
+        # Manual calculation with negative frequency correction
         freqs = _get_spectrum_freqs(obj)
         magnitude = _get_spectrum_values(obj)
         if f_max <= 0:
             f_max = freqs[-1] if len(freqs) > 0 else 0
-        mask = (freqs >= f_min) & (freqs <= f_max)
         df = obj.df if hasattr(obj, 'df') else (freqs[1] - freqs[0] if len(freqs) > 1 else 1)
-        return float(np.sum(magnitude[mask] ** 2) * df)
+        n_bins = len(freqs)
+        # Sum energy with 2x factor for interior bins (one-sided spectrum)
+        # DC (bin 0) and Nyquist (last bin) are not doubled
+        energy = 0.0
+        for i in range(n_bins):
+            if freqs[i] < f_min or freqs[i] > f_max:
+                continue
+            bin_energy = magnitude[i] ** 2 * df
+            if i == 0 or i == n_bins - 1:
+                energy += bin_energy
+            else:
+                energy += 2.0 * bin_energy
+        return float(energy)
 
     else:
         raise PraatCallError(f"Unknown Spectrum command: '{command}'")
@@ -1089,27 +1112,73 @@ def _call_spectrum(obj: Any, command: str, args: tuple) -> Any:
 # Spectrogram commands
 # =============================================================================
 
+def _get_spectrogram_times(obj: Any) -> np.ndarray:
+    """Get spectrogram time values, handling both API styles."""
+    if hasattr(obj, 'xs') and callable(obj.xs):
+        return np.array(obj.xs())
+    elif hasattr(obj, 'times') and callable(obj.times):
+        return np.array(obj.times())
+    return np.array([])
+
+
+def _get_spectrogram_freqs(obj: Any) -> np.ndarray:
+    """Get spectrogram frequency values, handling both API styles."""
+    if hasattr(obj, 'ys') and callable(obj.ys):
+        return np.array(obj.ys())
+    elif hasattr(obj, 'frequencies') and callable(obj.frequencies):
+        return np.array(obj.frequencies())
+    return np.array([])
+
+
+def _get_spectrogram_n_times(obj: Any) -> int:
+    """Get number of time frames from a spectrogram object."""
+    if hasattr(obj, 'n_times'):
+        n = obj.n_times
+        return n() if callable(n) else n
+    if hasattr(obj, 'num_frames'):
+        return obj.num_frames
+    return 0
+
+
+def _get_spectrogram_n_freqs(obj: Any) -> int:
+    """Get number of frequency bins from a spectrogram object."""
+    if hasattr(obj, 'n_freqs'):
+        n = obj.n_freqs
+        return n() if callable(n) else n
+    if hasattr(obj, 'num_freq_bins'):
+        return obj.num_freq_bins
+    return 0
+
+
+def _get_spectrogram_values(obj: Any) -> np.ndarray:
+    """Get spectrogram power values as 2D array (n_freqs × n_times)."""
+    if hasattr(obj, 'values'):
+        vals = obj.values() if callable(obj.values) else obj.values
+        return np.array(vals)
+    return np.array([])
+
+
 def _call_spectrogram(obj: Any, command: str, args: tuple) -> Any:
     """Handle call() for Spectrogram objects."""
     cmd = _normalize_command(command)
 
     # Get number of frames (n_times)
     if cmd == "get number of frames":
-        return obj.n_times
+        return _get_spectrogram_n_times(obj)
 
     # Get number of frequencies
     elif cmd == "get number of frequencies":
-        return obj.n_freqs
+        return _get_spectrogram_n_freqs(obj)
 
     # Get time from frame number (1-based)
     elif cmd == "get time from frame number" or cmd == "get time from frame number...":
         frame_number = int(args[0])
         # Convert 1-based to 0-based
         frame_idx = frame_number - 1
-        if frame_idx < 0 or frame_idx >= obj.n_times:
+        n_times = _get_spectrogram_n_times(obj)
+        if frame_idx < 0 or frame_idx >= n_times:
             return None
-        # Use xs() which returns time array
-        times = obj.xs()
+        times = _get_spectrogram_times(obj)
         return float(times[frame_idx])
 
     # Get power at (time, frequency)
@@ -1117,26 +1186,29 @@ def _call_spectrogram(obj: Any, command: str, args: tuple) -> Any:
         time = args[0]
         freq = args[1]
 
-        # Find nearest frame and frequency bin
-        # Use xs() and ys() which are the unified API methods
-        times = obj.xs()
-        freqs = obj.ys()
+        times = _get_spectrogram_times(obj)
+        freqs = _get_spectrogram_freqs(obj)
 
         if len(times) == 0 or len(freqs) == 0:
             return None
 
+        n_times = _get_spectrogram_n_times(obj)
+        n_freqs = _get_spectrogram_n_freqs(obj)
+
         # Find nearest time frame
-        time_step = times[1] - times[0] if len(times) > 1 else obj.time_step
+        time_step = times[1] - times[0] if len(times) > 1 else getattr(obj, 'time_step', 0.002)
         time_idx = int(round((time - times[0]) / time_step))
-        time_idx = max(0, min(obj.n_times - 1, time_idx))
+        time_idx = max(0, min(n_times - 1, time_idx))
 
         # Find nearest frequency bin
         freq_step = freqs[1] - freqs[0] if len(freqs) > 1 else 1.0
         freq_idx = int(round((freq - freqs[0]) / freq_step))
-        freq_idx = max(0, min(obj.n_freqs - 1, freq_idx))
+        freq_idx = max(0, min(n_freqs - 1, freq_idx))
 
-        values = obj.values()
-        return float(values[freq_idx, time_idx])
+        values = _get_spectrogram_values(obj)
+        if values.ndim == 2:
+            return float(values[freq_idx, time_idx])
+        return None
 
     else:
         raise PraatCallError(f"Unknown Spectrogram command: '{command}'")

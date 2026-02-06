@@ -275,6 +275,8 @@ class UnifiedIntensity:
 
     @property
     def n_frames(self) -> int:
+        if self._backend == "praatfan_gpl":
+            return self._inner.num_frames
         return self._inner.n_frames
 
     @property
@@ -324,6 +326,8 @@ class UnifiedHarmonicity:
 
     @property
     def n_frames(self) -> int:
+        if self._backend == "praatfan_gpl":
+            return self._inner.num_frames
         return self._inner.n_frames
 
     @property
@@ -1181,7 +1185,8 @@ class PraatfanRustSound(BaseSound):
         spec_freqs = np.array(spec.ys())
         n_times = len(spec_times)
         n_freqs = len(spec_freqs)
-        spec_values = np.array(spec.values()).reshape(n_times, n_freqs)
+        # Rust stores values as (n_freqs × n_times) row-major; transpose to (n_times × n_freqs)
+        spec_values = np.array(spec.values()).reshape(n_freqs, n_times).T
 
         # Create frequency mask for the band
         mask = (spec_freqs >= f_min) & (spec_freqs <= f_max)
@@ -1216,7 +1221,8 @@ class PraatfanRustSound(BaseSound):
         spec_freqs = np.array(spec.ys())
         n_times = len(spec_times)
         n_freqs = len(spec_freqs)
-        spec_values = np.array(spec.values()).reshape(n_times, n_freqs)
+        # Rust stores values as (n_freqs × n_times) row-major; transpose to (n_times × n_freqs)
+        spec_values = np.array(spec.values()).reshape(n_freqs, n_times).T
 
         # Apply power weighting
         weighted = spec_values ** (power / 2)
@@ -1299,7 +1305,8 @@ class PraatfanRustSound(BaseSound):
         spec_freqs = np.array(spec.ys())
         n_times_spec = len(spec_times)
         n_freqs = len(spec_freqs)
-        spec_values = np.array(spec.values()).reshape(n_times_spec, n_freqs)
+        # Rust stores values as (n_freqs × n_times) row-major; transpose to (n_times × n_freqs)
+        spec_values = np.array(spec.values()).reshape(n_freqs, n_times_spec).T
 
         # Initialize result
         result = np.full(len(times), np.nan)
@@ -1351,7 +1358,14 @@ class PraatfanCoreSound(BaseSound):
         return UnifiedPitch(result, self.BACKEND)
 
     def to_pitch_cc(self, time_step=0.0, pitch_floor=75.0, pitch_ceiling=600.0) -> UnifiedPitch:
-        # praatfan_gpl only has to_pitch (AC method), use it for CC as well
+        # praatfan_gpl only has to_pitch (AC method)
+        import warnings
+        warnings.warn(
+            "praatfan_gpl backend does not support cross-correlation pitch. "
+            "Falling back to autocorrelation method.",
+            UserWarning,
+            stacklevel=2
+        )
         result = self._inner.to_pitch(time_step, pitch_floor, pitch_ceiling)
         return UnifiedPitch(result, self.BACKEND)
 
@@ -1635,8 +1649,8 @@ class Sound:
         # Fallback: slice samples array directly
         samples = np.asarray(self.values)
         sr = self.sampling_frequency
-        start_sample = max(0, int(start_time * sr))
-        end_sample = min(len(samples), int(end_time * sr))
+        start_sample = max(0, round(start_time * sr))
+        end_sample = min(len(samples), round(end_time * sr))
         return Sound(samples[start_sample:end_sample].copy(), sr)
 
     def get_spectrum_at_time(self, time: float, window_length: float = 0.025) -> UnifiedSpectrum:

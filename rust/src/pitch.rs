@@ -565,8 +565,8 @@ fn find_cc_peaks(
 ) -> Vec<(f64, f64)> {
     let mut candidates = Vec::new();
 
-    // Find all local maxima
-    for lag in min_lag..max_lag.min(r.len() - 1) {
+    // Find all local maxima (inclusive of max_lag when within bounds)
+    for lag in min_lag..=max_lag.min(r.len() - 2) {
         // Check for local maximum
         if r[lag] > r[lag - 1] && r[lag] > r[lag + 1] {
             let r_curr = r[lag];
@@ -667,8 +667,8 @@ fn find_autocorrelation_peaks(
 
     let mut candidates = Vec::new();
 
-    // Find all peaks in normalized autocorrelation
-    for lag in min_lag..max_lag.min(r_norm.len() - 1) {
+    // Find all peaks in normalized autocorrelation (inclusive of max_lag)
+    for lag in min_lag..=max_lag.min(r_norm.len() - 2) {
         // Check for local maximum
         if r_norm[lag] > r_norm[lag - 1] && r_norm[lag] > r_norm[lag + 1] {
             let r_curr = r_norm[lag];
