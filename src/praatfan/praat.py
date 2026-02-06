@@ -94,13 +94,21 @@ def _call_sound(obj: Any, command: str, args: tuple) -> Any:
 
     # To Pitch (ac)
     if cmd == "to pitch (ac)":
-        # Arguments: time_step, pitch_floor, pitch_ceiling
-        # Optional: very_accurate (ignored), max_candidates, silence_threshold,
-        #           voicing_threshold, octave_cost, octave_jump_cost,
-        #           voiced_unvoiced_cost
+        # Parselmouth full argument order (10 args):
+        #   time_step, pitch_floor, max_candidates, very_accurate,
+        #   silence_threshold, voicing_threshold, octave_cost,
+        #   octave_jump_cost, voiced_unvoiced_cost, pitch_ceiling
+        # Short form (3 args): time_step, pitch_floor, pitch_ceiling
         time_step = args[0] if len(args) > 0 else 0.0
         pitch_floor = args[1] if len(args) > 1 else 75.0
-        pitch_ceiling = args[2] if len(args) > 2 else 600.0
+        if len(args) > 9:
+            # Full parselmouth form: pitch_ceiling is the last (10th) argument
+            pitch_ceiling = args[9]
+        elif len(args) > 2:
+            # Short form: pitch_ceiling is the 3rd argument
+            pitch_ceiling = args[2]
+        else:
+            pitch_ceiling = 600.0
         # Use to_pitch_ac if available, otherwise to_pitch with method parameter
         if hasattr(obj, 'to_pitch_ac'):
             return obj.to_pitch_ac(
@@ -399,6 +407,13 @@ def _convert_pitch_unit(value: float, unit: str) -> float:
         return value
 
 
+def _is_undefined(value, undefined_value) -> bool:
+    """Check if a value matches the undefined sentinel, handling NaN correctly."""
+    if isinstance(undefined_value, float) and np.isnan(undefined_value):
+        return np.isnan(value)
+    return value == undefined_value
+
+
 def _interpolate_at_time(times: np.ndarray, values: np.ndarray, time: float,
                           interpolation: str = "linear", undefined_value: float = 0.0) -> Optional[float]:
     """Interpolate a value at a specific time."""
@@ -418,7 +433,7 @@ def _interpolate_at_time(times: np.ndarray, values: np.ndarray, time: float,
         idx = int(round(idx_float))
         idx = max(0, min(n_frames - 1, idx))
         value = values[idx]
-        if value == undefined_value:
+        if _is_undefined(value, undefined_value):
             return None
         return float(value)
 
@@ -431,13 +446,16 @@ def _interpolate_at_time(times: np.ndarray, values: np.ndarray, time: float,
 
         v1, v2 = values[i1], values[i2]
 
+        v1_undef = _is_undefined(v1, undefined_value)
+        v2_undef = _is_undefined(v2, undefined_value)
+
         # Both must be defined for interpolation
-        if v1 == undefined_value and v2 == undefined_value:
+        if v1_undef and v2_undef:
             return None
-        elif v1 == undefined_value:
-            return float(v2) if v2 != undefined_value else None
-        elif v2 == undefined_value:
-            return float(v1) if v1 != undefined_value else None
+        elif v1_undef:
+            return float(v2)
+        elif v2_undef:
+            return float(v1)
         else:
             return float(v1 * (1 - frac) + v2 * frac)
     else:

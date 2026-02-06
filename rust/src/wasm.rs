@@ -785,7 +785,11 @@ impl Spectrogram {
     }
 
     /// Get power value at a specific time frame and frequency bin.
+    /// Returns NaN if indices are out of bounds.
     pub fn get_value_at(&self, time_frame: usize, freq_bin: usize) -> f64 {
+        if time_frame >= self.inner.n_times() || freq_bin >= self.inner.n_freqs() {
+            return f64::NAN;
+        }
         self.inner.values()[[freq_bin, time_frame]]
     }
 }

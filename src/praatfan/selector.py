@@ -1240,11 +1240,11 @@ class PraatfanRustSound(BaseSound):
                 0
             )
 
-        # Kurtosis (fourth standardized moment)
+        # Kurtosis (fourth standardized moment, excess kurtosis: subtract 3)
         with np.errstate(divide='ignore', invalid='ignore'):
             kurt_spec = np.where(
                 std_spec > 0,
-                np.sum(((spec_freqs - cog_spec[:, np.newaxis]) ** 4) * p, axis=1) / (std_spec ** 4),
+                np.sum(((spec_freqs - cog_spec[:, np.newaxis]) ** 4) * p, axis=1) / (std_spec ** 4) - 3.0,
                 0
             )
 
