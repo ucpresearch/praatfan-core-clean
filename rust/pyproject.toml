@@ -36,7 +36,8 @@ dev = [
 ]
 
 [project.urls]
-Homepage = "https://github.com/your-org/praatfan-core-clean"
+Homepage = "https://github.com/ucpresearch/praatfan-core-clean"
+Repository = "https://github.com/ucpresearch/praatfan-core-clean"
 
 [tool.maturin]
 features = ["python"]

@@ -209,6 +209,7 @@ def sound_to_harmonicity_ac(
         pitch_floor=min_pitch,
         pitch_ceiling=600.0,  # Standard ceiling
         method="ac",
+        silence_threshold=silence_threshold,
         periods_per_window=periods_per_window,
         frame_timing="left",
         apply_octave_cost=False,
@@ -271,6 +272,7 @@ def sound_to_harmonicity_cc(
         pitch_floor=min_pitch,
         pitch_ceiling=600.0,  # Standard ceiling
         method="cc",
+        silence_threshold=silence_threshold,
         periods_per_window=periods_per_window + 1.0,  # +1 for forward CC
         frame_timing="centered",
         apply_octave_cost=False,

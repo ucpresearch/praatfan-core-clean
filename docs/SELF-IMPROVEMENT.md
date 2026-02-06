@@ -414,17 +414,60 @@ For comparison, Pitch AC has P50=0.014 Hz — 60x better than CC.
 The worst CC frames (>10 Hz error) are at phoneme transition points (~0.15s, ~0.93s, ~1.16s)
 where the Viterbi path tracking picks different candidates. The best frames match to 0.00 Hz.
 
-### Possible Deeper Causes (Not Yet Investigated)
+### Deep Investigation: Voicing False Positives (2026-02-06)
 
-1. **CC normalization difference**: Our cross-correlation normalization may differ from Praat's
-   at shorter lags (higher F0 = fewer samples in the correlation window).
+**Finding:** 11 frames where PF voices but PM doesn't, 2 frames PM voices but PF doesn't
+(97.3% voicing agreement). All 11 false positives are at speech onset transitions, 1-3
+frames before PM starts voicing.
 
-2. **Viterbi cost computation**: Different cost weighting between AC and CC paths may cause
-   different candidate selection at transition frames.
+**Root cause analysis:**
+- At these transition frames, CC cross-correlation genuinely finds strong peaks (r=0.53-0.98)
+  because the speech portion of the frame is periodic
+- The unvoiced candidate is weak (0.45) because local_intensity is moderate-to-high
+  (local_peak captures the speech portion of the transition frame)
+- Per-frame, the voiced candidate clearly wins — this is not a Viterbi-only effect
 
-3. **Window function for CC**: CC may use a different window shape or no window at all
-   for the cross-correlation computation.
+**Modifications tested (none improve overall accuracy):**
 
-**Status:** Frame count and timing fixed. Remaining errors are algorithmic differences
-in the CC correlation computation. Further investigation would require deep-diving into
-the per-frame correlation values and candidate strengths.
+| Method | Voicing MM | FP | FN | F0 P50 |
+|--------|-----------|----|----|--------|
+| Current (raw CC) | 13 | 11 | 2 | 0.84 Hz |
+| + intensity adj (0.5r+0.5i) | 26 | 9 | 17 | 0.83 Hz |
+| Windowed CC (Hanning) | 24 | 8 | 16 | 1.51 Hz |
+| Windowed + intensity adj | 39 | 7 | 32 | 1.47 Hz |
+| AC-style (window+autocorr+norm+adj) | 30 | 8 | 22 | 1.10 Hz |
+| AC-style no intensity adj | 12 | 9 | 3 | 1.07 Hz |
+
+All modifications trade false positives for many more false negatives. The current raw CC
+approach gives the fewest total mismatches.
+
+**Interpolation methods tested (no improvement):**
+- Parabolic freq + raw strength (current): P50=0.835 Hz
+- Sinc interp for both: P50=0.861 Hz
+- Parabolic for both: P50=0.835 Hz
+- Sinc depth=200: P50=0.861 Hz
+- Sinc-refined lag via golden search: P50=0.908 Hz
+
+### F0 Error Cascade from Voicing Mismatches
+
+**Key finding:** The worst F0 errors are a direct consequence of voicing mismatches:
+
+| Proximity to FP | Frames | P50 error | Max error |
+|-----------------|--------|-----------|-----------|
+| Within 1 frame | 5 | 4.5 Hz | 11.9 Hz |
+| Within 3 frames | 15 | 6.3 Hz | 31.9 Hz |
+| Within 10 frames | 50 | 2.4 Hz | 31.9 Hz |
+| All 303 frames | 303 | 0.8 Hz | 31.9 Hz |
+
+All 13 errors >5 Hz are within 6 frames of a voicing mismatch (except frames 250-253
+which have a ~6 Hz systematic offset in a stable voiced region). The voicing false positives
+cause our Viterbi to enter the voiced region earlier, choosing a path that favors different
+F0 continuity than PM's path.
+
+### Conclusion
+
+The CC implementation is functionally correct. The remaining differences are inherent to
+subtle algorithmic variations between our clean-room CC and Praat's CC (likely in
+normalization, windowing, or candidate strength computation) that cannot be identified
+without source code access. For reference: AC P50=0.014 Hz (60x better than CC's 0.84 Hz),
+confirming the AC implementation is highly accurate while CC has inherent limitations.

@@ -372,17 +372,15 @@ pub fn sound_to_harmonicity_ac(
 
 /// Compute harmonicity using cross-correlation method.
 ///
-/// This function computes HNR directly from cross-correlation for all frames,
-/// not just pitch-voiced frames. The CC method is more robust to amplitude
-/// variations within the analysis window.
+/// Uses the same approach as AC: compute Pitch CC internally with full
+/// Viterbi voicing decisions, then extract the correlation strength from
+/// voiced frames and apply the HNR formula.
 ///
-/// # Algorithm
-///
-/// For each frame:
-/// 1. Extract samples centered at frame time
-/// 2. Compute normalized cross-correlation for all lags in pitch range
-/// 3. Find the maximum correlation peak
-/// 4. Apply HNR formula to the peak correlation value
+/// Key differences from standard Pitch CC:
+/// - `periods_per_window`: user-specified + 1 (for forward CC, DP29)
+/// - `frame_timing`: Centered
+/// - `apply_octave_cost`: false (raw correlation for HNR)
+/// - `apply_intensity_adjustment`: false (raw correlation for HNR)
 ///
 /// # Arguments
 ///
@@ -390,7 +388,7 @@ pub fn sound_to_harmonicity_ac(
 /// * `time_step` - Time step in seconds
 /// * `min_pitch` - Minimum pitch in Hz
 /// * `silence_threshold` - Silence threshold (0-1)
-/// * `_periods_per_window` - Ignored for CC (uses fixed 2-period window)
+/// * `periods_per_window` - Number of periods per window (Praat default: 1.0)
 ///
 /// # Returns
 ///
@@ -402,138 +400,53 @@ pub fn sound_to_harmonicity_cc(
     silence_threshold: f64,
     periods_per_window: f64,
 ) -> Harmonicity {
-    let samples = sound.samples();
-    let sample_rate = sound.sample_rate();
-    let duration = sound.duration();
+    // Step 1: Compute pitch using CC method with harmonicity-specific settings
+    //
+    // CC window = (ppw + 1) / min_pitch for forward cross-correlation (DP29)
+    // Centered frame timing (matching Pitch CC behavior)
+    // Octave cost and intensity adjustment disabled for raw correlation
+    let pitch = sound_to_pitch_internal(
+        sound,
+        time_step,
+        min_pitch,
+        600.0,                     // Standard pitch ceiling
+        PitchMethod::Cc,
+        0.45,                      // voicing_threshold (Boersma default)
+        silence_threshold,         // User-specified silence threshold
+        0.01,                      // octave_cost
+        0.35,                      // octave_jump_cost
+        0.14,                      // voiced_unvoiced_cost
+        periods_per_window + 1.0,  // +1 for forward CC (DP29)
+        FrameTiming::Centered,     // Centered for CC harmonicity
+        false,                     // apply_octave_cost = false for raw correlation
+        false,                     // apply_intensity_adjustment = false for raw correlation
+    );
 
-    // Standard pitch ceiling
-    let max_pitch = 600.0;
-
-    // CC window = (ppw + 1) / min_pitch to account for forward cross-correlation
-    // needing an extra period (DP29)
-    let window_duration = (periods_per_window + 1.0) / min_pitch;
-    let mut window_samples = (window_duration * sample_rate).round() as usize;
-    if window_samples % 2 == 0 {
-        window_samples += 1;  // Ensure odd for symmetric window
-    }
-    let half_window = window_samples / 2;
-
-    // Lag range for pitch search
-    let min_lag = (sample_rate / max_pitch).ceil() as usize;
-    let max_lag = (sample_rate / min_pitch).floor() as usize;
-
-    // Centered frame timing (matching Pitch CC)
-    let n_frames = ((duration - window_duration) / time_step + 1e-9).floor() as usize + 1;
-    let n_frames = n_frames.max(1);
-    let t1 = (duration - (n_frames - 1) as f64 * time_step) / 2.0;
-
-    // Global peak for silence detection
-    let global_peak = samples.iter().map(|&s| s.abs()).fold(0.0f64, f64::max);
-
-    let n_samples = samples.len();
-    let samples_slice = samples.as_slice().unwrap();
-
-    let mut times = Vec::with_capacity(n_frames);
-    let mut hnr_values = Vec::with_capacity(n_frames);
-
-    // Process each frame
-    for i in 0..n_frames {
-        let t = t1 + i as f64 * time_step;
-        times.push(t);
-
-        // Extract frame centered at time t
-        let center = (t * sample_rate).round() as isize;
-        let start = center - half_window as isize;
-        let end = start + window_samples as isize;
-
-        // Handle boundaries with zero-padding
-        let mut frame = vec![0.0; window_samples];
-        if start < 0 || end > n_samples as isize {
-            let src_start = 0.max(start) as usize;
-            let src_end = (n_samples as isize).min(end) as usize;
-            let dst_start = (src_start as isize - start) as usize;
-            let dst_end = dst_start + (src_end - src_start);
-            frame[dst_start..dst_end].copy_from_slice(&samples_slice[src_start..src_end]);
-        } else {
-            let start = start as usize;
-            let end = end as usize;
-            frame.copy_from_slice(&samples_slice[start..end]);
-        }
-
-        // Check for silence
-        let local_peak = frame.iter().map(|&s| s.abs()).fold(0.0f64, f64::max);
-        let local_intensity = local_peak / (global_peak + 1e-30);
-
-        // Very weak frames are marked as unvoiced
-        if local_intensity < silence_threshold * 0.01 {
-            hnr_values.push(-200.0);
-            continue;
-        }
-
-        // Compute full-frame cross-correlation for all lags
-        // Formula: r(τ) = Σ(x[i]×x[i+τ]) / sqrt(Σx[0:n-τ]² × Σx[τ:n]²)
-        let n = frame.len();
-        let mut r_array = vec![0.0; max_lag + 1];
-
-        for lag in min_lag..=max_lag.min(n - 1) {
-            let x1 = &frame[..n - lag];
-            let x2 = &frame[lag..];
-
-            // Compute correlation (unnormalized)
-            let corr: f64 = x1.iter().zip(x2.iter()).map(|(&a, &b)| a * b).sum();
-
-            // Compute energies of both segments
-            let e1: f64 = x1.iter().map(|&x| x * x).sum();
-            let e2: f64 = x2.iter().map(|&x| x * x).sum();
-
-            // Normalize by geometric mean of energies
-            if e1 > 0.0 && e2 > 0.0 {
-                r_array[lag] = corr / (e1 * e2).sqrt();
-            }
-        }
-
-        // Find best correlation peak with parabolic interpolation
-        let mut best_r = 0.0;
-        for lag in (min_lag + 1)..max_lag.min(r_array.len() - 1) {
-            // Check for local maximum
-            if r_array[lag] > r_array[lag - 1] && r_array[lag] > r_array[lag + 1] {
-                // Parabolic interpolation for refined strength
-                let r_prev = r_array[lag - 1];
-                let r_curr = r_array[lag];
-                let r_next = r_array[lag + 1];
-
-                let denom = r_prev - 2.0 * r_curr + r_next;
-                if denom.abs() > 1e-10 {
-                    let delta = 0.5 * (r_prev - r_next) / denom;
-                    if delta.abs() < 1.0 {
-                        // Interpolated strength at the refined peak position
-                        let refined_r = r_curr - 0.25 * (r_prev - r_next) * delta;
-                        if refined_r > best_r {
-                            best_r = refined_r;
-                        }
-                    } else if r_curr > best_r {
-                        best_r = r_curr;
-                    }
-                } else if r_curr > best_r {
-                    best_r = r_curr;
+    // Step 2: Extract times and convert correlation strengths to HNR
+    let times = pitch.times();
+    let hnr_values: Vec<f64> = pitch
+        .frames()
+        .iter()
+        .map(|frame| {
+            if frame.voiced() {
+                // Voiced frame: convert correlation strength to HNR
+                let r = frame.strength();
+                if r > 0.0 && r < 1.0 {
+                    strength_to_hnr(r)
+                } else {
+                    -200.0
                 }
+            } else {
+                // Unvoiced frame: use marker value
+                -200.0
             }
-        }
-
-        // Convert best correlation to HNR
-        let hnr = if best_r > 0.0 {
-            strength_to_hnr(best_r)
-        } else {
-            -200.0  // No valid peak found
-        };
-
-        hnr_values.push(hnr);
-    }
+        })
+        .collect();
 
     Harmonicity::new(
-        Array1::from_vec(times),
+        times,
         Array1::from_vec(hnr_values),
-        time_step,
+        pitch.time_step(),
         min_pitch,
     )
 }

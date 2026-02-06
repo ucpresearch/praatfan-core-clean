@@ -789,3 +789,7 @@ pitch = call(snd, "To Pitch", 0.01, 75, 600)
 formant = call(snd, "To Formant (burg)", 0.005, 5, 5500, 0.025, 50)
 ```
 
+
+# A notice about the use of pip
+
+Use `uv pip` for `pip`
