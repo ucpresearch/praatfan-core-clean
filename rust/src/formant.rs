@@ -841,12 +841,16 @@ fn resample(samples: &[f64], old_rate: f64, new_rate: f64) -> Vec<f64> {
             new_spectrum[new_length - i] = spectrum[n - i];
         }
 
-        // Handle Nyquist frequency if both signals have even length
-        // The Nyquist component needs special treatment to preserve symmetry
-        if new_length % 2 == 0 && n % 2 == 0 && half_new <= half_n {
-            // Average the positive and negative Nyquist components
-            new_spectrum[half_new] = spectrum[half_n] * 0.5;
-            new_spectrum[half_new] = new_spectrum[half_new] + spectrum[n - half_n] * 0.5;
+        // Handle output Nyquist frequency for even-length output.
+        // When downsampling, the output Nyquist bin (half_new) was copied from
+        // spectrum[half_new] in the positive frequency loop. But this bin's
+        // negative mirror (spectrum[n - half_new]) was lost in the truncation.
+        // We must combine both to preserve the full spectral energy at this
+        // frequency: new[half_new] = spectrum[half_new] + spectrum[n - half_new].
+        // For real signals: spectrum[n-k] = conj(spectrum[k]), so the sum
+        // equals 2 * real(spectrum[half_new]).
+        if new_length % 2 == 0 && half_new < half_n {
+            new_spectrum[half_new] = spectrum[half_new] + spectrum[n - half_new];
         }
     } else {
         // -----------------------------------------------------------------
