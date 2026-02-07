@@ -22,14 +22,14 @@ praatfan provides acoustic analysis functions equivalent to Praat:
 ### Python
 
 ```bash
-# Install from source using maturin
+# From PyPI (recommended)
+pip install praatfan              # Pure Python (works everywhere)
+pip install praatfan-rust         # Rust backend (optional, faster)
+
+# Or build Rust backend from source
 cd rust
 pip install maturin
 maturin develop --features python
-
-# Or build a wheel
-maturin build --features python --release
-pip install target/wheels/praatfan-*.whl
 ```
 
 ### JavaScript/TypeScript (WASM)

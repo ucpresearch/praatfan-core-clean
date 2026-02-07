@@ -654,18 +654,24 @@ cargo test
 
 ### Release Status
 
-**Current version:** v0.1.0 (Pre-release)
+**Current version:** v0.1.1 (Pre-release)
 
 This is a **pre-release** - the API is stabilizing but may still change. Use at your own risk in production.
 
-**Pre-release wheels available at:** https://github.com/ucpresearch/praatfan-core-clean/releases/tag/v0.1.0
+**Install from PyPI:**
+```bash
+pip install praatfan              # Pure Python (all platforms)
+pip install praatfan-rust         # Rust backend (optional, faster)
+```
 
-Available platforms:
-- Pure Python: `praatfan-0.1.0-py3-none-any.whl` (works everywhere)
-- Rust (praatfan_rust): `praatfan_rust-0.1.0-*.whl`
-  - Linux x86_64: Python 3.9, 3.10, 3.11, 3.12
-  - macOS ARM64: Python 3.9, 3.10, 3.11, 3.12
-  - Windows x86_64: Python 3.9, 3.10, 3.11, 3.12
+- PyPI: [praatfan](https://pypi.org/project/praatfan/0.1.1/) | [praatfan-rust](https://pypi.org/project/praatfan-rust/0.1.1/)
+- GitHub: [v0.1.1 release](https://github.com/ucpresearch/praatfan-core-clean/releases/tag/v0.1.1)
+
+Available `praatfan-rust` platforms:
+- Linux x86_64: Python 3.9, 3.10, 3.11, 3.12
+- Linux aarch64: Python 3.12
+- macOS ARM64: Python 3.9, 3.10, 3.11, 3.12
+- Windows x86_64: Python 3.9, 3.10, 3.11, 3.12
 
 ### Repository
 
@@ -673,10 +679,8 @@ Available platforms:
 - **Default branch:** master
 - **CI/CD:** GitHub Actions builds wheels on release creation
 
-### Untracked Files (not committed)
+### Untracked Files
 
-- `rust/examples/dump_f*.rs` - Rust example programs for formant extraction
-- `scripts/*.py` - Comparison and debug scripts used during development
 - `src/praatfan/__pycache__/` - Python cache (gitignored)
 
 ---

@@ -2,41 +2,37 @@
 
 A clean-room reimplementation of Praat's acoustic analysis algorithms, with a unified API that supports multiple backends.
 
-> **Note:** This is a pre-release (v0.1.0). The API is stabilizing but may still change.
+> **Note:** This is a pre-release (v0.1.1). The API is stabilizing but may still change.
 
 ## Installation
 
-### Option 1: Pure Python (from source)
+### From PyPI (recommended)
 
 ```bash
-pip install git+https://github.com/ucpresearch/praatfan-core-clean.git
+# Pure Python implementation (works everywhere)
+pip install praatfan
+
+# Rust-accelerated backend (optional, faster)
+pip install praatfan-rust
 ```
 
-This installs the pure Python implementation. Works everywhere, no compilation needed.
+Both packages are on PyPI: [praatfan](https://pypi.org/project/praatfan/) | [praatfan-rust](https://pypi.org/project/praatfan-rust/)
 
-### Option 2: Pre-built Rust wheels (faster)
-
-Pre-compiled wheels with Rust acceleration are available from [GitHub Releases](https://github.com/ucpresearch/praatfan-core-clean/releases/tag/v0.1.0).
-
-```bash
-# Linux x86_64, Python 3.12
-pip install "https://github.com/ucpresearch/praatfan-core-clean/releases/download/v0.1.0/praatfan_rust-0.1.0-cp312-cp312-manylinux_2_17_x86_64.manylinux2014_x86_64.whl"
-
-# Linux aarch64 (Raspberry Pi), Python 3.12
-pip install "https://github.com/ucpresearch/praatfan-core-clean/releases/download/v0.1.0/praatfan_rust-0.1.0-cp312-cp312-manylinux_2_35_aarch64.whl"
-
-# macOS ARM64 (Apple Silicon), Python 3.12
-pip install "https://github.com/ucpresearch/praatfan-core-clean/releases/download/v0.1.0/praatfan_rust-0.1.0-cp312-cp312-macosx_11_0_arm64.whl"
-
-# Windows x86_64, Python 3.12
-pip install "https://github.com/ucpresearch/praatfan-core-clean/releases/download/v0.1.0/praatfan_rust-0.1.0-cp312-cp312-win_amd64.whl"
-```
-
-Available wheels:
+Available `praatfan-rust` wheels:
 - **Linux x86_64**: Python 3.9, 3.10, 3.11, 3.12
-- **Linux aarch64 (Raspberry Pi)**: Python 3.12
+- **Linux aarch64**: Python 3.12
 - **macOS ARM64**: Python 3.9, 3.10, 3.11, 3.12
 - **Windows x86_64**: Python 3.9, 3.10, 3.11, 3.12
+
+### From source
+
+```bash
+# Pure Python
+pip install git+https://github.com/ucpresearch/praatfan-core-clean.git
+
+# Rust backend (requires Rust toolchain)
+cd rust && pip install maturin && maturin develop --features python
+```
 
 ## Quick Start
 
@@ -130,12 +126,14 @@ Note: parselmouth is GPL-licensed. If you need a permissive license, use the bui
 
 #### praatfan_rust
 
-The Rust-accelerated backend. Install from [pre-built wheels](#option-2-pre-built-rust-wheels-faster), or build from source (requires Rust toolchain):
+The Rust-accelerated backend. Install from PyPI or build from source:
 
 ```bash
-cd rust
-pip install maturin
-maturin develop --features python
+# From PyPI (recommended)
+pip install praatfan-rust
+
+# Or build from source (requires Rust toolchain)
+cd rust && pip install maturin && maturin develop --features python
 ```
 
 #### praatfan_gpl
