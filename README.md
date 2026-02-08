@@ -138,20 +138,11 @@ cd rust && pip install maturin && maturin develop --features python
 
 #### praatfan_gpl
 
-A separate Rust implementation. Install from [GitHub Releases](https://github.com/ucpresearch/praatfan-core-rs/releases):
+A separate Rust implementation:
 
 ```bash
-# Linux x86_64, Python 3.12
-pip install https://github.com/ucpresearch/praatfan-core-rs/releases/download/v0.1.1/praatfan_gpl-0.1.1-cp312-cp312-manylinux_2_17_x86_64.manylinux2014_x86_64.whl
-
-# macOS Apple Silicon, Python 3.12
-pip install https://github.com/ucpresearch/praatfan-core-rs/releases/download/v0.1.1/praatfan_gpl-0.1.1-cp312-cp312-macosx_11_0_arm64.whl
-
-# Windows x86_64, Python 3.12
-pip install https://github.com/ucpresearch/praatfan-core-rs/releases/download/v0.1.1/praatfan_gpl-0.1.1-cp312-cp312-win_amd64.whl
+pip install praatfan-gpl
 ```
-
-See the [praatfan-core-rs releases](https://github.com/ucpresearch/praatfan-core-rs/releases) for other Python versions and platforms.
 
 ## Unified API
 
