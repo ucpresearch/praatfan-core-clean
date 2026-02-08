@@ -12,7 +12,7 @@ crate-type = ["cdylib", "rlib"]
 
 [features]
 default = []
-wasm = ["wasm-bindgen", "js-sys", "serde", "serde-wasm-bindgen", "console_error_panic_hook"]
+wasm = ["wasm-bindgen", "js-sys", "serde", "serde-wasm-bindgen", "console_error_panic_hook", "hound"]
 python = ["pyo3", "numpy"]
 
 [dependencies]
@@ -41,6 +41,7 @@ js-sys = { version = "0.3", optional = true }
 serde = { version = "1.0", features = ["derive"], optional = true }
 serde-wasm-bindgen = { version = "0.6", optional = true }
 console_error_panic_hook = { version = "0.1", optional = true }
+hound = { version = "3.5", optional = true }
 
 # Python bindings (optional, enabled with "python" feature)
 pyo3 = { version = "0.23", features = ["extension-module"], optional = true }

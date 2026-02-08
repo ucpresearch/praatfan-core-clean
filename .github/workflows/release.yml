@@ -116,9 +116,33 @@ jobs:
           name: wheel-windows-py${{ matrix.python-version }}
           path: rust/dist/*.whl
 
+  # Build WASM package
+  build-wasm:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install wasm-pack
+        run: curl https://rustwasm.github.io/wasm-pack/installer/init.sh -sSf | sh
+
+      - name: Build WASM (web target)
+        run: wasm-pack build --target web --features wasm
+        working-directory: rust
+
+      - name: Package WASM artifacts
+        run: |
+          cd rust/pkg
+          tar czf ../praatfan-wasm.tar.gz .
+
+      - name: Upload WASM package
+        uses: actions/upload-artifact@v4
+        with:
+          name: wasm-package
+          path: rust/praatfan-wasm.tar.gz
+
   # Upload all wheels to the GitHub release
   upload-release:
-    needs: [build-python, build-rust-linux-py, build-rust-macos-py, build-rust-windows-py]
+    needs: [build-python, build-rust-linux-py, build-rust-macos-py, build-rust-windows-py, build-wasm]
     runs-on: ubuntu-latest
     if: github.event_name == 'release'
     steps:
@@ -134,7 +158,9 @@ jobs:
       - name: Upload to GitHub Release
         uses: softprops/action-gh-release@v1
         with:
-          files: dist/*.whl
+          files: |
+            dist/*.whl
+            dist/praatfan-wasm.tar.gz
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
 
