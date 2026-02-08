@@ -311,7 +311,10 @@ def _hanning_window_autocorrelation(n: int, lag: int) -> float:
 
 def _compute_window_autocorrelation(window: np.ndarray, max_lag: int) -> np.ndarray:
     """
-    Compute autocorrelation of a window function numerically.
+    Compute autocorrelation of a window function using FFT.
+
+    Uses the Wiener-Khinchin theorem: autocorrelation = IFFT(|FFT(x)|²).
+    Zero-padding ensures linear (non-circular) autocorrelation.
 
     Args:
         window: Window function array
@@ -320,18 +323,15 @@ def _compute_window_autocorrelation(window: np.ndarray, max_lag: int) -> np.ndar
     Returns:
         Array of autocorrelation values from lag 0 to max_lag
     """
-    n = len(window)
-    r = np.zeros(max_lag + 1)
-
-    for lag in range(min(max_lag + 1, n)):
-        r[lag] = np.sum(window[:n-lag] * window[lag:])
-
-    return r
+    return _compute_autocorrelation(window, max_lag)
 
 
 def _compute_autocorrelation(samples: np.ndarray, max_lag: int) -> np.ndarray:
     """
-    Compute autocorrelation for lags 0 to max_lag.
+    Compute autocorrelation for lags 0 to max_lag using FFT.
+
+    Uses the Wiener-Khinchin theorem: autocorrelation = IFFT(|FFT(x)|²).
+    O(n log n) instead of naive O(n × max_lag).
 
     Args:
         samples: Windowed samples
@@ -341,25 +341,31 @@ def _compute_autocorrelation(samples: np.ndarray, max_lag: int) -> np.ndarray:
         Array of autocorrelation values
     """
     n = len(samples)
+    # Pad to >= 2n for linear (non-circular) autocorrelation
+    fft_size = 1
+    while fft_size < 2 * n:
+        fft_size *= 2
+
+    # FFT, power spectrum, IFFT
+    X = np.fft.rfft(samples, n=fft_size)
+    power = X.real ** 2 + X.imag ** 2
+    r_full = np.fft.irfft(power, n=fft_size)
+
+    # Extract lags 0..max_lag
     r = np.zeros(max_lag + 1)
-
-    for lag in range(max_lag + 1):
-        if lag >= n:
-            break
-        r[lag] = np.sum(samples[:n-lag] * samples[lag:])
-
+    valid = min(max_lag + 1, n)
+    r[:valid] = r_full[:valid]
     return r
 
 
 def _compute_cross_correlation(samples: np.ndarray, min_lag: int, max_lag: int) -> np.ndarray:
     """
-    Compute full-frame cross-correlation for the CC pitch method.
+    Compute full-frame cross-correlation for the CC pitch method using FFT.
 
-    For each lag τ, computes the normalized correlation between:
-    - samples[0 : n-τ]  (signal from start to n-τ)
-    - samples[τ : n]    (signal shifted by τ samples)
+    The numerator (unnormalized autocorrelation) is computed via FFT.
+    The denominator (per-lag energy normalization) uses cumulative sums.
 
-    This is normalized by the geometric mean of the energies:
+    For each lag τ:
         r(τ) = Σ(x[i] × x[i+τ]) / sqrt(Σx[0:n-τ]² × Σx[τ:n]²)
 
     Args:
@@ -373,14 +379,26 @@ def _compute_cross_correlation(samples: np.ndarray, min_lag: int, max_lag: int) 
     n = len(samples)
     r = np.zeros(max_lag + 1)
 
-    for lag in range(min_lag, min(max_lag + 1, n)):
-        x1 = samples[:n-lag]
-        x2 = samples[lag:]
+    # Compute unnormalized autocorrelation via FFT
+    fft_size = 1
+    while fft_size < 2 * n:
+        fft_size *= 2
 
-        corr = np.sum(x1 * x2)
-        e1 = np.sum(x1 * x1)
-        e2 = np.sum(x2 * x2)
+    X = np.fft.rfft(samples, n=fft_size)
+    power = X.real ** 2 + X.imag ** 2
+    ac_full = np.fft.irfft(power, n=fft_size)
 
+    # Cumulative sum of squares for energy normalization
+    sq = samples * samples
+    cum_sq = np.zeros(n + 1)
+    cum_sq[1:] = np.cumsum(sq)
+
+    # Normalize each lag
+    end_lag = min(max_lag + 1, n)
+    for lag in range(min_lag, end_lag):
+        corr = ac_full[lag]
+        e1 = cum_sq[n - lag]               # Σ x[0:n-τ]²
+        e2 = cum_sq[n] - cum_sq[lag]       # Σ x[τ:n]²
         if e1 > 0 and e2 > 0:
             r[lag] = corr / np.sqrt(e1 * e2)
 
