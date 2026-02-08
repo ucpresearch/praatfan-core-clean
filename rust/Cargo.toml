@@ -51,6 +51,5 @@ numpy = { version = "0.23", optional = true }
 approx = "0.5"
 
 [profile.release]
-# Optimize for size in WASM builds
 lto = true
-opt-level = "z"
+opt-level = 3

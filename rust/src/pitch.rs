@@ -41,6 +41,7 @@
 //!    across all frames by minimizing transition costs + maximizing strength.
 
 use ndarray::Array1;
+use rustfft::{num_complex::Complex, FftPlanner};
 
 use crate::sound::Sound;
 
@@ -404,88 +405,69 @@ fn hanning_window(n: usize) -> Vec<f64> {
         .collect()
 }
 
-/// Compute autocorrelation of a window function numerically.
+/// Compute autocorrelation using FFT — O(n log n) instead of naive O(n²).
 ///
-/// This is needed for the AC method's normalization (Boersma 1993, Eq. 9).
-/// The window autocorrelation r_w(τ) corrects for the reduced overlap
-/// between the window and itself at larger lags.
+/// Uses the Wiener-Khinchin theorem: autocorrelation = IFFT(|FFT(x)|²).
+/// Zero-padding to 2×n ensures linear (non-circular) autocorrelation.
 ///
-/// # Formula
-///
-/// ```text
-/// r_w(τ) = Σᵢ w(i) × w(i + τ)
-/// ```
+/// This is used for both signal autocorrelation and window autocorrelation
+/// (Boersma 1993, Eq. 9 normalization).
 ///
 /// # Arguments
 ///
-/// * `window` - Window coefficients
+/// * `samples` - Input signal samples (or window coefficients)
 /// * `max_lag` - Maximum lag to compute
-///
-/// # Returns
-///
-/// Vector of autocorrelation values r_w[0..max_lag]
-fn compute_window_autocorrelation(window: &[f64], max_lag: usize) -> Vec<f64> {
-    let n = window.len();
-    let mut r = vec![0.0; max_lag + 1];
-
-    // For each lag, sum product of overlapping window values
-    for lag in 0..=max_lag.min(n - 1) {
-        r[lag] = window[..n - lag]
-            .iter()
-            .zip(window[lag..].iter())
-            .map(|(&a, &b)| a * b)
-            .sum();
-    }
-
-    r
-}
-
-/// Compute autocorrelation for lags 0 to max_lag.
-///
-/// The autocorrelation measures self-similarity at different time shifts.
-/// Peaks in the autocorrelation correspond to periodic components in the signal.
-///
-/// # Formula
-///
-/// ```text
-/// r(τ) = Σᵢ x(i) × x(i + τ)
-/// ```
-///
-/// For pitch detection, we look for the first significant peak after lag 0,
-/// which corresponds to the pitch period.
-///
-/// # Arguments
-///
-/// * `samples` - Input signal samples
-/// * `max_lag` - Maximum lag to compute
+/// * `buffer` - Pre-allocated FFT complex buffer (length = fft_size)
+/// * `fft` - Pre-planned forward FFT
+/// * `ifft` - Pre-planned inverse FFT
+/// * `fft_size` - FFT size (must be >= 2 × samples.len(), power of 2)
 ///
 /// # Returns
 ///
 /// Vector of autocorrelation values r[0..max_lag]
-fn compute_autocorrelation(samples: &[f64], max_lag: usize) -> Vec<f64> {
+fn compute_autocorrelation_fft(
+    samples: &[f64],
+    max_lag: usize,
+    buffer: &mut [Complex<f64>],
+    fft: &dyn rustfft::Fft<f64>,
+    ifft: &dyn rustfft::Fft<f64>,
+    fft_size: usize,
+) -> Vec<f64> {
     let n = samples.len();
-    let mut r = vec![0.0; max_lag + 1];
 
-    for lag in 0..=max_lag {
-        if lag >= n {
-            break;
-        }
-        // Sum product of samples at positions i and i+lag
-        r[lag] = samples[..n - lag]
-            .iter()
-            .zip(samples[lag..].iter())
-            .map(|(&a, &b)| a * b)
-            .sum();
+    // Fill buffer: samples followed by zeros
+    for i in 0..fft_size {
+        buffer[i] = if i < n {
+            Complex::new(samples[i], 0.0)
+        } else {
+            Complex::new(0.0, 0.0)
+        };
+    }
+
+    // Forward FFT
+    fft.process(buffer);
+
+    // Power spectrum: |X[k]|²
+    for x in buffer.iter_mut() {
+        *x = Complex::new(x.norm_sqr(), 0.0);
+    }
+
+    // Inverse FFT
+    ifft.process(buffer);
+
+    // Extract and normalize by fft_size
+    // (rustfft uses unnormalized transforms, so IFFT(|FFT(x)|²)[τ] = fft_size × r(τ))
+    let scale = 1.0 / fft_size as f64;
+    let mut r = vec![0.0; max_lag + 1];
+    for lag in 0..=max_lag.min(n.saturating_sub(1)) {
+        r[lag] = buffer[lag].re * scale;
     }
 
     r
 }
 
-/// Compute full-frame cross-correlation for the CC pitch method.
-///
-/// The cross-correlation method computes the normalized correlation between
-/// the signal and a time-shifted version of itself, normalized by the
-/// geometric mean of the energies in both segments.
+/// Compute cross-correlation using FFT for the numerator and
+/// cumulative sum of squares for the energy normalization denominator.
 ///
 /// # Formula
 ///
@@ -493,35 +475,61 @@ fn compute_autocorrelation(samples: &[f64], max_lag: usize) -> Vec<f64> {
 /// r(τ) = Σ(x[i] × x[i+τ]) / sqrt(Σx[0:n-τ]² × Σx[τ:n]²)
 /// ```
 ///
-/// This normalization makes the CC method more robust to amplitude variations
-/// within the analysis window compared to the AC method.
+/// The numerator uses FFT-based autocorrelation (O(n log n)).
+/// The denominator uses prefix sums of squares (O(n)).
 ///
 /// # Arguments
 ///
 /// * `samples` - Input signal samples
 /// * `min_lag` - Minimum lag (corresponding to pitch_ceiling)
 /// * `max_lag` - Maximum lag (corresponding to pitch_floor)
+/// * `buffer` - Pre-allocated FFT complex buffer
+/// * `fft` - Pre-planned forward FFT
+/// * `ifft` - Pre-planned inverse FFT
+/// * `fft_size` - FFT size
 ///
 /// # Returns
 ///
-/// Vector of correlation values (indices 0..min_lag will be 0)
-fn compute_cross_correlation(samples: &[f64], min_lag: usize, max_lag: usize) -> Vec<f64> {
+/// Vector of normalized correlation values (indices 0..min_lag will be 0)
+fn compute_cross_correlation_fft(
+    samples: &[f64],
+    min_lag: usize,
+    max_lag: usize,
+    buffer: &mut [Complex<f64>],
+    fft: &dyn rustfft::Fft<f64>,
+    ifft: &dyn rustfft::Fft<f64>,
+    fft_size: usize,
+) -> Vec<f64> {
     let n = samples.len();
     let mut r = vec![0.0; max_lag + 1];
 
-    for lag in min_lag..=max_lag.min(n - 1) {
-        // Split signal into two overlapping parts
-        let x1 = &samples[..n - lag];  // First n-lag samples
-        let x2 = &samples[lag..];      // Last n-lag samples
+    // Compute unnormalized autocorrelation via FFT
+    for i in 0..fft_size {
+        buffer[i] = if i < n {
+            Complex::new(samples[i], 0.0)
+        } else {
+            Complex::new(0.0, 0.0)
+        };
+    }
+    fft.process(buffer);
+    for x in buffer.iter_mut() {
+        *x = Complex::new(x.norm_sqr(), 0.0);
+    }
+    ifft.process(buffer);
+    let scale = 1.0 / fft_size as f64;
 
-        // Compute correlation (unnormalized)
-        let corr: f64 = x1.iter().zip(x2.iter()).map(|(&a, &b)| a * b).sum();
+    // Compute cumulative sum of squares for energy normalization
+    // cum_sq[k] = Σᵢ₌₀^{k-1} x[i]²
+    let mut cum_sq = vec![0.0; n + 1];
+    for i in 0..n {
+        cum_sq[i + 1] = cum_sq[i] + samples[i] * samples[i];
+    }
 
-        // Compute energies of both segments
-        let e1: f64 = x1.iter().map(|&x| x * x).sum();
-        let e2: f64 = x2.iter().map(|&x| x * x).sum();
-
-        // Normalize by geometric mean of energies
+    // Normalize each lag by geometric mean of segment energies
+    for lag in min_lag..=max_lag.min(n.saturating_sub(1)) {
+        let corr = buffer[lag].re * scale;
+        let e1 = cum_sq[n - lag]; // Σ x[0:n-τ]²
+        let e2 = cum_sq[n] - cum_sq[lag]; // Σ x[τ:n]²
         if e1 > 0.0 && e2 > 0.0 {
             r[lag] = corr / (e1 * e2).sqrt();
         }
@@ -989,12 +997,23 @@ pub fn sound_to_pitch_internal(
     }
     let half_window_samples = window_samples / 2;
 
-    // For AC method: generate window and compute its autocorrelation
+    // Create FFT workspace — reused for all frames and window autocorrelation.
+    // Pad to >= 2×window_samples (power of 2) to get linear autocorrelation.
+    let mut planner = FftPlanner::new();
+    let fft_size = (2 * window_samples).next_power_of_two();
+    let fft_forward = planner.plan_fft_forward(fft_size);
+    let fft_inverse = planner.plan_fft_inverse(fft_size);
+    let mut fft_buffer = vec![Complex::new(0.0, 0.0); fft_size];
+
+    // For AC method: generate window and compute its autocorrelation via FFT
     // The window autocorrelation is used for normalization (Eq. 9)
     let (window, r_w) = match method {
         PitchMethod::Ac => {
             let w = hanning_window(window_samples);
-            let rw = compute_window_autocorrelation(&w, max_lag);
+            let rw = compute_autocorrelation_fft(
+                &w, max_lag, &mut fft_buffer,
+                &*fft_forward, &*fft_inverse, fft_size,
+            );
             (Some(w), Some(rw))
         }
         PitchMethod::Cc => (None, None),
@@ -1031,6 +1050,10 @@ pub fn sound_to_pitch_internal(
     let mut frames = Vec::with_capacity(n_frames);
     let n_samples = samples.len();
 
+    // Pre-allocate buffers reused across frames
+    let mut frame_samples = vec![0.0; window_samples];
+    let mut windowed = vec![0.0; window_samples];
+
     for i in 0..n_frames {
         let t = t1 + i as f64 * time_step;
 
@@ -1040,7 +1063,10 @@ pub fn sound_to_pitch_internal(
         let end_sample = start_sample + window_samples as isize;
 
         // Handle boundary conditions (zero-pad outside signal)
-        let mut frame_samples = vec![0.0; window_samples];
+        // Clear buffer first, then fill with available samples
+        for x in frame_samples.iter_mut() {
+            *x = 0.0;
+        }
         if start_sample < 0 || end_sample > n_samples as isize {
             // Partial overlap with signal boundaries
             let src_start = 0.max(start_sample) as usize;
@@ -1063,26 +1089,30 @@ pub fn sound_to_pitch_internal(
         // Compute correlation and find peaks based on method
         let peaks = match method {
             PitchMethod::Ac => {
-                // AC method: apply window and compute autocorrelation
+                // AC method: apply window and compute autocorrelation via FFT
                 let window = window.as_ref().unwrap();
                 let r_w = r_w.as_ref().unwrap();
 
-                // Apply window to samples
-                let windowed: Vec<f64> = frame_samples
-                    .iter()
-                    .zip(window.iter())
-                    .map(|(&s, &w)| s * w)
-                    .collect();
+                // Apply window to samples (in-place in pre-allocated buffer)
+                for j in 0..window_samples {
+                    windowed[j] = frame_samples[j] * window[j];
+                }
 
-                // Compute autocorrelation
-                let r = compute_autocorrelation(&windowed, max_lag);
+                // Compute autocorrelation via FFT
+                let r = compute_autocorrelation_fft(
+                    &windowed, max_lag, &mut fft_buffer,
+                    &*fft_forward, &*fft_inverse, fft_size,
+                );
 
                 // Find peaks with window normalization
                 find_autocorrelation_peaks(&r, r_w, min_lag, max_lag, sample_rate, 15, local_intensity, apply_intensity_adjustment)
             }
             PitchMethod::Cc => {
-                // CC method: full-frame cross-correlation on raw samples
-                let r = compute_cross_correlation(&frame_samples, min_lag, max_lag);
+                // CC method: cross-correlation via FFT with energy normalization
+                let r = compute_cross_correlation_fft(
+                    &frame_samples, min_lag, max_lag, &mut fft_buffer,
+                    &*fft_forward, &*fft_inverse, fft_size,
+                );
                 find_cc_peaks(&r, min_lag, max_lag, sample_rate, 15)
             }
         };
