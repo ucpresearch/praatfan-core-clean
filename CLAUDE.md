@@ -650,6 +650,9 @@ wasm-pack build --target nodejs --features wasm  # For Node.js
 cargo test
 ```
 
+**Note:** The WASM build requires `hound` (WAV-only, for in-memory parsing in browsers).
+This is an optional dependency enabled automatically by the `wasm` feature flag.
+
 **For rebuilding and uploading release wheels, see `REBUILD.md`.**
 
 ### Release Status
@@ -677,7 +680,7 @@ Available `praatfan-rust` platforms:
 
 - **Remote:** https://github.com/ucpresearch/praatfan-core-clean
 - **Default branch:** master
-- **CI/CD:** GitHub Actions builds wheels on release creation
+- **CI/CD:** GitHub Actions builds wheels and WASM package on release creation
 
 ### Untracked Files
 
