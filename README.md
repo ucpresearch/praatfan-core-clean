@@ -2,7 +2,7 @@
 
 A clean-room reimplementation of Praat's acoustic analysis algorithms, with a unified API that supports multiple backends.
 
-> **Note:** This is a pre-release (v0.1.1). The API is stabilizing but may still change.
+> **Note:** This is a pre-release (v0.1.2). The API is stabilizing but may still change.
 
 ## Installation
 
