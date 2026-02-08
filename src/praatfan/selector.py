@@ -374,7 +374,10 @@ class UnifiedSpectrum:
         elif self._backend == "praatfan_rust":
             return np.array(self._inner.real()) + 1j * np.array(self._inner.imag())
         elif self._backend == "praatfan_gpl":
-            return np.array(self._inner.real()) + 1j * np.array(self._inner.imag())
+            raise AttributeError(
+                "praatfan_gpl Spectrum does not expose raw complex values. "
+                "Use spectral moment methods (get_center_of_gravity, etc.) instead."
+            )
         raise ValueError(f"Unknown backend: {self._backend}")
 
     def get_center_of_gravity(self, power: float = 2.0) -> float:
