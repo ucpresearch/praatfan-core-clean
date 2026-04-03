@@ -1,3 +1,8 @@
+# TODO: Before 2026-06-02, update actions/checkout, actions/upload-artifact,
+#       actions/download-artifact, and actions/setup-python to versions that
+#       support Node.js 24. Node 20 runners are deprecated and will be forced
+#       to Node 24 on 2026-06-02, removed entirely on 2026-09-16.
+#       See: https://github.blog/changelog/2025-09-19-deprecation-of-node-20-on-github-actions-runners/
 name: Build and Release
 
 on:
