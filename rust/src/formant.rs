@@ -654,7 +654,13 @@ fn lpc_roots(a: &[f64], polish: bool, reflect_unstable: bool) -> Vec<Complex64> 
     // =========================================================================
     // Schur decomposition is more numerically stable than direct eigenvalue
     // computation, especially for non-symmetric matrices like the companion matrix.
-    let schur = companion.schur();
+    // Use try_schur with bounded iterations to avoid hanging on degenerate matrices
+    // where the QR algorithm fails to converge (nalgebra's schur() uses max_niter=0
+    // which means unlimited iterations).
+    let schur = match nalgebra::Schur::try_new(companion, f64::EPSILON, 100 * order) {
+        Some(s) => s,
+        None => return Vec::new(),
+    };
     let eigenvalues = schur.complex_eigenvalues();
 
     // Convert from nalgebra Complex to num_complex Complex64
@@ -1082,11 +1088,18 @@ pub fn sound_to_formant_burg(
         // -----------------------------------------------------------------
         // Convert roots to formant frequencies and bandwidths
         // -----------------------------------------------------------------
-        // Filter out formants outside valid range (50 Hz to max_formant - 50 Hz)
-        let mut formant_points = roots_to_formants(&roots, sample_rate, 50.0, max_formant_hz - 50.0);
-
-        // Keep only the requested number of formants
-        formant_points.truncate(max_num_formants);
+        let formant_points = if roots.is_empty() {
+            // Schur decomposition failed to converge — emit NaN formants
+            (0..max_num_formants)
+                .map(|_| FormantPoint::new(f64::NAN, f64::NAN))
+                .collect()
+        } else {
+            // Filter out formants outside valid range (50 Hz to max_formant - 50 Hz)
+            let mut pts = roots_to_formants(&roots, sample_rate, 50.0, max_formant_hz - 50.0);
+            // Keep only the requested number of formants
+            pts.truncate(max_num_formants);
+            pts
+        };
 
         frames.push(FormantFrame::new(t, formant_points));
     }
