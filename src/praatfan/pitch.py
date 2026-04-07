@@ -41,6 +41,7 @@ class PitchFrame:
     time: float                      # Time in seconds
     candidates: List[PitchCandidate] # Candidates (first is selected)
     intensity: float                 # Local intensity (0-1)
+    raw_autocorrelation_strength: float = 0.0  # Max raw r_norm (0-1, pre-adjustment)
 
     @property
     def frequency(self) -> float:
@@ -130,6 +131,15 @@ class Pitch:
     def strengths(self) -> np.ndarray:
         """Get array of pitch strengths."""
         return np.array([f.strength for f in self._frames])
+
+    def raw_ac_strengths(self) -> np.ndarray:
+        """Get array of raw autocorrelation peak strengths (0-1, purely local).
+
+        Returns the maximum normalized autocorrelation value among all peaks
+        in each frame, before any intensity adjustment, octave cost, or Viterbi
+        selection. Higher = stronger periodicity. File-length independent.
+        """
+        return np.array([f.raw_autocorrelation_strength for f in self._frames])
 
     def get_value_at_time(
         self,
@@ -445,7 +455,7 @@ def _sinc_interpolate(r: np.ndarray, lag: float, depth: int = 70) -> float:
 
 
 def _find_cc_peaks(r: np.ndarray, min_lag: int, max_lag: int,
-                   sample_rate: float, max_candidates: int = 15) -> List[tuple]:
+                   sample_rate: float, max_candidates: int = 15):
     """
     Find peaks in cross-correlation.
 
@@ -460,8 +470,15 @@ def _find_cc_peaks(r: np.ndarray, min_lag: int, max_lag: int,
         max_candidates: Maximum number of candidates
 
     Returns:
-        List of (frequency, strength) tuples, sorted by strength.
+        (candidates, max_raw) where candidates is a list of (frequency, strength)
+        tuples sorted by strength, and max_raw is the maximum raw cross-correlation
+        peak value.
     """
+    # Compute max raw cross-correlation over entire lag range, directly from the buffer.
+    # Bypasses candidate selection for parameter independence.
+    # Clamp to [0, 1].
+    max_raw = min(1.0, float(np.max(r[min_lag:max_lag + 1]))) if min_lag <= max_lag and len(r) > min_lag else 0.0
+
     candidates = []
 
     # Find all peaks
@@ -488,7 +505,7 @@ def _find_cc_peaks(r: np.ndarray, min_lag: int, max_lag: int,
 
     # Sort by strength and return top candidates
     candidates.sort(key=lambda x: x[1], reverse=True)
-    return candidates[:max_candidates]
+    return candidates[:max_candidates], max_raw
 
 
 def _find_autocorrelation_peaks(r: np.ndarray, r_w: np.ndarray,
@@ -497,7 +514,7 @@ def _find_autocorrelation_peaks(r: np.ndarray, r_w: np.ndarray,
                                  max_candidates: int = 15,
                                  use_interpolation: bool = True,
                                  local_intensity: float = 1.0,
-                                 apply_intensity_adjustment: bool = True) -> List[tuple]:
+                                 apply_intensity_adjustment: bool = True):
     """
     Find all autocorrelation peaks in the given lag range.
 
@@ -513,7 +530,9 @@ def _find_autocorrelation_peaks(r: np.ndarray, r_w: np.ndarray,
         local_intensity: Frame intensity relative to global peak (0-1), used for
             voicing strength adjustment
 
-    Returns list of (frequency, strength) tuples, sorted by strength.
+    Returns (candidates, max_raw) where candidates is a list of (frequency,
+    adjusted_strength) tuples sorted by strength, and max_raw is the maximum
+    raw r_norm value across all peaks (before any adjustments).
 
     Note on strength adjustment:
         The returned strength is adjusted by local_intensity to handle a edge case
@@ -528,11 +547,11 @@ def _find_autocorrelation_peaks(r: np.ndarray, r_w: np.ndarray,
         on limited test data and may not be optimal for all audio types.
     """
     if max_lag >= len(r) or max_lag >= len(r_w):
-        return []
+        return [], 0.0
 
     r_0 = r[0]
     if r_0 <= 0:
-        return []
+        return [], 0.0
 
     # Compute normalized autocorrelation array
     r_norm = np.zeros(max_lag + 1)
@@ -541,6 +560,13 @@ def _find_autocorrelation_peaks(r: np.ndarray, r_w: np.ndarray,
             r_norm[lag] = (r[lag] / r_0) / (r_w[lag] / r_w[0])
         else:
             r_norm[lag] = 0
+
+    # Compute max raw r_norm over entire lag range, directly from the buffer.
+    # This bypasses candidate selection (peak detection, filtering, max_candidates cap)
+    # so the result is truly parameter-independent.
+    # Clamp to [0, 1] — normalized autocorrelation can slightly exceed 1.0
+    # due to window normalization artifacts.
+    max_raw = min(1.0, float(np.max(r_norm[min_lag:max_lag + 1]))) if min_lag <= max_lag else 0.0
 
     candidates = []
 
@@ -579,7 +605,7 @@ def _find_autocorrelation_peaks(r: np.ndarray, r_w: np.ndarray,
 
     # Sort by strength and return top candidates
     candidates.sort(key=lambda x: x[1], reverse=True)
-    return candidates[:max_candidates]
+    return candidates[:max_candidates], max_raw
 
 
 def _viterbi_path(frames: List[PitchFrame], time_step: float,
@@ -799,13 +825,13 @@ def sound_to_pitch(
             # AC: Apply window and compute autocorrelation with normalization
             windowed = frame_samples * window
             r = _compute_autocorrelation(windowed, max_lag)
-            peaks = _find_autocorrelation_peaks(r, r_w, min_lag, max_lag, sample_rate,
+            peaks, raw_ac_max = _find_autocorrelation_peaks(r, r_w, min_lag, max_lag, sample_rate,
                                                  local_intensity=local_intensity,
                                                  apply_intensity_adjustment=apply_intensity_adjustment)
         else:
             # CC: Full-frame cross-correlation on raw samples
             r = _compute_cross_correlation(frame_samples, min_lag, max_lag)
-            peaks = _find_cc_peaks(r, min_lag, max_lag, sample_rate)
+            peaks, raw_ac_max = _find_cc_peaks(r, min_lag, max_lag, sample_rate)
 
         # Create candidates list
         candidates = []
@@ -831,7 +857,7 @@ def sound_to_pitch(
         # Sort by strength (highest first)
         candidates.sort(key=lambda c: c.strength, reverse=True)
 
-        frames.append(PitchFrame(t, candidates, local_intensity))
+        frames.append(PitchFrame(t, candidates, local_intensity, raw_ac_max))
 
     # Apply Viterbi path finding to resolve octave errors
     _viterbi_path(frames, time_step, octave_jump_cost, voiced_unvoiced_cost)

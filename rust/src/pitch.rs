@@ -103,15 +103,32 @@ pub struct PitchFrame {
     /// Used for silence detection: weak frames get a bonus for the unvoiced
     /// candidate (Boersma 1993, Eq. 23).
     pub intensity: f64,
+
+    /// Raw autocorrelation peak strength (0-1).
+    ///
+    /// Maximum of the normalized autocorrelation (AC) or cross-correlation (CC)
+    /// across all peaks in the [pitch_floor, pitch_ceiling] lag range, computed
+    /// before any intensity adjustment, octave cost, or Viterbi selection.
+    ///
+    /// Purely local (one analysis window), file-length independent, pre-threshold.
+    /// Higher values indicate stronger periodicity.
+    /// 0.0 when no peaks are found.
+    pub raw_autocorrelation_strength: f64,
 }
 
 impl PitchFrame {
     /// Create a new pitch frame.
-    pub fn new(time: f64, candidates: Vec<PitchCandidate>, intensity: f64) -> Self {
+    pub fn new(
+        time: f64,
+        candidates: Vec<PitchCandidate>,
+        intensity: f64,
+        raw_autocorrelation_strength: f64,
+    ) -> Self {
         Self {
             time,
             candidates,
             intensity,
+            raw_autocorrelation_strength,
         }
     }
 
@@ -258,6 +275,19 @@ impl Pitch {
     /// Get array of pitch strengths.
     pub fn strengths(&self) -> Array1<f64> {
         Array1::from_iter(self.frames.iter().map(|f| f.strength()))
+    }
+
+    /// Get array of raw autocorrelation peak strengths (0-1, purely local).
+    ///
+    /// Returns the maximum normalized autocorrelation value among all peaks
+    /// in each frame, before any intensity adjustment, octave cost, or Viterbi
+    /// selection. Higher = stronger periodicity. File-length independent.
+    pub fn raw_ac_strengths(&self) -> Array1<f64> {
+        Array1::from_iter(
+            self.frames
+                .iter()
+                .map(|f| f.raw_autocorrelation_strength),
+        )
     }
 
     /// Get pitch value at a specific time.
@@ -570,7 +600,16 @@ fn find_cc_peaks(
     max_lag: usize,
     sample_rate: f64,
     max_candidates: usize,
-) -> Vec<(f64, f64)> {
+) -> (Vec<(f64, f64)>, f64) {
+    // Compute max raw cross-correlation over entire lag range, directly from the buffer.
+    // Bypasses candidate selection for parameter independence.
+    // Clamp to [0, 1].
+    let max_raw = r[min_lag..=max_lag.min(r.len() - 1)]
+        .iter()
+        .copied()
+        .fold(0.0_f64, f64::max)
+        .clamp(0.0, 1.0);
+
     let mut candidates = Vec::new();
 
     // Find all local maxima (inclusive of max_lag when within bounds)
@@ -607,7 +646,7 @@ fn find_cc_peaks(
     // Sort by strength (highest first) and truncate
     candidates.sort_by(|a, b| b.1.partial_cmp(&a.1).unwrap_or(std::cmp::Ordering::Equal));
     candidates.truncate(max_candidates);
-    candidates
+    (candidates, max_raw)
 }
 
 /// Find all autocorrelation peaks in the given lag range.
@@ -652,16 +691,16 @@ fn find_autocorrelation_peaks(
     max_candidates: usize,
     local_intensity: f64,
     apply_intensity_adjustment: bool,
-) -> Vec<(f64, f64)> {
+) -> (Vec<(f64, f64)>, f64) {
     // Validate inputs
     if max_lag >= r.len() || max_lag >= r_w.len() {
-        return Vec::new();
+        return (Vec::new(), 0.0);
     }
 
     // r(0) is the total energy - needed for normalization
     let r_0 = r[0];
     if r_0 <= 0.0 {
-        return Vec::new();
+        return (Vec::new(), 0.0);
     }
 
     // Compute normalized autocorrelation array
@@ -673,6 +712,17 @@ fn find_autocorrelation_peaks(
             r_norm[lag] = (r[lag] / r_0) / (r_w[lag] / r_w[0]);
         }
     }
+
+    // Compute max raw r_norm over entire lag range, directly from the buffer.
+    // This bypasses candidate selection (peak detection, filtering, max_candidates cap)
+    // so the result is truly parameter-independent.
+    // Clamp to [0, 1] — normalized autocorrelation can slightly exceed 1.0
+    // due to window normalization artifacts.
+    let max_raw = r_norm[min_lag..=max_lag.min(r_norm.len() - 1)]
+        .iter()
+        .copied()
+        .fold(0.0_f64, f64::max)
+        .clamp(0.0, 1.0);
 
     let mut candidates = Vec::new();
 
@@ -717,7 +767,7 @@ fn find_autocorrelation_peaks(
     // Sort by strength and return top candidates
     candidates.sort_by(|a, b| b.1.partial_cmp(&a.1).unwrap_or(std::cmp::Ordering::Equal));
     candidates.truncate(max_candidates);
-    candidates
+    (candidates, max_raw)
 }
 
 /// Apply Viterbi algorithm to find optimal path through candidates.
@@ -1087,7 +1137,7 @@ pub fn sound_to_pitch_internal(
         let local_intensity = local_peak / (global_peak + 1e-30);
 
         // Compute correlation and find peaks based on method
-        let peaks = match method {
+        let (peaks, raw_ac_max) = match method {
             PitchMethod::Ac => {
                 // AC method: apply window and compute autocorrelation via FFT
                 let window = window.as_ref().unwrap();
@@ -1151,7 +1201,7 @@ pub fn sound_to_pitch_internal(
                 .unwrap_or(std::cmp::Ordering::Equal)
         });
 
-        frames.push(PitchFrame::new(t, candidates, local_intensity));
+        frames.push(PitchFrame::new(t, candidates, local_intensity, raw_ac_max));
     }
 
     // Apply Viterbi path finding to resolve octave errors and voicing decisions

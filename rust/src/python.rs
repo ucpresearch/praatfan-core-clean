@@ -465,6 +465,16 @@ impl PyPitch {
         Ok(dict)
     }
 
+    /// Get per-frame raw autocorrelation peak strengths (range 0-1).
+    ///
+    /// Returns the maximum normalized autocorrelation value among all peaks
+    /// in each frame, before any intensity adjustment, octave cost, or Viterbi
+    /// selection. Higher = stronger periodicity. Purely local and file-length
+    /// independent.
+    fn raw_ac_strengths<'py>(&self, py: Python<'py>) -> Bound<'py, PyArray1<f64>> {
+        self.inner.raw_ac_strengths().to_vec().to_pyarray(py)
+    }
+
     /// Get pitch value at a specific time.
     ///
     /// Parameters

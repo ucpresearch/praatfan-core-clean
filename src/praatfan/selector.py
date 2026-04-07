@@ -127,6 +127,29 @@ class UnifiedPitch:
             return np.where(np.isnan(vals), 0.0, 1.0)
         raise ValueError(f"Unknown backend: {self._backend}")
 
+    def raw_ac_strengths(self) -> np.ndarray:
+        """Raw autocorrelation peak strengths (0-1, purely local, pre-threshold).
+
+        Returns the maximum normalized autocorrelation value among all peaks
+        in each frame, before any intensity adjustment, octave cost, or Viterbi
+        selection. Higher = stronger periodicity. File-length independent.
+        """
+        if self._backend == "praatfan":
+            return self._inner.raw_ac_strengths()
+        elif self._backend == "praatfan_rust":
+            return np.array(self._inner.raw_ac_strengths())
+        elif self._backend == "praatfan_gpl":
+            return np.array(self._inner.raw_ac_strengths())
+        elif self._backend == "parselmouth":
+            import warnings
+            warnings.warn(
+                "parselmouth backend does not provide raw autocorrelation strength. "
+                "Returning Praat's selected_array['strength'] as a proxy (not identical).",
+                stacklevel=2
+            )
+            return self._inner.selected_array['strength']
+        raise ValueError(f"Unknown backend: {self._backend}")
+
     @property
     def n_frames(self) -> int:
         """Number of frames."""

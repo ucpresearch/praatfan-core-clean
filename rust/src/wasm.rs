@@ -421,6 +421,15 @@ impl Pitch {
         self.inner.strengths().to_vec()
     }
 
+    /// Get per-frame raw autocorrelation peak strengths (range 0-1).
+    ///
+    /// Returns the maximum normalized autocorrelation value among all peaks
+    /// in each frame, before any adjustments. Higher = stronger periodicity.
+    /// Purely local and file-length independent.
+    pub fn raw_ac_strengths(&self) -> Vec<f64> {
+        self.inner.raw_ac_strengths().to_vec()
+    }
+
     /// Get time at a specific frame index.
     pub fn get_time_from_frame(&self, frame: usize) -> f64 {
         if frame < self.inner.n_frames() {

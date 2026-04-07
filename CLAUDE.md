@@ -428,6 +428,7 @@ praatfan-core-clean/
 ├── USAGE.md               # Usage guide for Python and WASM APIs
 ├── PLAN.md                # Black-box testing decisions (gitignored)
 ├── PROGRESS.md            # Session progress notes (gitignored)
+├── memory/                # Claude auto-memory (gitignored, syncthinged)
 ├── docs/
 │   ├── RESOURCES.md       # Available documentation sources
 │   ├── RECIPE.md          # Step-by-step implementation guide
@@ -547,6 +548,10 @@ Error distribution (Hz):
 5. **Include error distributions** - Histograms reveal patterns that averages hide
 6. **Track algorithm dependency** - If debugging Harmonicity, note if Pitch was re-validated
 
+### memory/
+
+Claude auto-memory directory. Gitignored but syncthinged across machines. Contains `MEMORY.md` (index) and individual memory files with project state, findings, and release process notes that persist across conversations.
+
 ---
 
 ## ⚡ Quick Reference: What to Do When Stuck
@@ -657,7 +662,7 @@ This is an optional dependency enabled automatically by the `wasm` feature flag.
 
 ### Release Status
 
-**Current version:** v0.1.3 (Pre-release)
+**Current version:** v0.1.4 (Pre-release)
 
 This is a **pre-release** - the API is stabilizing but may still change. Use at your own risk in production.
 
@@ -667,8 +672,8 @@ pip install praatfan              # Pure Python (all platforms)
 pip install praatfan-rust         # Rust backend (optional, faster)
 ```
 
-- PyPI: [praatfan](https://pypi.org/project/praatfan/0.1.3/) | [praatfan-rust](https://pypi.org/project/praatfan-rust/0.1.3/)
-- GitHub: [v0.1.3 release](https://github.com/ucpresearch/praatfan-core-clean/releases/tag/v0.1.3)
+- PyPI: [praatfan](https://pypi.org/project/praatfan/0.1.4/) | [praatfan-rust](https://pypi.org/project/praatfan-rust/0.1.4/)
+- GitHub: [v0.1.4 release](https://github.com/ucpresearch/praatfan-core-clean/releases/tag/v0.1.4)
 
 Available `praatfan-rust` platforms:
 - Linux x86_64: Python 3.9, 3.10, 3.11, 3.12
