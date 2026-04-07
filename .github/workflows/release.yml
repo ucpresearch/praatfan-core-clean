@@ -1,8 +1,3 @@
-# TODO: Before 2026-06-02, update actions/checkout, actions/upload-artifact,
-#       actions/download-artifact, and actions/setup-python to versions that
-#       support Node.js 24. Node 20 runners are deprecated and will be forced
-#       to Node 24 on 2026-06-02, removed entirely on 2026-09-16.
-#       See: https://github.blog/changelog/2025-09-19-deprecation-of-node-20-on-github-actions-runners/
 name: Build and Release
 
 on:
@@ -18,10 +13,10 @@ jobs:
   build-python:
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v6
 
       - name: Set up Python
-        uses: actions/setup-python@v5
+        uses: actions/setup-python@v6
         with:
           python-version: "3.12"
 
@@ -32,7 +27,7 @@ jobs:
         run: python -m build --wheel --outdir dist/
 
       - name: Upload wheel
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v7
         with:
           name: wheel-python
           path: dist/*.whl
@@ -46,7 +41,7 @@ jobs:
       matrix:
         python-version: ["3.9", "3.10", "3.11", "3.12"]
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v6
 
       - name: Build wheels
         uses: PyO3/maturin-action@v1
@@ -58,7 +53,7 @@ jobs:
           manylinux: auto
 
       - name: Upload wheels
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v7
         with:
           name: wheel-linux-py${{ matrix.python-version }}
           path: rust/dist/*.whl
@@ -71,10 +66,10 @@ jobs:
       matrix:
         python-version: ["3.9", "3.10", "3.11", "3.12"]
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v6
 
       - name: Set up Python
-        uses: actions/setup-python@v5
+        uses: actions/setup-python@v6
         with:
           python-version: ${{ matrix.python-version }}
 
@@ -87,7 +82,7 @@ jobs:
           sccache: 'true'
 
       - name: Upload wheels
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v7
         with:
           name: wheel-macos-py${{ matrix.python-version }}
           path: rust/dist/*.whl
@@ -100,10 +95,10 @@ jobs:
       matrix:
         python-version: ["3.9", "3.10", "3.11", "3.12"]
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v6
 
       - name: Set up Python
-        uses: actions/setup-python@v5
+        uses: actions/setup-python@v6
         with:
           python-version: ${{ matrix.python-version }}
 
@@ -116,7 +111,7 @@ jobs:
           sccache: 'true'
 
       - name: Upload wheels
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v7
         with:
           name: wheel-windows-py${{ matrix.python-version }}
           path: rust/dist/*.whl
@@ -125,7 +120,7 @@ jobs:
   build-wasm:
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v6
 
       - name: Install wasm-pack
         run: curl https://rustwasm.github.io/wasm-pack/installer/init.sh -sSf | sh
@@ -140,7 +135,7 @@ jobs:
           tar czf ../praatfan-wasm.tar.gz .
 
       - name: Upload WASM package
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v7
         with:
           name: wasm-package
           path: rust/praatfan-wasm.tar.gz
@@ -152,7 +147,7 @@ jobs:
     if: github.event_name == 'release'
     steps:
       - name: Download all artifacts
-        uses: actions/download-artifact@v4
+        uses: actions/download-artifact@v8
         with:
           path: dist
           merge-multiple: true
@@ -161,7 +156,7 @@ jobs:
         run: ls -la dist/
 
       - name: Upload to GitHub Release
-        uses: softprops/action-gh-release@v1
+        uses: softprops/action-gh-release@v2
         with:
           files: |
             dist/*.whl
@@ -173,10 +168,10 @@ jobs:
   build-sdist:
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v6
 
       - name: Set up Python
-        uses: actions/setup-python@v5
+        uses: actions/setup-python@v6
         with:
           python-version: "3.12"
 
@@ -187,7 +182,7 @@ jobs:
         run: python -m build --sdist --outdir dist/
 
       - name: Upload sdist
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v7
         with:
           name: sdist
           path: dist/*.tar.gz
@@ -198,13 +193,13 @@ jobs:
     if: github.event_name == 'release'
     steps:
       - name: Download sdist
-        uses: actions/download-artifact@v4
+        uses: actions/download-artifact@v8
         with:
           name: sdist
           path: dist
 
       - name: Upload to GitHub Release
-        uses: softprops/action-gh-release@v1
+        uses: softprops/action-gh-release@v2
         with:
           files: dist/*.tar.gz
         env:
