@@ -89,12 +89,13 @@ jobs:
           path: rust/dist/*.whl
 
   # Build for multiple Python versions on Windows ARM64
+  # Note: Python ARM64 on Windows only available from 3.11+
   build-rust-windows-arm64-py:
     runs-on: windows-11-arm
     strategy:
       fail-fast: false
       matrix:
-        python-version: ["3.9", "3.10", "3.11", "3.12"]
+        python-version: ["3.11", "3.12"]
     steps:
       - uses: actions/checkout@v6
 
