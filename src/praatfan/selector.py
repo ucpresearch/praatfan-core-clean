@@ -1010,6 +1010,10 @@ class ParselmouthSound(BaseSound):
     def values(self) -> np.ndarray:
         return self._inner.values[0]  # parselmouth returns 2D
 
+    def resample(self, sample_rate: float) -> "ParselmouthSound":
+        # parselmouth.Sound.resample: FFT-based, Praat-compatible
+        return ParselmouthSound(self._inner.resample(sample_rate))
+
     def __repr__(self):
         return f"Sound<parselmouth>({self.n_samples} samples, {self.sampling_frequency} Hz)"
 
@@ -1114,6 +1118,9 @@ class PraatfanPythonSound(BaseSound):
                                   window_length: float = 0.025) -> np.ndarray:
         return self._inner.get_band_energy_at_times(times, f_min, f_max, window_length)
 
+    def resample(self, sample_rate: float) -> "PraatfanPythonSound":
+        return PraatfanPythonSound(self._inner.resample(sample_rate))
+
     def __repr__(self):
         return f"Sound<praatfan>({self.n_samples} samples, {self.sampling_frequency} Hz)"
 
@@ -1193,6 +1200,9 @@ class PraatfanRustSound(BaseSound):
     @property
     def values(self) -> np.ndarray:
         return self._inner.values()
+
+    def resample(self, sample_rate: float) -> "PraatfanRustSound":
+        return PraatfanRustSound(self._inner.resample(sample_rate))
 
     def __repr__(self):
         return f"Sound<praatfan_rust>({self.n_samples} samples, {self.sampling_frequency} Hz)"
@@ -1480,6 +1490,62 @@ class Sound:
     #
     # This ensures all backends work, even if some are more efficient than others.
     # =========================================================================
+
+    def resample(self, sample_rate: float) -> "Sound":
+        """
+        Return a new Sound resampled to *sample_rate* (Hz).
+
+        Uses the backend's FFT-based Sound_resample (Praat-compatible) when
+        available; otherwise falls back to scipy.signal.resample on the samples
+        and rebuilds via the backend.
+
+        If *sample_rate* is greater than or equal to the current rate, returns
+        a copy without upsampling (matches Praat's Sound_resample behavior).
+        Pre-resampling to exactly ``2 * maximum_formant`` before to_formant_burg
+        makes its internal resample a no-op, enabling caching across repeated
+        Burg calls at the same ceiling.
+        """
+        current_rate = self.sampling_frequency
+
+        if sample_rate >= current_rate:
+            new_sound = Sound.__new__(Sound)
+            new_sound._inner = self._load_from_samples(
+                self._backend, np.asarray(self.values).copy(), current_rate
+            )
+            new_sound._backend = self._backend
+            return new_sound
+
+        # Native path: delegate to backend when available.
+        if hasattr(self._inner, "resample"):
+            inner_resampled = self._inner.resample(sample_rate)
+            inner_values = (
+                inner_resampled.values
+                if hasattr(inner_resampled, "values")
+                else inner_resampled.samples
+            )
+            inner_sr = (
+                inner_resampled.sampling_frequency
+                if hasattr(inner_resampled, "sampling_frequency")
+                else inner_resampled.sample_rate
+            )
+            new_sound = Sound.__new__(Sound)
+            new_sound._inner = self._load_from_samples(
+                self._backend, np.asarray(inner_values), inner_sr
+            )
+            new_sound._backend = self._backend
+            return new_sound
+
+        # Fallback: resample samples here, rebuild via backend.
+        from .formant import _resample
+        new_samples = _resample(
+            np.asarray(self.values), current_rate, sample_rate
+        )
+        new_sound = Sound.__new__(Sound)
+        new_sound._inner = self._load_from_samples(
+            self._backend, new_samples, sample_rate
+        )
+        new_sound._backend = self._backend
+        return new_sound
 
     def extract_part(self, start_time: float, end_time: float) -> "Sound":
         """

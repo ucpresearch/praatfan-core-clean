@@ -801,7 +801,7 @@ fn roots_to_formants(
 /// # Returns
 ///
 /// Resampled audio samples at the new sample rate.
-fn resample(samples: &[f64], old_rate: f64, new_rate: f64) -> Vec<f64> {
+pub(crate) fn resample(samples: &[f64], old_rate: f64, new_rate: f64) -> Vec<f64> {
     // No resampling needed if rates are equal
     if (old_rate - new_rate).abs() < 1e-6 {
         return samples.to_vec();

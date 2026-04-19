@@ -359,6 +359,23 @@ class Sound:
     # the FFT and moment calculations.
     # =========================================================================
 
+    def resample(self, sample_rate: float) -> "Sound":
+        """
+        Return a new Sound resampled to *sample_rate* (Hz).
+
+        Uses FFT-based sinc interpolation (scipy.signal.resample with 5x
+        zero-padding), matching the internal resampler used by to_formant_burg.
+
+        If *sample_rate* is greater than or equal to the current sample rate,
+        returns a copy without upsampling (matches Praat's Sound_resample
+        short-circuit).
+        """
+        if sample_rate >= self._sample_rate:
+            return Sound(self._samples.copy(), self._sample_rate)
+        from .formant import _resample
+        new_samples = _resample(self._samples, self._sample_rate, sample_rate)
+        return Sound(new_samples, sample_rate)
+
     def extract_part(self, start_time: float, end_time: float) -> "Sound":
         """
         Extract a portion of the sound.

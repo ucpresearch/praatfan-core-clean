@@ -489,6 +489,26 @@ impl Sound {
         crate::spectrum::sound_to_spectrum(self, fast)
     }
 
+    /// Return a new Sound resampled to `new_rate` (Hz) using FFT-based sinc
+    /// interpolation (matches Praat's Sound_resample behavior).
+    ///
+    /// If `new_rate` is greater than or equal to the current rate, returns a
+    /// clone without upsampling (matches Praat's short-circuit).
+    pub fn resample(&self, new_rate: f64) -> Sound {
+        if new_rate >= self.sample_rate {
+            return self.clone();
+        }
+        let resampled = crate::formant::resample(
+            self.samples.as_slice().unwrap(),
+            self.sample_rate,
+            new_rate,
+        );
+        Sound {
+            samples: Array1::from_vec(resampled),
+            sample_rate: new_rate,
+        }
+    }
+
     /// Compute intensity contour.
     ///
     /// Intensity represents the loudness (energy) of the signal over time,
