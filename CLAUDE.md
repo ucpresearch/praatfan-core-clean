@@ -662,7 +662,7 @@ This is an optional dependency enabled automatically by the `wasm` feature flag.
 
 ### Release Status
 
-**Current version:** v0.1.4 (Pre-release)
+**Current version:** v0.1.5 (Pre-release)
 
 This is a **pre-release** - the API is stabilizing but may still change. Use at your own risk in production.
 
@@ -672,8 +672,8 @@ pip install praatfan              # Pure Python (all platforms)
 pip install praatfan-rust         # Rust backend (optional, faster)
 ```
 
-- PyPI: [praatfan](https://pypi.org/project/praatfan/0.1.4/) | [praatfan-rust](https://pypi.org/project/praatfan-rust/0.1.4/)
-- GitHub: [v0.1.4 release](https://github.com/ucpresearch/praatfan-core-clean/releases/tag/v0.1.4)
+- PyPI: [praatfan](https://pypi.org/project/praatfan/0.1.5/) | [praatfan-rust](https://pypi.org/project/praatfan-rust/0.1.5/)
+- GitHub: [v0.1.5 release](https://github.com/ucpresearch/praatfan-core-clean/releases/tag/v0.1.5)
 
 Available `praatfan-rust` platforms:
 - Linux x86_64: Python 3.9, 3.10, 3.11, 3.12
