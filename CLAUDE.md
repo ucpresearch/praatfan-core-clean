@@ -684,7 +684,7 @@ Available `praatfan-rust` platforms:
 ### Repository
 
 - **Remote:** https://github.com/ucpresearch/praatfan-core-clean
-- **Default branch:** master
+- **Default branch:** main
 - **CI/CD:** GitHub Actions builds wheels and WASM package on release creation
 
 ### Untracked Files
