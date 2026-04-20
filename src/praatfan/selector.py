@@ -1300,8 +1300,10 @@ class PraatfanCoreSound(BaseSound):
                               pre_emphasis_from=50.0) -> List[UnifiedFormant]:
         ceilings = [float(hz) for hz in maximum_formants]
         if hasattr(self._inner, "to_formant_burg_multi"):
+            # praatfan_gpl signature: (time_step, max_num_formants,
+            # max_formants_hz, window_length, pre_emphasis_from), all positional.
             results = self._inner.to_formant_burg_multi(
-                ceilings, time_step, max_number_of_formants,
+                time_step, max_number_of_formants, ceilings,
                 window_length, pre_emphasis_from,
             )
             return [UnifiedFormant(r, self.BACKEND) for r in results]
