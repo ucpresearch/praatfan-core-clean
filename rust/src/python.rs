@@ -178,6 +178,27 @@ impl PySound {
         }
     }
 
+    /// Extract a contiguous time window as a new Sound.
+    ///
+    /// Indices are rounded to the nearest sample and clamped to the sound's
+    /// duration. Slicing is done in Rust — no numpy round-trip.
+    ///
+    /// Parameters
+    /// ----------
+    /// start_time : float
+    ///     Window start in seconds.
+    /// end_time : float
+    ///     Window end in seconds.
+    ///
+    /// Returns
+    /// -------
+    /// Sound
+    fn extract_part(&self, start_time: f64, end_time: f64) -> PySound {
+        PySound {
+            inner: self.inner.extract_part(start_time, end_time),
+        }
+    }
+
     // ========================================================================
     // Analysis methods - parselmouth-compatible names
     // ========================================================================

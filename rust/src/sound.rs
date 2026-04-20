@@ -323,6 +323,24 @@ impl Sound {
         }
     }
 
+    /// Extract a contiguous time window as a new `Sound`.
+    ///
+    /// `start_time` and `end_time` are in seconds; indices are rounded to the
+    /// nearest sample and clamped to `[0, n_samples]`. If the clamped range is
+    /// empty, the returned `Sound` has zero samples. The sample rate is
+    /// preserved. Performs a single in-Rust copy of the slice — no round-trip
+    /// through Python / numpy.
+    pub fn extract_part(&self, start_time: f64, end_time: f64) -> Self {
+        let n = self.samples.len();
+        let sr = self.sample_rate;
+        let a = (start_time * sr).round().max(0.0) as usize;
+        let a = a.min(n);
+        let b = (end_time * sr).round().max(0.0) as usize;
+        let b = b.min(n).max(a);
+        let slice: Array1<f64> = self.samples.slice(ndarray::s![a..b]).to_owned();
+        Sound::new(slice, sr)
+    }
+
     /// Create a Sound from a slice of samples.
     ///
     /// Convenience constructor that copies data from a slice.

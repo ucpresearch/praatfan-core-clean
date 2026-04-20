@@ -934,6 +934,11 @@ class BaseSound(ABC):
     def duration(self) -> float:
         pass
 
+    @abstractmethod
+    def extract_part(self, start_time: float, end_time: float) -> "BaseSound":
+        """Return a same-backend adapter wrapping the extracted time window."""
+        pass
+
 
 class ParselmouthSound(BaseSound):
     """Adapter for parselmouth backend."""
@@ -1033,6 +1038,14 @@ class ParselmouthSound(BaseSound):
     def resample(self, sample_rate: float) -> "ParselmouthSound":
         # parselmouth.Sound.resample: FFT-based, Praat-compatible
         return ParselmouthSound(self._inner.resample(sample_rate))
+
+    def extract_part(self, start_time: float, end_time: float) -> "ParselmouthSound":
+        # parselmouth's extract_part pads past the sound's bounds; clamp here
+        # so the unified API matches the other backends' in-bounds slice.
+        duration = self._inner.duration
+        s = max(0.0, min(start_time, duration))
+        e = max(s, min(end_time, duration))
+        return ParselmouthSound(self._inner.extract_part(s, e))
 
     def __repr__(self):
         return f"Sound<parselmouth>({self.n_samples} samples, {self.sampling_frequency} Hz)"
@@ -1248,6 +1261,9 @@ class PraatfanRustSound(BaseSound):
     def resample(self, sample_rate: float) -> "PraatfanRustSound":
         return PraatfanRustSound(self._inner.resample(sample_rate))
 
+    def extract_part(self, start_time: float, end_time: float) -> "PraatfanRustSound":
+        return PraatfanRustSound(self._inner.extract_part(start_time, end_time))
+
     def __repr__(self):
         return f"Sound<praatfan_rust>({self.n_samples} samples, {self.sampling_frequency} Hz)"
 
@@ -1361,6 +1377,14 @@ class PraatfanCoreSound(BaseSound):
     def values(self) -> np.ndarray:
         # praatfan_gpl samples is a method, not a property
         return np.array(self._inner.samples())
+
+    def extract_part(self, start_time: float, end_time: float) -> "PraatfanCoreSound":
+        # praatfan_gpl signature: extract_part(start_time, end_time,
+        #   window_shape, relative_width, preserve_times), all positional.
+        # Rectangular / relative_width=1.0 / preserve_times=False → plain slice.
+        return PraatfanCoreSound(
+            self._inner.extract_part(start_time, end_time, "Rectangular", 1.0, False)
+        )
 
     def __repr__(self):
         return f"Sound<praatfan_gpl>({self.n_samples} samples, {self.sampling_frequency} Hz)"
@@ -1633,37 +1657,16 @@ class Sound:
         """
         Extract a portion of the sound between two time points.
 
-        Args:
-            start_time: Start time in seconds.
-            end_time: End time in seconds.
-
-        Returns:
-            New Sound object containing the extracted portion.
-
-        Note:
-            If the backend has a native extract_part method, it is used.
-            Otherwise, falls back to slicing the samples array directly.
+        All four backends expose a native ``extract_part`` (via their adapters),
+        keeping the slice in the backend's native representation — no Python
+        samples round-trip. ``start_time`` and ``end_time`` are clamped to the
+        sound's duration; sample rate is preserved.
         """
-        if hasattr(self._inner, 'extract_part'):
-            # Backend has native implementation - use it
-            result = self._inner.extract_part(start_time, end_time)
-            # Wrap result in a new Sound with the same backend
-            new_sound = Sound.__new__(Sound)
-            # Handle different property names across backends
-            new_sound._inner = self._load_from_samples(
-                self._backend,
-                np.asarray(result.values if hasattr(result, 'values') else result.samples),
-                result.sampling_frequency if hasattr(result, 'sampling_frequency') else result.sample_rate
-            )
-            new_sound._backend = self._backend
-            return new_sound
-
-        # Fallback: slice samples array directly
-        samples = np.asarray(self.values)
-        sr = self.sampling_frequency
-        start_sample = max(0, round(start_time * sr))
-        end_sample = min(len(samples), round(end_time * sr))
-        return Sound(samples[start_sample:end_sample].copy(), sr)
+        inner = self._inner.extract_part(start_time, end_time)
+        new_sound = Sound.__new__(Sound)
+        new_sound._inner = inner
+        new_sound._backend = self._backend
+        return new_sound
 
     def get_spectrum_at_time(self, time: float, window_length: float = 0.025) -> UnifiedSpectrum:
         """
