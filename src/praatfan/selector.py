@@ -891,6 +891,12 @@ class BaseSound(ABC):
         pass
 
     @abstractmethod
+    def to_formant_burg_multi(self, maximum_formants, time_step=0.0,
+                              max_number_of_formants=5, window_length=0.025,
+                              pre_emphasis_from=50.0) -> List[UnifiedFormant]:
+        pass
+
+    @abstractmethod
     def to_intensity(self, minimum_pitch=100.0, time_step=0.0) -> UnifiedIntensity:
         pass
 
@@ -966,6 +972,20 @@ class ParselmouthSound(BaseSound):
                                              maximum_formant=maximum_formant, window_length=window_length,
                                              pre_emphasis_from=pre_emphasis_from)
         return UnifiedFormant(result, self.BACKEND)
+
+    def to_formant_burg_multi(self, maximum_formants, time_step=0.0,
+                              max_number_of_formants=5, window_length=0.025,
+                              pre_emphasis_from=50.0) -> List[UnifiedFormant]:
+        return [
+            self.to_formant_burg(
+                time_step=time_step,
+                max_number_of_formants=max_number_of_formants,
+                maximum_formant=float(hz),
+                window_length=window_length,
+                pre_emphasis_from=pre_emphasis_from,
+            )
+            for hz in maximum_formants
+        ]
 
     def to_intensity(self, minimum_pitch=100.0, time_step=0.0) -> UnifiedIntensity:
         ts = None if time_step == 0.0 else time_step
@@ -1055,6 +1075,20 @@ class PraatfanPythonSound(BaseSound):
                                              window_length=window_length,
                                              pre_emphasis_from=pre_emphasis_from)
         return UnifiedFormant(result, self.BACKEND)
+
+    def to_formant_burg_multi(self, maximum_formants, time_step=0.0,
+                              max_number_of_formants=5, window_length=0.025,
+                              pre_emphasis_from=50.0) -> List[UnifiedFormant]:
+        return [
+            self.to_formant_burg(
+                time_step=time_step,
+                max_number_of_formants=max_number_of_formants,
+                maximum_formant=float(hz),
+                window_length=window_length,
+                pre_emphasis_from=pre_emphasis_from,
+            )
+            for hz in maximum_formants
+        ]
 
     def to_intensity(self, minimum_pitch=100.0, time_step=0.0) -> UnifiedIntensity:
         result = self._inner.to_intensity(min_pitch=minimum_pitch, time_step=time_step)
@@ -1159,6 +1193,16 @@ class PraatfanRustSound(BaseSound):
                                              pre_emphasis_from)
         return UnifiedFormant(result, self.BACKEND)
 
+    def to_formant_burg_multi(self, maximum_formants, time_step=0.0,
+                              max_number_of_formants=5, window_length=0.025,
+                              pre_emphasis_from=50.0) -> List[UnifiedFormant]:
+        ceilings = [float(hz) for hz in maximum_formants]
+        results = self._inner.to_formant_burg_multi(
+            ceilings, time_step, max_number_of_formants,
+            window_length, pre_emphasis_from,
+        )
+        return [UnifiedFormant(r, self.BACKEND) for r in results]
+
     def to_intensity(self, minimum_pitch=100.0, time_step=0.0) -> UnifiedIntensity:
         result = self._inner.to_intensity(minimum_pitch, time_step)
         return UnifiedIntensity(result, self.BACKEND)
@@ -1250,6 +1294,27 @@ class PraatfanCoreSound(BaseSound):
                                              maximum_formant, window_length,
                                              pre_emphasis_from)
         return UnifiedFormant(result, self.BACKEND)
+
+    def to_formant_burg_multi(self, maximum_formants, time_step=0.0,
+                              max_number_of_formants=5, window_length=0.025,
+                              pre_emphasis_from=50.0) -> List[UnifiedFormant]:
+        ceilings = [float(hz) for hz in maximum_formants]
+        if hasattr(self._inner, "to_formant_burg_multi"):
+            results = self._inner.to_formant_burg_multi(
+                ceilings, time_step, max_number_of_formants,
+                window_length, pre_emphasis_from,
+            )
+            return [UnifiedFormant(r, self.BACKEND) for r in results]
+        return [
+            self.to_formant_burg(
+                time_step=time_step,
+                max_number_of_formants=max_number_of_formants,
+                maximum_formant=hz,
+                window_length=window_length,
+                pre_emphasis_from=pre_emphasis_from,
+            )
+            for hz in ceilings
+        ]
 
     def to_intensity(self, minimum_pitch=100.0, time_step=0.0) -> UnifiedIntensity:
         result = self._inner.to_intensity(minimum_pitch, time_step)
@@ -1414,6 +1479,21 @@ class Sound:
         return self._inner.to_formant_burg(time_step, max_number_of_formants,
                                            maximum_formant, window_length,
                                            pre_emphasis_from)
+
+    def to_formant_burg_multi(self, maximum_formants, time_step=0.0,
+                              max_number_of_formants=5, window_length=0.025,
+                              pre_emphasis_from=50.0):
+        """Compute Burg-LPC formants for each ceiling in ``maximum_formants``.
+
+        Equivalent to calling :meth:`to_formant_burg` once per ceiling with all
+        other parameters fixed; returns a list of Formant objects in input
+        order. The praatfan_rust backend runs ceilings in parallel (rayon) with
+        the GIL released; other backends loop.
+        """
+        return self._inner.to_formant_burg_multi(
+            maximum_formants, time_step, max_number_of_formants,
+            window_length, pre_emphasis_from,
+        )
 
     def to_intensity(self, minimum_pitch=100.0, time_step=0.0):
         """Compute intensity contour."""

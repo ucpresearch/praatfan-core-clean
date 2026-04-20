@@ -672,6 +672,29 @@ impl Sound {
         )
     }
 
+    /// Compute Burg-LPC formants for each ceiling in `maximum_formants`.
+    ///
+    /// Equivalent to calling [`Sound::to_formant_burg`] once per ceiling with
+    /// all other parameters fixed. Parallelized with rayon on native targets;
+    /// sequential fallback on `wasm32`.
+    pub fn to_formant_burg_multi(
+        &self,
+        time_step: f64,
+        max_num_formants: usize,
+        maximum_formants: &[f64],
+        window_length: f64,
+        pre_emphasis_from: f64,
+    ) -> Vec<Formant> {
+        crate::formant::sound_to_formant_burg_multi(
+            self,
+            time_step,
+            max_num_formants,
+            maximum_formants,
+            window_length,
+            pre_emphasis_from,
+        )
+    }
+
     /// Compute spectrogram (time-frequency representation).
     ///
     /// The spectrogram shows how spectral energy varies over time,

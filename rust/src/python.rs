@@ -268,6 +268,55 @@ impl PySound {
         }
     }
 
+    /// Compute formants using Burg's LPC method for each ceiling in
+    /// ``maximum_formants``.
+    ///
+    /// Equivalent to calling :meth:`to_formant_burg` once per ceiling with all
+    /// other parameters fixed. Ceilings are processed in parallel (rayon) with
+    /// the GIL released for the duration of the call. Returns a list of
+    /// Formant objects in the same order as the input.
+    ///
+    /// Parameters
+    /// ----------
+    /// maximum_formants : list[float]
+    ///     Maximum formant frequencies in Hz, one per output Formant.
+    /// time_step : float, optional
+    ///     Time step in seconds (0 = auto, default).
+    /// max_number_of_formants : int, optional
+    ///     Maximum number of formants (default: 5).
+    /// window_length : float, optional
+    ///     Window length in seconds (default: 0.025).
+    /// pre_emphasis_from : float, optional
+    ///     Pre-emphasis frequency in Hz (default: 50).
+    ///
+    /// Returns
+    /// -------
+    /// list[Formant]
+    #[pyo3(signature = (maximum_formants, time_step=0.0, max_number_of_formants=5, window_length=0.025, pre_emphasis_from=50.0))]
+    fn to_formant_burg_multi(
+        &self,
+        py: Python<'_>,
+        maximum_formants: Vec<f64>,
+        time_step: f64,
+        max_number_of_formants: usize,
+        window_length: f64,
+        pre_emphasis_from: f64,
+    ) -> Vec<PyFormant> {
+        let formants = py.allow_threads(|| {
+            self.inner.to_formant_burg_multi(
+                time_step,
+                max_number_of_formants,
+                &maximum_formants,
+                window_length,
+                pre_emphasis_from,
+            )
+        });
+        formants
+            .into_iter()
+            .map(|inner| PyFormant { inner })
+            .collect()
+    }
+
     /// Compute intensity contour.
     ///
     /// Parameters

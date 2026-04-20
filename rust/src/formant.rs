@@ -1106,3 +1106,52 @@ pub fn sound_to_formant_burg(
 
     Formant::new(frames, time_step, max_formant_hz, max_num_formants)
 }
+
+/// Compute Burg-LPC formants for each ceiling in `maximum_formants`.
+///
+/// Equivalent to calling [`sound_to_formant_burg`] once per ceiling with all
+/// other parameters fixed. Results are returned in the same order as the input
+/// slice. On native targets, ceilings are processed in parallel via rayon; on
+/// `wasm32` (no threads) a sequential fallback is used.
+pub fn sound_to_formant_burg_multi(
+    sound: &Sound,
+    time_step: f64,
+    max_num_formants: usize,
+    maximum_formants: &[f64],
+    window_length: f64,
+    pre_emphasis_from: f64,
+) -> Vec<Formant> {
+    #[cfg(not(target_arch = "wasm32"))]
+    {
+        use rayon::prelude::*;
+        maximum_formants
+            .par_iter()
+            .map(|&hz| {
+                sound_to_formant_burg(
+                    sound,
+                    time_step,
+                    max_num_formants,
+                    hz,
+                    window_length,
+                    pre_emphasis_from,
+                )
+            })
+            .collect()
+    }
+    #[cfg(target_arch = "wasm32")]
+    {
+        maximum_formants
+            .iter()
+            .map(|&hz| {
+                sound_to_formant_burg(
+                    sound,
+                    time_step,
+                    max_num_formants,
+                    hz,
+                    window_length,
+                    pre_emphasis_from,
+                )
+            })
+            .collect()
+    }
+}
