@@ -122,9 +122,7 @@ class UnifiedPitch:
         elif self._backend == "praatfan_rust":
             return np.array(self._inner.selected_array['strength'])
         elif self._backend == "praatfan_gpl":
-            # praatfan_gpl doesn't have strengths, return ones for voiced frames
-            vals = np.array(self._inner.values())
-            return np.where(np.isnan(vals), 0.0, 1.0)
+            return np.array(self._inner.strengths())
         raise ValueError(f"Unknown backend: {self._backend}")
 
     def raw_ac_strengths(self) -> np.ndarray:
@@ -1292,15 +1290,7 @@ class PraatfanCoreSound(BaseSound):
         return UnifiedPitch(result, self.BACKEND)
 
     def to_pitch_cc(self, time_step=0.0, pitch_floor=75.0, pitch_ceiling=600.0) -> UnifiedPitch:
-        # praatfan_gpl only has to_pitch (AC method)
-        import warnings
-        warnings.warn(
-            "praatfan_gpl backend does not support cross-correlation pitch. "
-            "Falling back to autocorrelation method.",
-            UserWarning,
-            stacklevel=2
-        )
-        result = self._inner.to_pitch(time_step, pitch_floor, pitch_ceiling)
+        result = self._inner.to_pitch_cc(time_step, pitch_floor, pitch_ceiling)
         return UnifiedPitch(result, self.BACKEND)
 
     def to_formant_burg(self, time_step=0.0, max_number_of_formants=5,
@@ -1385,6 +1375,10 @@ class PraatfanCoreSound(BaseSound):
         return PraatfanCoreSound(
             self._inner.extract_part(start_time, end_time, "Rectangular", 1.0, False)
         )
+
+    def resample(self, sample_rate: float) -> "PraatfanCoreSound":
+        # praatfan_gpl's resample is Praat-FFT-based (bit-accurate vs parselmouth).
+        return PraatfanCoreSound(self._inner.resample(sample_rate))
 
     def __repr__(self):
         return f"Sound<praatfan_gpl>({self.n_samples} samples, {self.sampling_frequency} Hz)"
