@@ -122,7 +122,12 @@ class UnifiedPitch:
         elif self._backend == "praatfan_rust":
             return np.array(self._inner.selected_array['strength'])
         elif self._backend == "praatfan_gpl":
-            return np.array(self._inner.strengths())
+            # Native per-frame strengths if the wheel exposes them; older
+            # wheels fall back to a coarse voiced-vs-unvoiced mask.
+            if hasattr(self._inner, "strengths"):
+                return np.array(self._inner.strengths())
+            vals = np.array(self._inner.values())
+            return np.where(np.isnan(vals), 0.0, 1.0)
         raise ValueError(f"Unknown backend: {self._backend}")
 
     def raw_ac_strengths(self) -> np.ndarray:
@@ -1285,12 +1290,24 @@ class PraatfanCoreSound(BaseSound):
         return cls(praatfan_gpl.Sound(samples, sampling_frequency))
 
     def to_pitch_ac(self, time_step=0.0, pitch_floor=75.0, pitch_ceiling=600.0) -> UnifiedPitch:
-        # praatfan_gpl only has to_pitch (AC method)
+        # praatfan_gpl's to_pitch is the AC method.
         result = self._inner.to_pitch(time_step, pitch_floor, pitch_ceiling)
         return UnifiedPitch(result, self.BACKEND)
 
     def to_pitch_cc(self, time_step=0.0, pitch_floor=75.0, pitch_ceiling=600.0) -> UnifiedPitch:
-        result = self._inner.to_pitch_cc(time_step, pitch_floor, pitch_ceiling)
+        # Native FCC cross-correlation if the wheel exposes it; older wheels
+        # (pre-native-CC) fall back to autocorrelation with a warning.
+        if hasattr(self._inner, "to_pitch_cc"):
+            result = self._inner.to_pitch_cc(time_step, pitch_floor, pitch_ceiling)
+            return UnifiedPitch(result, self.BACKEND)
+        import warnings
+        warnings.warn(
+            "praatfan_gpl wheel does not expose to_pitch_cc; falling back to "
+            "autocorrelation. Upgrade praatfan_gpl to get native CC pitch.",
+            UserWarning,
+            stacklevel=2,
+        )
+        result = self._inner.to_pitch(time_step, pitch_floor, pitch_ceiling)
         return UnifiedPitch(result, self.BACKEND)
 
     def to_formant_burg(self, time_step=0.0, max_number_of_formants=5,
@@ -1372,13 +1389,33 @@ class PraatfanCoreSound(BaseSound):
         # praatfan_gpl signature: extract_part(start_time, end_time,
         #   window_shape, relative_width, preserve_times), all positional.
         # Rectangular / relative_width=1.0 / preserve_times=False → plain slice.
-        return PraatfanCoreSound(
-            self._inner.extract_part(start_time, end_time, "Rectangular", 1.0, False)
-        )
+        if hasattr(self._inner, "extract_part"):
+            return PraatfanCoreSound(
+                self._inner.extract_part(start_time, end_time, "Rectangular", 1.0, False)
+            )
+        # Older wheels: reconstruct from samples.
+        import praatfan_gpl
+        samples = np.asarray(self._inner.samples())
+        sr = self._inner.sample_rate
+        n = len(samples)
+        a = max(0, min(n, round(start_time * sr)))
+        b = max(a, min(n, round(end_time * sr)))
+        return PraatfanCoreSound(praatfan_gpl.Sound(samples[a:b].copy(), sr))
 
     def resample(self, sample_rate: float) -> "PraatfanCoreSound":
         # praatfan_gpl's resample is Praat-FFT-based (bit-accurate vs parselmouth).
-        return PraatfanCoreSound(self._inner.resample(sample_rate))
+        # Older wheels lack it — fall back to scipy via _resample helper.
+        if hasattr(self._inner, "resample"):
+            return PraatfanCoreSound(self._inner.resample(sample_rate))
+        import praatfan_gpl
+        from .formant import _resample
+        current_rate = self._inner.sample_rate
+        if sample_rate >= current_rate:
+            return self
+        new_samples = _resample(
+            np.asarray(self._inner.samples()), current_rate, sample_rate
+        )
+        return PraatfanCoreSound(praatfan_gpl.Sound(new_samples, sample_rate))
 
     def __repr__(self):
         return f"Sound<praatfan_gpl>({self.n_samples} samples, {self.sampling_frequency} Hz)"
