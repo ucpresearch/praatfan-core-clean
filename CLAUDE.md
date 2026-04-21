@@ -666,19 +666,20 @@ This is an optional dependency enabled automatically by the `wasm` feature flag.
 
 This is a **pre-release** - the API is stabilizing but may still change. Use at your own risk in production.
 
-### Pending adapter improvements (unreleased — not on PyPI)
+### Pending v0.1.6 (on `main`, unreleased)
 
-After v0.1.5 shipped, praatfan_gpl gained three new native methods:
-`Sound.to_pitch_cc`, `Sound.resample`, and `Pitch.strengths`. The unified
-selector now routes praatfan_gpl through each when present, with `hasattr`
-guards that fall back to prior behavior on older wheels (AC pitch with a
-warning, scipy resample, fake voiced/unvoiced strengths). These adapter
-changes are committed to `main` but intentionally *not* released — plan is
-to roll them into the next bump (probably v0.1.6 in ~1–2 weeks), ideally
-once praatfan_gpl publishes the newer wheel to PyPI so end users actually
-see the native-path wins. Until then, the hasattr guards keep the
-currently-published v0.1.5 plus any stale praatfan_gpl combination
-working without regressions.
+After v0.1.5 shipped, `praatfan-gpl==0.1.5` published to PyPI with three
+new native methods: `Sound.to_pitch_cc`, `Sound.resample`, and
+`Pitch.strengths`. The unified selector on `main` now routes praatfan_gpl
+through each — all `hasattr`-guarded so older wheels keep working via
+fallbacks (AC pitch with warning, scipy resample, voiced-mask strengths).
+
+End-to-end verified against published `praatfan-gpl==0.1.5` on 2026-04-20:
+all four natives (incl. `to_formant_burg_multi` from v0.1.5) exercise via
+the unified interface; full 96-test suite passes with zero warnings.
+
+Plan: roll these adapter wins into the next bump (~1–2 weeks) rather than
+chain a v0.1.6 right after v0.1.5. No PyPI action needed today.
 
 **Install from PyPI:**
 ```bash
