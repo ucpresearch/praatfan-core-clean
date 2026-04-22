@@ -791,8 +791,13 @@ def sound_to_pitch(
             n_frames = 1
         t1 = (duration - (n_frames - 1) * time_step) / 2.0
 
-    # Compute global peak for silence detection
-    global_peak = np.max(np.abs(samples))
+    # Compute global peak for silence detection.
+    # 99.99th percentile rather than true max: robust to single-sample transients
+    # (clicks, coughs) that would otherwise inflate the denominator and cause
+    # Boersma's silence bonus to fire on normal-level voiced frames. Chosen by
+    # black-box minimizing frame-level voicing disagreement with praatfan_gpl
+    # across s0101a and fixture files (see memory/silence_normalization.md).
+    global_peak = np.percentile(np.abs(samples), 99.99)
 
     # Process each frame
     frames = []

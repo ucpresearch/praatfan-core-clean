@@ -678,8 +678,28 @@ End-to-end verified against published `praatfan-gpl==0.1.5` on 2026-04-20:
 all four natives (incl. `to_formant_burg_multi` from v0.1.5) exercise via
 the unified interface; full 96-test suite passes with zero warnings.
 
-Plan: roll these adapter wins into the next bump (~1–2 weeks) rather than
-chain a v0.1.6 right after v0.1.5. No PyPI action needed today.
+**Pitch threshold kwargs exposed (2026-04-22):** `Sound.to_pitch_ac` and
+`Sound.to_pitch_cc` on the unified interface now accept the full Boersma
+(1993) tuning set — `voicing_threshold`, `silence_threshold`, `octave_cost`,
+`octave_jump_cost`, `voiced_unvoiced_cost` — plumbed through all four
+backends. Previously only parselmouth and praatfan_gpl accepted them; the
+pure-Python and Rust PyO3 bindings now do too. Rust bindings rebuilt
+locally (`maturin develop --features python`), Python bindings are direct
+source edits — all ready locally, no wheel upload yet.
+
+**Silence-normalization fix (2026-04-22):** `global_peak` used by Boersma's
+silence-detection bonus now uses `np.percentile(|samples|, 99.99)` instead
+of `np.max(|samples|)` in both pure-Python (`src/praatfan/pitch.py`) and
+Rust (`rust/src/pitch.rs`). Fixes over-silencing on files with a single
+loud transient dominating dynamic range (Buckeye s0101a: 234 → 87 frame
+disagreements with praatfan_gpl on 0-60s; 328 → 270 on 60-120s). Chosen by
+black-box minimizing voicing disagreement vs praatfan_gpl across 4 files;
+see `memory/silence_normalization.md` for the comparison table.
+
+Plan: roll all three sets of changes (adapter wins + threshold kwargs +
+silence-normalization fix) into the next bump (~1–2 weeks) rather than
+chain a v0.1.6 right after v0.1.5. No PyPI action needed today. Tests:
+full 112-test suite passes locally (96 prior + 16 new threshold tests).
 
 **Install from PyPI:**
 ```bash

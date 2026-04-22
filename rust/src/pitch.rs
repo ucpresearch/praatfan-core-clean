@@ -1092,9 +1092,25 @@ pub fn sound_to_pitch_internal(
         }
     };
 
-    // Compute global peak for silence detection
-    // This is used to determine local intensity relative to overall signal
-    let global_peak = samples.iter().map(|&s| s.abs()).fold(0.0f64, f64::max);
+    // Compute global peak for silence detection.
+    // 99.99th percentile rather than true max: robust to single-sample transients
+    // (clicks, coughs) that would otherwise inflate the denominator and cause
+    // Boersma's silence bonus to fire on normal-level voiced frames. Chosen by
+    // black-box minimizing frame-level voicing disagreement with praatfan_gpl.
+    let global_peak = {
+        let mut abs_samples: Vec<f64> = samples.iter().map(|&s| s.abs()).collect();
+        if abs_samples.is_empty() {
+            0.0
+        } else {
+            // Element at rank floor(0.9999 * (n - 1)) is the p99.99 value.
+            // select_nth_unstable_by partitions in linear time.
+            let n = abs_samples.len();
+            let k = ((n - 1) as f64 * 0.9999) as usize;
+            let (_, pivot, _) = abs_samples
+                .select_nth_unstable_by(k, |a, b| a.partial_cmp(b).unwrap());
+            *pivot
+        }
+    };
 
     // Process each frame
     let mut frames = Vec::with_capacity(n_frames);
