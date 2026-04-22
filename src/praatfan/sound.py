@@ -218,7 +218,12 @@ class Sound:
         time_step: float = 0.0,
         pitch_floor: float = 75.0,
         pitch_ceiling: float = 600.0,
-        method: str = "ac"
+        method: str = "ac",
+        voicing_threshold: float = 0.45,
+        silence_threshold: float = 0.03,
+        octave_cost: float = 0.01,
+        octave_jump_cost: float = 0.35,
+        voiced_unvoiced_cost: float = 0.14,
     ) -> "Pitch":
         """
         Compute pitch (F0) contour.
@@ -228,14 +233,31 @@ class Sound:
             pitch_floor: Minimum pitch in Hz
             pitch_ceiling: Maximum pitch in Hz
             method: Analysis method ("ac" for autocorrelation, "cc" for cross-correlation)
+            voicing_threshold: Voicing threshold (Boersma 1993, default 0.45)
+            silence_threshold: Silence threshold (Boersma 1993, default 0.03).
+                Frames with local_peak/global_peak < 2*silence_threshold get
+                an unvoiced bonus. Lower this on files with a loud transient
+                that inflates the global peak (e.g., clicks, coughs).
+            octave_cost: Octave cost (default 0.01)
+            octave_jump_cost: Cost for octave jumps across frames (default 0.35)
+            voiced_unvoiced_cost: Cost for voicing transitions (default 0.14)
 
         Returns:
             Pitch object
         """
         from .pitch import sound_to_pitch
-        return sound_to_pitch(self, time_step=time_step,
-                             pitch_floor=pitch_floor, pitch_ceiling=pitch_ceiling,
-                             method=method)
+        return sound_to_pitch(
+            self,
+            time_step=time_step,
+            pitch_floor=pitch_floor,
+            pitch_ceiling=pitch_ceiling,
+            method=method,
+            voicing_threshold=voicing_threshold,
+            silence_threshold=silence_threshold,
+            octave_cost=octave_cost,
+            octave_jump_cost=octave_jump_cost,
+            voiced_unvoiced_cost=voiced_unvoiced_cost,
+        )
 
     def to_harmonicity_ac(
         self,

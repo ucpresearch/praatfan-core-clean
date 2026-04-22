@@ -51,7 +51,7 @@ use pyo3::types::PyDict;
 use crate::formant::Formant as RustFormant;
 use crate::harmonicity::Harmonicity as RustHarmonicity;
 use crate::intensity::Intensity as RustIntensity;
-use crate::pitch::Pitch as RustPitch;
+use crate::pitch::{sound_to_pitch_internal, FrameTiming, Pitch as RustPitch, PitchMethod};
 use crate::sound::Sound as RustSound;
 use crate::spectrogram::Spectrogram as RustSpectrogram;
 use crate::spectrum::Spectrum as RustSpectrum;
@@ -217,10 +217,45 @@ impl PySound {
     /// Returns
     /// -------
     /// Pitch
-    #[pyo3(signature = (time_step=0.0, pitch_floor=75.0, pitch_ceiling=600.0))]
-    fn to_pitch_ac(&self, time_step: f64, pitch_floor: f64, pitch_ceiling: f64) -> PyPitch {
+    #[allow(clippy::too_many_arguments)]
+    #[pyo3(signature = (
+        time_step=0.0,
+        pitch_floor=75.0,
+        pitch_ceiling=600.0,
+        voicing_threshold=0.45,
+        silence_threshold=0.03,
+        octave_cost=0.01,
+        octave_jump_cost=0.35,
+        voiced_unvoiced_cost=0.14,
+    ))]
+    fn to_pitch_ac(
+        &self,
+        time_step: f64,
+        pitch_floor: f64,
+        pitch_ceiling: f64,
+        voicing_threshold: f64,
+        silence_threshold: f64,
+        octave_cost: f64,
+        octave_jump_cost: f64,
+        voiced_unvoiced_cost: f64,
+    ) -> PyPitch {
         PyPitch {
-            inner: self.inner.to_pitch_ac(time_step, pitch_floor, pitch_ceiling),
+            inner: sound_to_pitch_internal(
+                &self.inner,
+                time_step,
+                pitch_floor,
+                pitch_ceiling,
+                PitchMethod::Ac,
+                voicing_threshold,
+                silence_threshold,
+                octave_cost,
+                octave_jump_cost,
+                voiced_unvoiced_cost,
+                3.0,
+                FrameTiming::Centered,
+                true,
+                true,
+            ),
         }
     }
 
@@ -234,21 +269,96 @@ impl PySound {
     ///     Minimum pitch in Hz (default: 75)
     /// pitch_ceiling : float, optional
     ///     Maximum pitch in Hz (default: 600)
+    /// voicing_threshold : float, optional
+    ///     Voicing threshold (default: 0.45).
+    /// silence_threshold : float, optional
+    ///     Silence threshold (default: 0.03). Lower on files whose global
+    ///     peak is dominated by a loud transient.
+    /// octave_cost : float, optional
+    ///     Octave cost (default: 0.01).
+    /// octave_jump_cost : float, optional
+    ///     Cost for octave jumps across frames (default: 0.35).
+    /// voiced_unvoiced_cost : float, optional
+    ///     Cost for voicing transitions (default: 0.14).
     ///
     /// Returns
     /// -------
     /// Pitch
-    #[pyo3(signature = (time_step=0.0, pitch_floor=75.0, pitch_ceiling=600.0))]
-    fn to_pitch_cc(&self, time_step: f64, pitch_floor: f64, pitch_ceiling: f64) -> PyPitch {
+    #[allow(clippy::too_many_arguments)]
+    #[pyo3(signature = (
+        time_step=0.0,
+        pitch_floor=75.0,
+        pitch_ceiling=600.0,
+        voicing_threshold=0.45,
+        silence_threshold=0.03,
+        octave_cost=0.01,
+        octave_jump_cost=0.35,
+        voiced_unvoiced_cost=0.14,
+    ))]
+    fn to_pitch_cc(
+        &self,
+        time_step: f64,
+        pitch_floor: f64,
+        pitch_ceiling: f64,
+        voicing_threshold: f64,
+        silence_threshold: f64,
+        octave_cost: f64,
+        octave_jump_cost: f64,
+        voiced_unvoiced_cost: f64,
+    ) -> PyPitch {
         PyPitch {
-            inner: self.inner.to_pitch_cc(time_step, pitch_floor, pitch_ceiling),
+            inner: sound_to_pitch_internal(
+                &self.inner,
+                time_step,
+                pitch_floor,
+                pitch_ceiling,
+                PitchMethod::Cc,
+                voicing_threshold,
+                silence_threshold,
+                octave_cost,
+                octave_jump_cost,
+                voiced_unvoiced_cost,
+                2.0,
+                FrameTiming::Centered,
+                true,
+                true,
+            ),
         }
     }
 
     /// Alias for to_pitch_ac (parselmouth compatibility).
-    #[pyo3(signature = (time_step=0.0, pitch_floor=75.0, pitch_ceiling=600.0))]
-    fn to_pitch(&self, time_step: f64, pitch_floor: f64, pitch_ceiling: f64) -> PyPitch {
-        self.to_pitch_ac(time_step, pitch_floor, pitch_ceiling)
+    #[allow(clippy::too_many_arguments)]
+    #[pyo3(signature = (
+        time_step=0.0,
+        pitch_floor=75.0,
+        pitch_ceiling=600.0,
+        voicing_threshold=0.45,
+        silence_threshold=0.03,
+        octave_cost=0.01,
+        octave_jump_cost=0.35,
+        voiced_unvoiced_cost=0.14,
+    ))]
+    fn to_pitch(
+        &self,
+        time_step: f64,
+        pitch_floor: f64,
+        pitch_ceiling: f64,
+        voicing_threshold: f64,
+        silence_threshold: f64,
+        octave_cost: f64,
+        octave_jump_cost: f64,
+        voiced_unvoiced_cost: f64,
+    ) -> PyPitch {
+        self.to_pitch_ac(
+            time_step,
+            pitch_floor,
+            pitch_ceiling,
+            voicing_threshold,
+            silence_threshold,
+            octave_cost,
+            octave_jump_cost,
+            voiced_unvoiced_cost,
+        )
     }
 
     /// Compute formants using Burg's LPC method.

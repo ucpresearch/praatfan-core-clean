@@ -880,11 +880,17 @@ class BaseSound(ABC):
     """
 
     @abstractmethod
-    def to_pitch_ac(self, time_step=0.0, pitch_floor=75.0, pitch_ceiling=600.0) -> UnifiedPitch:
+    def to_pitch_ac(self, time_step=0.0, pitch_floor=75.0, pitch_ceiling=600.0,
+                    voicing_threshold=0.45, silence_threshold=0.03,
+                    octave_cost=0.01, octave_jump_cost=0.35,
+                    voiced_unvoiced_cost=0.14) -> UnifiedPitch:
         pass
 
     @abstractmethod
-    def to_pitch_cc(self, time_step=0.0, pitch_floor=75.0, pitch_ceiling=600.0) -> UnifiedPitch:
+    def to_pitch_cc(self, time_step=0.0, pitch_floor=75.0, pitch_ceiling=600.0,
+                    voicing_threshold=0.45, silence_threshold=0.03,
+                    octave_cost=0.01, octave_jump_cost=0.35,
+                    voiced_unvoiced_cost=0.14) -> UnifiedPitch:
         pass
 
     @abstractmethod
@@ -961,15 +967,31 @@ class ParselmouthSound(BaseSound):
         import parselmouth
         return cls(parselmouth.Sound(samples, sampling_frequency))
 
-    def to_pitch_ac(self, time_step=0.0, pitch_floor=75.0, pitch_ceiling=600.0) -> UnifiedPitch:
+    def to_pitch_ac(self, time_step=0.0, pitch_floor=75.0, pitch_ceiling=600.0,
+                    voicing_threshold=0.45, silence_threshold=0.03,
+                    octave_cost=0.01, octave_jump_cost=0.35,
+                    voiced_unvoiced_cost=0.14) -> UnifiedPitch:
         # parselmouth uses None for auto time_step, not 0.0
         ts = None if time_step == 0.0 else time_step
-        result = self._inner.to_pitch_ac(time_step=ts, pitch_floor=pitch_floor, pitch_ceiling=pitch_ceiling)
+        result = self._inner.to_pitch_ac(
+            time_step=ts, pitch_floor=pitch_floor, pitch_ceiling=pitch_ceiling,
+            silence_threshold=silence_threshold, voicing_threshold=voicing_threshold,
+            octave_cost=octave_cost, octave_jump_cost=octave_jump_cost,
+            voiced_unvoiced_cost=voiced_unvoiced_cost,
+        )
         return UnifiedPitch(result, self.BACKEND)
 
-    def to_pitch_cc(self, time_step=0.0, pitch_floor=75.0, pitch_ceiling=600.0) -> UnifiedPitch:
+    def to_pitch_cc(self, time_step=0.0, pitch_floor=75.0, pitch_ceiling=600.0,
+                    voicing_threshold=0.45, silence_threshold=0.03,
+                    octave_cost=0.01, octave_jump_cost=0.35,
+                    voiced_unvoiced_cost=0.14) -> UnifiedPitch:
         ts = None if time_step == 0.0 else time_step
-        result = self._inner.to_pitch_cc(time_step=ts, pitch_floor=pitch_floor, pitch_ceiling=pitch_ceiling)
+        result = self._inner.to_pitch_cc(
+            time_step=ts, pitch_floor=pitch_floor, pitch_ceiling=pitch_ceiling,
+            silence_threshold=silence_threshold, voicing_threshold=voicing_threshold,
+            octave_cost=octave_cost, octave_jump_cost=octave_jump_cost,
+            voiced_unvoiced_cost=voiced_unvoiced_cost,
+        )
         return UnifiedPitch(result, self.BACKEND)
 
     def to_formant_burg(self, time_step=0.0, max_number_of_formants=5,
@@ -1072,14 +1094,30 @@ class PraatfanPythonSound(BaseSound):
         from praatfan.sound import Sound as PfSound
         return cls(PfSound(samples, sampling_frequency))
 
-    def to_pitch_ac(self, time_step=0.0, pitch_floor=75.0, pitch_ceiling=600.0) -> UnifiedPitch:
-        result = self._inner.to_pitch(time_step=time_step, pitch_floor=pitch_floor,
-                                      pitch_ceiling=pitch_ceiling, method="ac")
+    def to_pitch_ac(self, time_step=0.0, pitch_floor=75.0, pitch_ceiling=600.0,
+                    voicing_threshold=0.45, silence_threshold=0.03,
+                    octave_cost=0.01, octave_jump_cost=0.35,
+                    voiced_unvoiced_cost=0.14) -> UnifiedPitch:
+        result = self._inner.to_pitch(
+            time_step=time_step, pitch_floor=pitch_floor,
+            pitch_ceiling=pitch_ceiling, method="ac",
+            voicing_threshold=voicing_threshold, silence_threshold=silence_threshold,
+            octave_cost=octave_cost, octave_jump_cost=octave_jump_cost,
+            voiced_unvoiced_cost=voiced_unvoiced_cost,
+        )
         return UnifiedPitch(result, self.BACKEND)
 
-    def to_pitch_cc(self, time_step=0.0, pitch_floor=75.0, pitch_ceiling=600.0) -> UnifiedPitch:
-        result = self._inner.to_pitch(time_step=time_step, pitch_floor=pitch_floor,
-                                      pitch_ceiling=pitch_ceiling, method="cc")
+    def to_pitch_cc(self, time_step=0.0, pitch_floor=75.0, pitch_ceiling=600.0,
+                    voicing_threshold=0.45, silence_threshold=0.03,
+                    octave_cost=0.01, octave_jump_cost=0.35,
+                    voiced_unvoiced_cost=0.14) -> UnifiedPitch:
+        result = self._inner.to_pitch(
+            time_step=time_step, pitch_floor=pitch_floor,
+            pitch_ceiling=pitch_ceiling, method="cc",
+            voicing_threshold=voicing_threshold, silence_threshold=silence_threshold,
+            octave_cost=octave_cost, octave_jump_cost=octave_jump_cost,
+            voiced_unvoiced_cost=voiced_unvoiced_cost,
+        )
         return UnifiedPitch(result, self.BACKEND)
 
     def to_formant_burg(self, time_step=0.0, max_number_of_formants=5,
@@ -1193,12 +1231,26 @@ class PraatfanRustSound(BaseSound):
         import praatfan_rust
         return cls(praatfan_rust.Sound(samples, sampling_frequency=sampling_frequency))
 
-    def to_pitch_ac(self, time_step=0.0, pitch_floor=75.0, pitch_ceiling=600.0) -> UnifiedPitch:
-        result = self._inner.to_pitch_ac(time_step, pitch_floor, pitch_ceiling)
+    def to_pitch_ac(self, time_step=0.0, pitch_floor=75.0, pitch_ceiling=600.0,
+                    voicing_threshold=0.45, silence_threshold=0.03,
+                    octave_cost=0.01, octave_jump_cost=0.35,
+                    voiced_unvoiced_cost=0.14) -> UnifiedPitch:
+        result = self._inner.to_pitch_ac(
+            time_step, pitch_floor, pitch_ceiling,
+            voicing_threshold, silence_threshold,
+            octave_cost, octave_jump_cost, voiced_unvoiced_cost,
+        )
         return UnifiedPitch(result, self.BACKEND)
 
-    def to_pitch_cc(self, time_step=0.0, pitch_floor=75.0, pitch_ceiling=600.0) -> UnifiedPitch:
-        result = self._inner.to_pitch_cc(time_step, pitch_floor, pitch_ceiling)
+    def to_pitch_cc(self, time_step=0.0, pitch_floor=75.0, pitch_ceiling=600.0,
+                    voicing_threshold=0.45, silence_threshold=0.03,
+                    octave_cost=0.01, octave_jump_cost=0.35,
+                    voiced_unvoiced_cost=0.14) -> UnifiedPitch:
+        result = self._inner.to_pitch_cc(
+            time_step, pitch_floor, pitch_ceiling,
+            voicing_threshold, silence_threshold,
+            octave_cost, octave_jump_cost, voiced_unvoiced_cost,
+        )
         return UnifiedPitch(result, self.BACKEND)
 
     def to_formant_burg(self, time_step=0.0, max_number_of_formants=5,
@@ -1289,16 +1341,36 @@ class PraatfanCoreSound(BaseSound):
         import praatfan_gpl
         return cls(praatfan_gpl.Sound(samples, sampling_frequency))
 
-    def to_pitch_ac(self, time_step=0.0, pitch_floor=75.0, pitch_ceiling=600.0) -> UnifiedPitch:
+    def to_pitch_ac(self, time_step=0.0, pitch_floor=75.0, pitch_ceiling=600.0,
+                    voicing_threshold=0.45, silence_threshold=0.03,
+                    octave_cost=0.01, octave_jump_cost=0.35,
+                    voiced_unvoiced_cost=0.14) -> UnifiedPitch:
         # praatfan_gpl's to_pitch is the AC method.
-        result = self._inner.to_pitch(time_step, pitch_floor, pitch_ceiling)
+        result = self._inner.to_pitch(
+            time_step, pitch_floor, pitch_ceiling,
+            voicing_threshold=voicing_threshold,
+            silence_threshold=silence_threshold,
+            octave_cost=octave_cost,
+            octave_jump_cost=octave_jump_cost,
+            voiced_unvoiced_cost=voiced_unvoiced_cost,
+        )
         return UnifiedPitch(result, self.BACKEND)
 
-    def to_pitch_cc(self, time_step=0.0, pitch_floor=75.0, pitch_ceiling=600.0) -> UnifiedPitch:
+    def to_pitch_cc(self, time_step=0.0, pitch_floor=75.0, pitch_ceiling=600.0,
+                    voicing_threshold=0.45, silence_threshold=0.03,
+                    octave_cost=0.01, octave_jump_cost=0.35,
+                    voiced_unvoiced_cost=0.14) -> UnifiedPitch:
         # Native FCC cross-correlation if the wheel exposes it; older wheels
         # (pre-native-CC) fall back to autocorrelation with a warning.
         if hasattr(self._inner, "to_pitch_cc"):
-            result = self._inner.to_pitch_cc(time_step, pitch_floor, pitch_ceiling)
+            result = self._inner.to_pitch_cc(
+                time_step, pitch_floor, pitch_ceiling,
+                voicing_threshold=voicing_threshold,
+                silence_threshold=silence_threshold,
+                octave_cost=octave_cost,
+                octave_jump_cost=octave_jump_cost,
+                voiced_unvoiced_cost=voiced_unvoiced_cost,
+            )
             return UnifiedPitch(result, self.BACKEND)
         import warnings
         warnings.warn(
@@ -1307,7 +1379,14 @@ class PraatfanCoreSound(BaseSound):
             UserWarning,
             stacklevel=2,
         )
-        result = self._inner.to_pitch(time_step, pitch_floor, pitch_ceiling)
+        result = self._inner.to_pitch(
+            time_step, pitch_floor, pitch_ceiling,
+            voicing_threshold=voicing_threshold,
+            silence_threshold=silence_threshold,
+            octave_cost=octave_cost,
+            octave_jump_cost=octave_jump_cost,
+            voiced_unvoiced_cost=voiced_unvoiced_cost,
+        )
         return UnifiedPitch(result, self.BACKEND)
 
     def to_formant_burg(self, time_step=0.0, max_number_of_formants=5,
@@ -1517,17 +1596,43 @@ class Sound:
 
     # Delegate all methods to the inner backend
 
-    def to_pitch_ac(self, time_step=0.0, pitch_floor=75.0, pitch_ceiling=600.0):
-        """Compute pitch using autocorrelation method."""
-        return self._inner.to_pitch_ac(time_step, pitch_floor, pitch_ceiling)
+    def to_pitch_ac(self, time_step=0.0, pitch_floor=75.0, pitch_ceiling=600.0,
+                    voicing_threshold=0.45, silence_threshold=0.03,
+                    octave_cost=0.01, octave_jump_cost=0.35,
+                    voiced_unvoiced_cost=0.14):
+        """Compute pitch using autocorrelation method.
 
-    def to_pitch_cc(self, time_step=0.0, pitch_floor=75.0, pitch_ceiling=600.0):
-        """Compute pitch using cross-correlation method."""
-        return self._inner.to_pitch_cc(time_step, pitch_floor, pitch_ceiling)
+        Accepts the full Boersma (1993) parameter set. Lower ``silence_threshold``
+        on files where a single loud transient (click, cough) dominates the
+        global peak and spuriously triggers silence detection on voiced frames.
+        """
+        return self._inner.to_pitch_ac(
+            time_step, pitch_floor, pitch_ceiling,
+            voicing_threshold, silence_threshold,
+            octave_cost, octave_jump_cost, voiced_unvoiced_cost,
+        )
 
-    def to_pitch(self, time_step=0.0, pitch_floor=75.0, pitch_ceiling=600.0):
+    def to_pitch_cc(self, time_step=0.0, pitch_floor=75.0, pitch_ceiling=600.0,
+                    voicing_threshold=0.45, silence_threshold=0.03,
+                    octave_cost=0.01, octave_jump_cost=0.35,
+                    voiced_unvoiced_cost=0.14):
+        """Compute pitch using cross-correlation method. See :meth:`to_pitch_ac` for parameters."""
+        return self._inner.to_pitch_cc(
+            time_step, pitch_floor, pitch_ceiling,
+            voicing_threshold, silence_threshold,
+            octave_cost, octave_jump_cost, voiced_unvoiced_cost,
+        )
+
+    def to_pitch(self, time_step=0.0, pitch_floor=75.0, pitch_ceiling=600.0,
+                 voicing_threshold=0.45, silence_threshold=0.03,
+                 octave_cost=0.01, octave_jump_cost=0.35,
+                 voiced_unvoiced_cost=0.14):
         """Compute pitch (alias for to_pitch_ac)."""
-        return self.to_pitch_ac(time_step, pitch_floor, pitch_ceiling)
+        return self.to_pitch_ac(
+            time_step, pitch_floor, pitch_ceiling,
+            voicing_threshold, silence_threshold,
+            octave_cost, octave_jump_cost, voiced_unvoiced_cost,
+        )
 
     def to_formant_burg(self, time_step=0.0, max_number_of_formants=5,
                         maximum_formant=5500.0, window_length=0.025,
