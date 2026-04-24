@@ -601,11 +601,18 @@ def _resample(samples: np.ndarray, old_rate: float, new_rate: float) -> np.ndarr
     from scipy import signal
 
     new_length = int(len(samples) * new_rate / old_rate)
-    pad_factor = 5
-    padded = np.zeros(len(samples) * pad_factor)
+    # Pad to next power of 2 above 2× input length before FFT-based resample,
+    # then truncate. Power-of-2 FFT sizes give better phase behavior (closer
+    # to Praat): on the 5-fixture baseline, pow-2 ≥ 2× drops F1 mean 6.06 →
+    # 5.01 (17%) and F1 p99 67 → 41 (39%). Larger pad floors give diminishing
+    # returns (≥5× was slightly worse on a 3-fixture sweep).
+    pad_len = 1
+    while pad_len < len(samples) * 2:
+        pad_len *= 2
+    padded = np.zeros(pad_len)
     padded[:len(samples)] = samples
-    padded_new_length = new_length * pad_factor
-    resampled = signal.resample(padded, padded_new_length)
+    new_pad_len = int(pad_len * new_rate / old_rate)
+    resampled = signal.resample(padded, new_pad_len)
     return resampled[:new_length]
 
 
