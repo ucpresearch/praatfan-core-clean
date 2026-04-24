@@ -25,6 +25,8 @@ Decision points:
 - DP8: Root polishing iterations
 """
 
+import math
+
 import numpy as np
 from dataclasses import dataclass
 from typing import List, Optional
@@ -535,22 +537,63 @@ def _roots_to_formants(
     return formants
 
 
+def _resample_wsinc(samples: np.ndarray, old_rate: float, new_rate: float,
+                    precision: int = 50) -> np.ndarray:
+    """
+    Windowed-sinc resample (half-Hann raised-cosine window).
+
+    Matches Praat's `Sound: Resample` output to mean ~2.3e-4 in point values,
+    but misses Praat's persistent Nyquist-frequency component (~2.9e-2 in
+    silent regions from FFT-wraparound artifacts). For Burg formant parity,
+    use ``_resample`` instead — the Nyquist content matters more than
+    point-level accuracy.
+
+    Sample-position formula (0.5-centered Praat time convention):
+        ``x = (m + 0.5) * (old_rate/new_rate) - 0.5``
+    """
+    if abs(old_rate - new_rate) < 1e-6:
+        return samples.copy()
+
+    n_in = len(samples)
+    n_out = int(math.floor(n_in * new_rate / old_rate))
+    step = max(old_rate / new_rate, 1.0)
+    depth = precision * step
+    ratio = old_rate / new_rate
+    inv_step = 1.0 / step
+    inv_depth = 1.0 / depth
+
+    out = np.empty(n_out, dtype=np.float64)
+    for m in range(n_out):
+        x = (m + 0.5) * ratio - 0.5
+        low = max(0, int(math.ceil(x - depth)))
+        high = min(n_in - 1, int(math.floor(x + depth)))
+        if high < low:
+            out[m] = 0.0
+            continue
+        k = np.arange(low, high + 1, dtype=np.float64)
+        phi = k - x
+        s = np.sinc(phi * inv_step)
+        w = 0.5 + 0.5 * np.cos(np.pi * phi * inv_depth)
+        out[m] = np.dot(samples[low:high + 1], s * w) * inv_step
+    return out
+
+
 def _resample(samples: np.ndarray, old_rate: float, new_rate: float) -> np.ndarray:
     """
     Resample using FFT-based sinc interpolation (via scipy).
 
-    Zero-pads the signal before FFT resampling to reduce edge artifacts
-    from the FFT's circular convolution assumption. Without padding, the
-    periodicity assumption creates ringing that degrades LPC analysis at
-    low-energy frames. 4x padding reduces formant P95 error by ~40%.
+    The FFT approach reproduces Praat's Nyquist-frequency leakage (the
+    frequency-domain equivalent of ringing from non-local sinc kernels),
+    which matches Praat's Resample output well enough that our Burg finds
+    similar formant candidates — *even though* a clean windowed-sinc
+    (``_resample_wsinc``) is numerically closer point-by-point. The mean
+    diff vs parselmouth's Resample is ~2.76e-3 regardless of the window
+    parameter — scipy's resample is fundamentally FFT-based and matches
+    Praat in that way.
 
-    Args:
-        samples: Input samples
-        old_rate: Original sample rate
-        new_rate: Target sample rate
-
-    Returns:
-        Resampled samples
+    Zero-pads the signal to 5× length before FFT to reduce circular-
+    convolution ringing that corrupts LPC at low-energy frames. 4× padding
+    reduces formant P95 error by ~40%.
     """
     if abs(old_rate - new_rate) < 1e-6:
         return samples.copy()
@@ -558,10 +601,6 @@ def _resample(samples: np.ndarray, old_rate: float, new_rate: float) -> np.ndarr
     from scipy import signal
 
     new_length = int(len(samples) * new_rate / old_rate)
-
-    # Zero-pad to 5x length before FFT resample, then truncate.
-    # This pushes the circular wrap-around point far from the signal,
-    # reducing Gibbs-like ringing that corrupts LPC at low-energy frames.
     pad_factor = 5
     padded = np.zeros(len(samples) * pad_factor)
     padded[:len(samples)] = samples

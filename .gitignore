@@ -10,3 +10,6 @@ dist/
 
 tests/fixtures/tam-haʃaʁav-haɡadol.wav
 REBUILD.md
+docs/TRANSFERABLE_FINDINGS.md
+docs/RECIPE_formant_path.md
+0001-Add-batch-formant-candidate-scoring-Python-Rust.patch
