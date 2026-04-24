@@ -540,16 +540,20 @@ def _roots_to_formants(
 def _resample_wsinc(samples: np.ndarray, old_rate: float, new_rate: float,
                     precision: int = 50) -> np.ndarray:
     """
-    Windowed-sinc resample (half-Hann raised-cosine window).
+    Windowed-sinc resample matching Praat's `Sound: Resample`.
 
-    Matches Praat's `Sound: Resample` output to mean ~2.3e-4 in point values,
-    but misses Praat's persistent Nyquist-frequency component (~2.9e-2 in
-    silent regions from FFT-wraparound artifacts). For Burg formant parity,
-    use ``_resample`` instead — the Nyquist content matters more than
-    point-level accuracy.
+    Kernel: ``sinc(phi/step) × Hann(phi/N_half)`` with support
+    ``|phi| ≤ N_half = (precision + 0.5) × step`` in input-sample units.
+    Zero-crossings at integer multiples of ``step`` (i.e. at the original
+    input sample positions), so the kernel has exactly ``precision``
+    zero-crossings on each side of the peak.
+
+    Blackbox-verified against parselmouth's ``Resample`` via impulse-response
+    extraction: Hann window fits the extracted envelope with MSE 1.5e-6;
+    alternative windows (Hamming, triangular, Kaiser, cos²) fit much worse.
 
     Sample-position formula (0.5-centered Praat time convention):
-        ``x = (m + 0.5) * (old_rate/new_rate) - 0.5``
+        ``x = (m + 0.5) × (old_rate/new_rate) − 0.5``
     """
     if abs(old_rate - new_rate) < 1e-6:
         return samples.copy()
@@ -557,43 +561,51 @@ def _resample_wsinc(samples: np.ndarray, old_rate: float, new_rate: float,
     n_in = len(samples)
     n_out = int(math.floor(n_in * new_rate / old_rate))
     step = max(old_rate / new_rate, 1.0)
-    depth = precision * step
+    # Kernel support: ±(precision + 0.5) × step. The +0.5 step lets the
+    # precision-th zero crossing land within the window instead of at its edge.
+    n_half = (precision + 0.5) * step
     ratio = old_rate / new_rate
     inv_step = 1.0 / step
-    inv_depth = 1.0 / depth
+    inv_n_half = 1.0 / n_half
 
     out = np.empty(n_out, dtype=np.float64)
     for m in range(n_out):
         x = (m + 0.5) * ratio - 0.5
-        low = max(0, int(math.ceil(x - depth)))
-        high = min(n_in - 1, int(math.floor(x + depth)))
+        low = max(0, int(math.ceil(x - n_half)))
+        high = min(n_in - 1, int(math.floor(x + n_half)))
         if high < low:
             out[m] = 0.0
             continue
         k = np.arange(low, high + 1, dtype=np.float64)
         phi = k - x
         s = np.sinc(phi * inv_step)
-        w = 0.5 + 0.5 * np.cos(np.pi * phi * inv_depth)
+        w = 0.5 + 0.5 * np.cos(np.pi * phi * inv_n_half)
         out[m] = np.dot(samples[low:high + 1], s * w) * inv_step
     return out
 
 
 def _resample(samples: np.ndarray, old_rate: float, new_rate: float) -> np.ndarray:
     """
-    Resample using FFT-based sinc interpolation (via scipy).
+    Resample via FFT-based sinc interpolation (scipy).
 
-    The FFT approach reproduces Praat's Nyquist-frequency leakage (the
-    frequency-domain equivalent of ringing from non-local sinc kernels),
-    which matches Praat's Resample output well enough that our Burg finds
-    similar formant candidates — *even though* a clean windowed-sinc
-    (``_resample_wsinc``) is numerically closer point-by-point. The mean
-    diff vs parselmouth's Resample is ~2.76e-3 regardless of the window
-    parameter — scipy's resample is fundamentally FFT-based and matches
-    Praat in that way.
+    Praat's ``Sound: Resample`` has two relevant properties: a windowed-sinc
+    kernel shape in the main lobe (Hann, precision=50), AND a long 1/d tail
+    extending thousands of samples from any impulse. Blackbox probing (see
+    ``scripts/wsinc_via_fftconv.py`` and ``scripts/explain_wsinc_failure.py``)
+    shows the long tail is from an FFT-based convolution that effectively
+    has kernel support = signal length, not the nominal precision×step.
 
-    Zero-pads the signal to 5× length before FFT to reduce circular-
-    convolution ringing that corrupts LPC at low-energy frames. 4× padding
-    reduces formant P95 error by ~40%.
+    Direct windowed-sinc (``_resample_wsinc``) matches Praat's main-lobe
+    shape to ~2.3e-4 mean point-diff at precision=50, improving to ~5e-5 at
+    precision=2000. But it produces mathematically-zero output in silent
+    regions, while Praat has a ±5e-5 Nyquist-frequency baseline (propagated
+    from later signal content via the long kernel). Burg's LPC is sensitive
+    to that baseline: without it, silent-frame poles go chaotic and F1
+    errors mean jumps from 4.8 to 25 Hz on our baseline fixtures.
+
+    scipy's FFT-based resample reproduces the long tail (both are effectively
+    infinite-IR). Padding to next pow-2 ≥ 2× input length further improves
+    point-diff from 2.77e-3 → 1.86e-3 (per `scripts/why_pow2.py`).
     """
     if abs(old_rate - new_rate) < 1e-6:
         return samples.copy()
@@ -601,11 +613,6 @@ def _resample(samples: np.ndarray, old_rate: float, new_rate: float) -> np.ndarr
     from scipy import signal
 
     new_length = int(len(samples) * new_rate / old_rate)
-    # Pad to next power of 2 above 2× input length before FFT-based resample,
-    # then truncate. Power-of-2 FFT sizes give better phase behavior (closer
-    # to Praat): on the 5-fixture baseline, pow-2 ≥ 2× drops F1 mean 6.06 →
-    # 5.01 (17%) and F1 p99 67 → 41 (39%). Larger pad floors give diminishing
-    # returns (≥5× was slightly worse on a 3-fixture sweep).
     pad_len = 1
     while pad_len < len(samples) * 2:
         pad_len *= 2
