@@ -696,10 +696,63 @@ disagreements with praatfan_gpl on 0-60s; 328 → 270 on 60-120s). Chosen by
 black-box minimizing voicing disagreement vs praatfan_gpl across 4 files;
 see `memory/silence_normalization.md` for the comparison table.
 
-Plan: roll all three sets of changes (adapter wins + threshold kwargs +
-silence-normalization fix) into the next bump (~1–2 weeks) rather than
-chain a v0.1.6 right after v0.1.5. No PyPI action needed today. Tests:
-full 112-test suite passes locally (96 prior + 16 new threshold tests).
+**Two-stage resampler (2026-04-26):** Replaced the FFT-based scipy
+`signal.resample` (Python) and rustfft (Rust) paths in `_resample` with
+a two-stage windowed-sinc resampler matching Praat's `Sound: Resample`.
+The hypothesis was raised in the GPL sibling's `docs/TRANSFERABLE_FINDINGS.md`
+as a Decision Point with experiment pseudocode; we verified it via blackbox
+comparison to `parselmouth.praat.call(snd, "Resample", new, 50)` — no
+Praat C++ source examined.
+
+  - Stage 1: FFT brick-wall lowpass at source rate (cutoff at new Nyquist).
+    Provides the long ``1/d`` impulse-response tail and silent-region
+    Nyquist baseline that Burg LPC depends on for stability.
+  - Stage 2: Pure-sinc Hann-windowed interpolation at fractional output
+    positions. Kernel zero-crossings at integer input-sample offsets, Hann
+    half-width = `precision + 0.5` input samples. No `1/step` normalization
+    (stage 1 did the LPF).
+
+Verified vs parselmouth: real-audio mean diff 2.7e-8, p99 1.3e-7 — essentially
+bit-exact except at the very last 1-2 boundary samples. Burg parity dropped
+F1 mean 6.06 → 3.37 (-44%), F2 mean 14.07 → 4.10 (-71%), F2 p99 280 → 25
+(-91%), F3 mean 18.08 → 4.95 (-73%) on the 5-fixture aggregate. Pitch /
+Intensity / HNR / Spectrogram unchanged when run on native-rate audio
+(verified bit-identical regression check). The Rust port is bit-identical
+to Python within machine precision (max diff 2.78e-16). Implementation
+details and full investigation log:
+- `src/praatfan/formant.py:_resample` (pure-Python)
+- `rust/src/formant.rs::resample` (Rust)
+- `docs/RESAMPLER_INVESTIGATION.md` (gitignored — full investigation summary)
+
+**Rust free-wins (2026-04-26):** Per `docs/TRANSFERABLE_FINDINGS.md`:
+- **faer for eigendecomposition.** `lpc_roots` in `rust/src/formant.rs` now
+  uses `faer::Mat::eigenvalues()` instead of `nalgebra::Schur::try_new`.
+  Pure Rust, WASM-compatible, ~LAPACK precision; no hand-tuned `max_niter`
+  for degenerate companion matrices.
+- **Vendored speexdsp smallft FFT (f64).** 4 files at `rust/src/smallft/`
+  — an MIT-licensed c2rust translation of Xiph/Vorbis smallft (public-domain
+  FFTPACK port; neither file derives from Praat source). Promoted f32→f64
+  across 84 sites; fixed an upstream c2rust operator-precedence bug
+  (`dradf.rs:15`) and three constants truncated to f32 precision (HSQT2,
+  TAUI, TPI). Forward FFT matches numpy.fft.rfft to ~10% of the f64 N·ε
+  ceiling; round-trip recovers within 1.5e-15 on pow-2 sizes through 4096.
+  Now drives the resampler's stage-1 brick-wall LPF (rustfft retained for
+  spectrum/spectrogram/pitch). Caveat: the dradfg general-radix path panics
+  at N=4095 — not used by our pow-2 resampler.
+
+**CI: wheels-only workflow (2026-04-26):** Added `.github/workflows/wheels.yml`
+that mirrors the release.yml build matrix (Linux x86_64/aarch64, macOS
+ARM64, Windows x86_64/ARM64, py3.9-3.12 + WASM + sdist) but stops at the
+artifact-upload step. Trigger via `gh workflow run wheels.yml`. Useful for
+sanity-checking compilation across all targets without cutting a release.
+A `push: branches: [main]` block with `paths:` filter is included
+commented-out for future enablement.
+
+Plan: roll all changes (adapter wins + threshold kwargs + silence-normalization
+fix + two-stage resampler + Rust free-wins + wheels CI) into the next bump
+(~1–2 weeks) rather than chain a v0.1.6 right after v0.1.5. No PyPI action
+needed today. Tests: full 112-test suite passes locally (96 prior + 16 new
+threshold tests).
 
 **Install from PyPI:**
 ```bash
