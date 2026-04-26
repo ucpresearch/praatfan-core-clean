@@ -1,0 +1,175 @@
+name: Build Wheels
+
+# Wheels-only workflow. Builds the full matrix and uploads each wheel as
+# an artifact downloadable from the run page. Does NOT publish anywhere
+# (no GitHub Release upload, no PyPI upload). Useful for:
+#   - sanity-checking that a push compiles on every target platform
+#   - producing wheels for local install / testing without cutting a release
+#
+# Trigger:
+#   - workflow_dispatch (manual): `gh workflow run wheels.yml`
+#   - push to main: enable by adding the `push:` block below.
+#
+# Artifacts: per-target wheel uploaded as `wheel-<target>-py<version>`.
+# Download from the run page or via:
+#   gh run list --workflow=wheels.yml
+#   gh run download <run-id>
+
+on:
+  workflow_dispatch:
+  # Uncomment to also build wheels on every push to main:
+  # push:
+  #   branches: [main]
+  #   paths:
+  #     - 'rust/**'
+  #     - 'src/**'
+  #     - 'pyproject.toml'
+  #     - 'rust/Cargo.toml'
+  #     - 'rust/Cargo.lock'
+  #     - '.github/workflows/wheels.yml'
+
+jobs:
+  # Pure-Python sdist + wheel
+  build-python:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v6
+      - uses: actions/setup-python@v6
+        with:
+          python-version: "3.12"
+      - run: pip install build
+      - name: Build wheel + sdist
+        run: |
+          python -m build --wheel --outdir dist/
+          python -m build --sdist --outdir dist/
+      - uses: actions/upload-artifact@v7
+        with:
+          name: wheel-python
+          path: dist/*
+
+  build-rust-linux:
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        python-version: ["3.9", "3.10", "3.11", "3.12"]
+    steps:
+      - uses: actions/checkout@v6
+      - uses: PyO3/maturin-action@v1
+        with:
+          target: x86_64-unknown-linux-gnu
+          args: --release --out dist --features python -i python${{ matrix.python-version }}
+          working-directory: rust
+          sccache: 'true'
+          manylinux: auto
+      - uses: actions/upload-artifact@v7
+        with:
+          name: wheel-linux-x86_64-py${{ matrix.python-version }}
+          path: rust/dist/*.whl
+
+  build-rust-linux-aarch64:
+    runs-on: ubuntu-24.04-arm
+    strategy:
+      fail-fast: false
+      matrix:
+        python-version: ["3.9", "3.10", "3.11", "3.12"]
+    steps:
+      - uses: actions/checkout@v6
+      - uses: actions/setup-python@v6
+        with:
+          python-version: ${{ matrix.python-version }}
+      - uses: PyO3/maturin-action@v1
+        with:
+          target: aarch64-unknown-linux-gnu
+          args: --release --out dist --features python -i python${{ matrix.python-version }}
+          working-directory: rust
+          sccache: 'true'
+          manylinux: auto
+      - uses: actions/upload-artifact@v7
+        with:
+          name: wheel-linux-aarch64-py${{ matrix.python-version }}
+          path: rust/dist/*.whl
+
+  build-rust-macos:
+    runs-on: macos-14
+    strategy:
+      fail-fast: false
+      matrix:
+        python-version: ["3.9", "3.10", "3.11", "3.12"]
+    steps:
+      - uses: actions/checkout@v6
+      - uses: actions/setup-python@v6
+        with:
+          python-version: ${{ matrix.python-version }}
+      - uses: PyO3/maturin-action@v1
+        with:
+          target: aarch64-apple-darwin
+          args: --release --out dist --features python -i python${{ matrix.python-version }}
+          working-directory: rust
+          sccache: 'true'
+      - uses: actions/upload-artifact@v7
+        with:
+          name: wheel-macos-arm64-py${{ matrix.python-version }}
+          path: rust/dist/*.whl
+
+  build-rust-windows:
+    runs-on: windows-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        python-version: ["3.9", "3.10", "3.11", "3.12"]
+    steps:
+      - uses: actions/checkout@v6
+      - uses: actions/setup-python@v6
+        with:
+          python-version: ${{ matrix.python-version }}
+      - uses: PyO3/maturin-action@v1
+        with:
+          target: x86_64-pc-windows-msvc
+          args: --release --out dist --features python -i python${{ matrix.python-version }}
+          working-directory: rust
+          sccache: 'true'
+      - uses: actions/upload-artifact@v7
+        with:
+          name: wheel-windows-x86_64-py${{ matrix.python-version }}
+          path: rust/dist/*.whl
+
+  build-rust-windows-arm64:
+    runs-on: windows-11-arm
+    strategy:
+      fail-fast: false
+      matrix:
+        python-version: ["3.11", "3.12"]
+    steps:
+      - uses: actions/checkout@v6
+      - uses: actions/setup-python@v6
+        with:
+          python-version: ${{ matrix.python-version }}
+      - uses: PyO3/maturin-action@v1
+        with:
+          target: aarch64-pc-windows-msvc
+          args: --release --out dist --features python -i python${{ matrix.python-version }}
+          working-directory: rust
+          sccache: 'true'
+      - uses: actions/upload-artifact@v7
+        with:
+          name: wheel-windows-arm64-py${{ matrix.python-version }}
+          path: rust/dist/*.whl
+
+  build-wasm:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v6
+      - name: Install wasm-pack
+        run: curl https://rustwasm.github.io/wasm-pack/installer/init.sh -sSf | sh
+      - name: Build WASM (web target)
+        run: wasm-pack build --target web --features wasm
+        working-directory: rust
+      - name: Package WASM artifacts
+        run: |
+          cd rust/pkg
+          tar czf ../praatfan-wasm.tar.gz .
+      - uses: actions/upload-artifact@v7
+        with:
+          name: wasm-package
+          path: rust/praatfan-wasm.tar.gz
