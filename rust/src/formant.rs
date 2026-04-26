@@ -631,43 +631,33 @@ fn lpc_roots(a: &[f64], polish: bool, reflect_unstable: bool) -> Vec<Complex64> 
     }
 
     // =========================================================================
-    // Build companion matrix
+    // Build companion matrix and compute eigenvalues via faer
     // =========================================================================
     // For polynomial z^p + c1×z^(p-1) + ... + cp:
     // - First row contains negated coefficients: [-c1, -c2, ..., -cp]
     // - Subdiagonal contains ones
     // - All other entries are zero
-    let mut companion = nalgebra::DMatrix::<f64>::zeros(order, order);
-
-    // First row: -a[1], -a[2], ..., -a[p]
+    //
+    // Eigenvalues of the companion matrix are exactly the polynomial roots.
+    // We use faer (pure-Rust, WASM-compatible, ~LAPACK dhseqr precision) —
+    // the upper-Hessenberg+Francis-QR path that nalgebra's Schur uses can
+    // fail to converge on degenerate cases and required hand-tuned
+    // max_niter; faer's eigendecomposition handles this internally.
+    let mut companion: faer::Mat<f64> = faer::Mat::zeros(order, order);
     for i in 0..order {
         companion[(0, i)] = -a[i + 1];
     }
-
-    // Subdiagonal: ones
     for i in 1..order {
         companion[(i, i - 1)] = 1.0;
     }
 
-    // =========================================================================
-    // Compute eigenvalues using Schur decomposition
-    // =========================================================================
-    // Schur decomposition is more numerically stable than direct eigenvalue
-    // computation, especially for non-symmetric matrices like the companion matrix.
-    // Use try_schur with bounded iterations to avoid hanging on degenerate matrices
-    // where the QR algorithm fails to converge (nalgebra's schur() uses max_niter=0
-    // which means unlimited iterations).
-    let schur = match nalgebra::Schur::try_new(companion, f64::EPSILON, 100 * order) {
-        Some(s) => s,
-        None => return Vec::new(),
+    let eig = match companion.eigenvalues() {
+        Ok(v) => v,
+        Err(_) => return Vec::new(),
     };
-    let eigenvalues = schur.complex_eigenvalues();
 
-    // Convert from nalgebra Complex to num_complex Complex64
-    let mut roots: Vec<Complex64> = eigenvalues
-        .iter()
-        .map(|e| Complex64::new(e.re, e.im))
-        .collect();
+    // faer returns Vec<num_complex::Complex<f64>> already; alias to Complex64.
+    let mut roots: Vec<Complex64> = eig.iter().map(|c| Complex64::new(c.re, c.im)).collect();
 
     // =========================================================================
     // Post-processing: reflect unstable roots

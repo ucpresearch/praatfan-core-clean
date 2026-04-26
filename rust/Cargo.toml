@@ -32,7 +32,10 @@ symphonia = { version = "0.5", features = ["mp3", "ogg", "flac", "wav", "pcm", "
 # Error handling
 thiserror = "2.0"
 
-# Linear algebra (for eigenvalue computation)
+# Linear algebra (for eigenvalue computation). faer is the primary path —
+# pure Rust, WASM-compatible, ~LAPACK precision. nalgebra retained as a
+# fallback / for any DMatrix uses elsewhere.
+faer = { version = "0.22", default-features = false, features = ["std", "linalg"] }
 nalgebra = "0.33"
 
 # WASM bindings (optional, enabled with "wasm" feature)
