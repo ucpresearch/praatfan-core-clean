@@ -66,6 +66,7 @@ pub mod formant;
 pub mod harmonicity;
 pub mod intensity;
 pub mod pitch;
+pub mod smallft;
 pub mod sound;
 pub mod spectrogram;
 pub mod spectrum;

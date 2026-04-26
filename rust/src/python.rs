@@ -1175,6 +1175,45 @@ impl PySpectrogram {
 }
 
 // ============================================================================
+// Test-only smallft FFT bindings
+// ============================================================================
+//
+// Exposed so the vendored real-FFT can be validated against numpy.fft.rfft
+// before being wired into any production code path. Output layout matches
+// FFTPACK's packed real format:
+//   [DC, Re_1, Im_1, Re_2, Im_2, ..., Re_{N/2-1}, Im_{N/2-1}, Nyquist]   (N even)
+//   [DC, Re_1, Im_1, ..., Re_{(N-1)/2}, Im_{(N-1)/2}]                    (N odd)
+
+/// Forward real-to-packed FFT via vendored smallft. Returns N values.
+#[pyfunction]
+fn smallft_forward<'py>(
+    py: Python<'py>,
+    samples: &Bound<'py, PyArray1<f64>>,
+) -> PyResult<Bound<'py, PyArray1<f64>>> {
+    let s = samples.readonly();
+    let mut buf: Vec<f64> = s.as_slice()?.to_vec();
+    let n = buf.len();
+    let mut lookup = crate::smallft::DrftLookup::new(n);
+    lookup.spx_drft_forward(&mut buf);
+    Ok(buf.to_pyarray(py))
+}
+
+/// Backward (unscaled) packed-to-real FFT via vendored smallft. Caller
+/// divides by N to invert `smallft_forward`.
+#[pyfunction]
+fn smallft_backward<'py>(
+    py: Python<'py>,
+    packed: &Bound<'py, PyArray1<f64>>,
+) -> PyResult<Bound<'py, PyArray1<f64>>> {
+    let s = packed.readonly();
+    let mut buf: Vec<f64> = s.as_slice()?.to_vec();
+    let n = buf.len();
+    let mut lookup = crate::smallft::DrftLookup::new(n);
+    lookup.spx_drft_backward(&mut buf);
+    Ok(buf.to_pyarray(py))
+}
+
+// ============================================================================
 // Module definition
 // ============================================================================
 
@@ -1190,6 +1229,10 @@ fn praatfan_rust(m: &Bound<'_, PyModule>) -> PyResult<()> {
     m.add_class::<PyHarmonicity>()?;
     m.add_class::<PySpectrum>()?;
     m.add_class::<PySpectrogram>()?;
+
+    // Test-only smallft bindings
+    m.add_function(wrap_pyfunction!(smallft_forward, m)?)?;
+    m.add_function(wrap_pyfunction!(smallft_backward, m)?)?;
 
     // Add version info
     m.add("__version__", env!("CARGO_PKG_VERSION"))?;
