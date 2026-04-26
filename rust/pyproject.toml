@@ -4,7 +4,10 @@ build-backend = "maturin"
 
 [project]
 name = "praatfan_rust"
-version = "0.1.6"
+# Version is read from Cargo.toml via maturin — single source of truth.
+# (Previously rust/pyproject.toml had to be manually bumped alongside
+# rust/Cargo.toml, which led to a 0.1.5 → 0.1.6 drift in v0.1.6 builds.)
+dynamic = ["version"]
 description = "Clean-room reimplementation of Praat's acoustic analysis algorithms"
 license = { text = "MIT OR Apache-2.0" }
 requires-python = ">=3.8"

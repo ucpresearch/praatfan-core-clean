@@ -63,7 +63,13 @@ Spectrogram = UnifiedSpectrogram
 # Import praat compatibility module for use as praatfan.praat
 from . import praat
 
-__version__ = "0.1.5"
+# Derived from installed package metadata — stays in sync with
+# pyproject.toml without needing a manual bump on every release.
+try:
+    from importlib.metadata import version as _pkg_version
+    __version__ = _pkg_version("praatfan")
+except Exception:
+    __version__ = "unknown"
 __all__ = [
     # Core types
     "Sound",
