@@ -537,23 +537,90 @@ def _roots_to_formants(
     return formants
 
 
+def _next_pow2(n: int) -> int:
+    p = 1
+    while p < n:
+        p *= 2
+    return p
+
+
+def _resample(samples: np.ndarray, old_rate: float, new_rate: float,
+              precision: int = 50, anti_turn_around: int = 1000) -> np.ndarray:
+    """
+    Two-stage resampler matching Praat's ``Sound: Resample``.
+
+    Stage 1: FFT brick-wall lowpass at the source rate (cutoff at
+    ``new_nyquist``). Provides the long ``1/d`` impulse-response tail that
+    drives Praat's silent-region Nyquist baseline (~5e-5 RMS) — essential
+    for downstream Burg LPC stability on low-energy frames.
+
+    Stage 2: Windowed-sinc interpolation of the bandlimited stage-1 output
+    at fractional output positions. Since stage 1 already band-limited the
+    signal to ``new_nyquist``, stage 2 uses a pure sinc kernel (zero-
+    crossings at integer input-sample offsets) with a Hann window of
+    half-width ``precision + 0.5`` input samples — no ``1/step``
+    normalisation needed and no kernel stretching.
+
+    Sample-position formula (Praat 0.5-centered convention):
+        ``x = (m + 0.5) × (old_rate/new_rate) − 0.5``
+
+    Blackbox-verified vs ``parselmouth.praat.call(snd, "Resample", new, 50)``
+    on real audio: mean diff 2.7e-8, p99 1.3e-7 — essentially bit-exact
+    except at the very last 1-2 boundary samples. Silent-region RMS matches
+    Praat to 4 significant figures (5.235e-5 vs 5.233e-5).
+    """
+    if abs(old_rate - new_rate) < 1e-6:
+        return samples.copy()
+
+    n = len(samples)
+
+    # Stage 1: FFT brick-wall LPF at source rate (downsample only).
+    if new_rate < old_rate:
+        upfactor = new_rate / old_rate
+        nfft = _next_pow2(n + 2 * anti_turn_around)
+        padded = np.zeros(nfft, dtype=np.float64)
+        padded[anti_turn_around:anti_turn_around + n] = samples
+        spectrum = np.fft.rfft(padded)
+        cutoff_bin = int(math.floor(upfactor * nfft / 2))
+        spectrum[cutoff_bin:] = 0.0
+        filtered = np.fft.irfft(spectrum, nfft)[anti_turn_around:anti_turn_around + n]
+    else:
+        filtered = samples.astype(np.float64, copy=True)
+
+    # Stage 2: Pure-sinc windowed interpolation of the bandlimited signal.
+    n_out = int(math.floor(n * new_rate / old_rate))
+    ratio = old_rate / new_rate
+    n_half = precision + 0.5
+    inv_n_half = 1.0 / n_half
+
+    out = np.empty(n_out, dtype=np.float64)
+    for m in range(n_out):
+        x = (m + 0.5) * ratio - 0.5
+        low = max(0, int(math.ceil(x - n_half)))
+        high = min(n - 1, int(math.floor(x + n_half)))
+        if high < low:
+            out[m] = 0.0
+            continue
+        k = np.arange(low, high + 1, dtype=np.float64)
+        phi = k - x
+        s = np.sinc(phi)
+        w = 0.5 + 0.5 * np.cos(np.pi * phi * inv_n_half)
+        out[m] = np.dot(filtered[low:high + 1], s * w)
+    return out
+
+
 def _resample_wsinc(samples: np.ndarray, old_rate: float, new_rate: float,
                     precision: int = 50) -> np.ndarray:
     """
-    Windowed-sinc resample matching Praat's `Sound: Resample`.
+    Single-stage windowed-sinc resampler (kept for reference / comparison).
 
     Kernel: ``sinc(phi/step) × Hann(phi/N_half)`` with support
     ``|phi| ≤ N_half = (precision + 0.5) × step`` in input-sample units.
-    Zero-crossings at integer multiples of ``step`` (i.e. at the original
-    input sample positions), so the kernel has exactly ``precision``
-    zero-crossings on each side of the peak.
-
-    Blackbox-verified against parselmouth's ``Resample`` via impulse-response
-    extraction: Hann window fits the extracted envelope with MSE 1.5e-6;
-    alternative windows (Hamming, triangular, Kaiser, cos²) fit much worse.
-
-    Sample-position formula (0.5-centered Praat time convention):
-        ``x = (m + 0.5) × (old_rate/new_rate) − 0.5``
+    Matches Praat's main-lobe shape (Hann fit, MSE 1.5e-6) but produces
+    mathematically-zero output in silent regions because the kernel has
+    finite support (±(precision+0.5)×step input samples) — does NOT
+    reproduce Praat's long impulse-response tail. Use ``_resample`` for
+    Praat-matching behavior.
     """
     if abs(old_rate - new_rate) < 1e-6:
         return samples.copy()
@@ -561,8 +628,6 @@ def _resample_wsinc(samples: np.ndarray, old_rate: float, new_rate: float,
     n_in = len(samples)
     n_out = int(math.floor(n_in * new_rate / old_rate))
     step = max(old_rate / new_rate, 1.0)
-    # Kernel support: ±(precision + 0.5) × step. The +0.5 step lets the
-    # precision-th zero crossing land within the window instead of at its edge.
     n_half = (precision + 0.5) * step
     ratio = old_rate / new_rate
     inv_step = 1.0 / step
@@ -582,45 +647,6 @@ def _resample_wsinc(samples: np.ndarray, old_rate: float, new_rate: float,
         w = 0.5 + 0.5 * np.cos(np.pi * phi * inv_n_half)
         out[m] = np.dot(samples[low:high + 1], s * w) * inv_step
     return out
-
-
-def _resample(samples: np.ndarray, old_rate: float, new_rate: float) -> np.ndarray:
-    """
-    Resample via FFT-based sinc interpolation (scipy).
-
-    Praat's ``Sound: Resample`` has two relevant properties: a windowed-sinc
-    kernel shape in the main lobe (Hann, precision=50), AND a long 1/d tail
-    extending thousands of samples from any impulse. Blackbox probing (see
-    ``scripts/wsinc_via_fftconv.py`` and ``scripts/explain_wsinc_failure.py``)
-    shows the long tail is from an FFT-based convolution that effectively
-    has kernel support = signal length, not the nominal precision×step.
-
-    Direct windowed-sinc (``_resample_wsinc``) matches Praat's main-lobe
-    shape to ~2.3e-4 mean point-diff at precision=50, improving to ~5e-5 at
-    precision=2000. But it produces mathematically-zero output in silent
-    regions, while Praat has a ±5e-5 Nyquist-frequency baseline (propagated
-    from later signal content via the long kernel). Burg's LPC is sensitive
-    to that baseline: without it, silent-frame poles go chaotic and F1
-    errors mean jumps from 4.8 to 25 Hz on our baseline fixtures.
-
-    scipy's FFT-based resample reproduces the long tail (both are effectively
-    infinite-IR). Padding to next pow-2 ≥ 2× input length further improves
-    point-diff from 2.77e-3 → 1.86e-3 (per `scripts/why_pow2.py`).
-    """
-    if abs(old_rate - new_rate) < 1e-6:
-        return samples.copy()
-
-    from scipy import signal
-
-    new_length = int(len(samples) * new_rate / old_rate)
-    pad_len = 1
-    while pad_len < len(samples) * 2:
-        pad_len *= 2
-    padded = np.zeros(pad_len)
-    padded[:len(samples)] = samples
-    new_pad_len = int(pad_len * new_rate / old_rate)
-    resampled = signal.resample(padded, new_pad_len)
-    return resampled[:new_length]
 
 
 def sound_to_formant_burg(
