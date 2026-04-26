@@ -34,7 +34,8 @@
 
 use ndarray::Array1;
 use num_complex::Complex64;
-use rustfft::{num_complex::Complex, FftPlanner};
+// rustfft no longer used in formant — smallft (vendored) drives the
+// brick-wall LPF. Keep `Complex` alias for any future complex math.
 
 use crate::sound::Sound;
 
@@ -841,41 +842,54 @@ fn resample_two_stage(
     }
 
     // Stage 1: FFT brick-wall lowpass at source rate (downsample only).
-    // Mirrors the Python implementation's use of np.fft.rfft / irfft:
-    // pad input with anti_turn_around zeros on each side, FFT, zero out
-    // bins above the new-Nyquist cutoff (in numpy this is
-    // `spectrum[cutoff_bin:] = 0` on the rfft-half spectrum, which for a
-    // full-complex FFT means zeroing bins [cutoff_bin, nfft/2] and their
-    // conjugate mirrors at [nfft/2+1, nfft - cutoff_bin]), inverse FFT,
-    // and read back the signal slot.
+    // Mirrors the Python implementation's `np.fft.rfft / irfft` path: pad
+    // input with anti_turn_around zeros on each side, FFT, zero bins
+    // above the new-Nyquist cutoff (i.e. `spectrum[cutoff_bin:] = 0` on
+    // the rfft-half spectrum), inverse FFT, read back the signal slot.
+    //
+    // FFT backend: vendored smallft (Xiph/Vorbis FFTPACK port at f64,
+    // see `rust/src/smallft/`). Returns spectrum in packed-real layout:
+    //   [DC, Re_1, Im_1, Re_2, Im_2, ..., Re_{N/2-1}, Im_{N/2-1}, Nyquist]
+    // Brick-wall LPF: for each bin k in [cutoff_bin .. N/2-1] zero
+    // packed[2k-1] (Re) and packed[2k] (Im); also zero packed[N-1]
+    // (Nyquist). Equivalent to `spectrum[cutoff_bin:] = 0` on the
+    // rfft-half spectrum.
     let filtered: Vec<f64> = if new_rate < old_rate {
         let upfactor = new_rate / old_rate;
         let nfft = next_pow2(n + 2 * anti_turn_around);
-        let mut buf: Vec<Complex<f64>> = vec![Complex::new(0.0, 0.0); nfft];
+
+        // Pack signal into nfft-length real buffer at anti_turn_around offset.
+        let mut buf: Vec<f64> = vec![0.0; nfft];
         for (i, &x) in samples.iter().enumerate() {
-            buf[anti_turn_around + i] = Complex::new(x, 0.0);
+            buf[anti_turn_around + i] = x;
         }
-        let mut planner = FftPlanner::<f64>::new();
-        planner.plan_fft_forward(nfft).process(&mut buf);
+
+        let mut lookup = crate::smallft::DrftLookup::new(nfft);
+        lookup.spx_drft_forward(&mut buf);
 
         let half = nfft / 2;
         let cutoff_bin = (upfactor * (nfft as f64) / 2.0).floor() as usize;
-        // Zero positive-frequency bins at and above the cutoff (rfft side).
-        for i in cutoff_bin..=half {
-            buf[i] = Complex::new(0.0, 0.0);
+        // Zero packed bins for k in [cutoff_bin, half-1].
+        for k in cutoff_bin..half {
+            // k=0 is DC at index 0; cutoff_bin >= 1 in practice (upfactor < 1).
+            if k == 0 {
+                buf[0] = 0.0;
+            } else {
+                buf[2 * k - 1] = 0.0;
+                buf[2 * k] = 0.0;
+            }
         }
-        // Zero conjugate mirrors. For even nfft, bin `half` is its own
-        // mirror; for bins i in (cutoff_bin .. half), mirror is nfft - i.
-        for i in cutoff_bin..half {
-            buf[nfft - i] = Complex::new(0.0, 0.0);
+        // Zero Nyquist bin (k = half) at packed index nfft - 1.
+        if cutoff_bin <= half {
+            buf[nfft - 1] = 0.0;
         }
 
-        planner.plan_fft_inverse(nfft).process(&mut buf);
+        lookup.spx_drft_backward(&mut buf);
 
         let inv_n = 1.0 / (nfft as f64);
         let mut filt = vec![0.0f64; n];
         for i in 0..n {
-            filt[i] = buf[anti_turn_around + i].re * inv_n;
+            filt[i] = buf[anti_turn_around + i] * inv_n;
         }
         filt
     } else {
