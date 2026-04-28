@@ -32,7 +32,7 @@
 //! - LPC order: 2 × max_formants (each formant needs 2 poles)
 //! - Formant filtering: remove frequencies < 50 Hz and > (max_formant - 50) Hz
 
-use std::sync::LazyLock;
+use std::cell::OnceCell;
 
 use ndarray::Array1;
 use num_complex::Complex64;
@@ -42,17 +42,34 @@ use num_complex::Complex64;
 use crate::sound::Sound;
 
 // =============================================================================
-// Resampler stage-2 kernel: shared, immutable, built once per process.
+// Resampler stage-2 kernel: per-thread cached copy.
 // =============================================================================
 //
 // `resample_two_stage` looks up `kernel[j] = sinc(phi_j) · Hann(phi_j/n_half)`
 // on a fractional-phase grid. The table values depend only on the precision
-// and oversampling factor, both compile-time constants in our pipeline. Build
-// it lazily on first use and share read-only across threads — avoids the
-// ~5 ms / 1.6 MB allocation that each `resample` call paid before, which
-// dominated wall-clock for callers driving many resamples in tight loops
-// (e.g. formantwise scoring across many ceilings, especially in rayon-parallel
-// configurations where N workers each `mmap`'d their own table simultaneously).
+// and oversampling factor, both compile-time constants in our pipeline.
+//
+// Two earlier shapes both had problems for the formantwise-rayon workload:
+//
+// 1. Build per call (commit 602e6b1): allocated 1.6 MB / 5 ms of trig per
+//    `resample`. Multiple rayon workers all hitting glibc malloc for the
+//    same large size produced `mmap` contention and inflated user-CPU
+//    proportionally.
+//
+// 2. Process-wide `LazyLock<Vec<f64>>` (commit ec9ea94): killed the per-call
+//    allocation but introduced a different problem — all workers reading
+//    the same 1.6 MB buffer compete for L3 bandwidth on the scatter-gather
+//    lookup pattern (~200 MB of memory traffic per resample call, ×N
+//    threads). Parallelism collapsed from 3.85× (pre-fix) to 2.29×; user-CPU
+//    dropped (the per-thread compute is genuinely lower) but wall-clock went
+//    up because cores spent more time stalled on memory.
+//
+// 3. **Current shape:** thread-local cached copy. Each rayon worker
+//    initializes its own 1.6 MB buffer on first use (5 ms one-shot per
+//    worker per process, then cached) and reads from a buffer that's hot in
+//    its own L1/L2. No shared-memory contention, no per-call allocation.
+//    Total memory: N_threads × 1.6 MB, which is bounded by rayon's worker
+//    pool size (typically num_cpus).
 //
 // `RESAMPLE_PRECISION` and `RESAMPLE_OVERSAMPLE` together determine the table
 // length: `OVERSAMPLE * (2 * precision + 1) + 2`. The `+2` reserves an extra
@@ -81,8 +98,26 @@ fn build_resample_kernel(precision: usize, oversample: usize) -> Vec<f64> {
     kernel
 }
 
-static RESAMPLE_KERNEL: LazyLock<Vec<f64>> =
-    LazyLock::new(|| build_resample_kernel(RESAMPLE_PRECISION, RESAMPLE_OVERSAMPLE));
+thread_local! {
+    /// Per-thread cached kernel for `(RESAMPLE_PRECISION, RESAMPLE_OVERSAMPLE)`.
+    /// `OnceCell` keeps it lazy: built only when the thread first calls
+    /// `resample_two_stage`, then reused for the thread's lifetime.
+    static RESAMPLE_KERNEL_TLS: OnceCell<Vec<f64>> = const { OnceCell::new() };
+}
+
+/// Run `f` with a borrowed reference to the thread-local kernel for the
+/// standard (`RESAMPLE_PRECISION`, `RESAMPLE_OVERSAMPLE`) parameters.
+fn with_resample_kernel<F, R>(f: F) -> R
+where
+    F: FnOnce(&[f64]) -> R,
+{
+    RESAMPLE_KERNEL_TLS.with(|cell| {
+        let kernel = cell.get_or_init(|| {
+            build_resample_kernel(RESAMPLE_PRECISION, RESAMPLE_OVERSAMPLE)
+        });
+        f(kernel)
+    })
+}
 
 // =============================================================================
 // Data Structures
@@ -1041,49 +1076,66 @@ fn resample_two_stage(
     let ratio = old_rate / new_rate;
     let n_half = (precision as f64) + 0.5;
 
-    // Use the process-wide kernel for the common (precision, oversample)
-    // pair; build once per call only for nonstandard precisions (none of the
-    // current callers hit this path, but keep it for API completeness).
-    let owned_kernel: Option<Vec<f64>>;
-    let kernel: &[f64] = if precision == RESAMPLE_PRECISION {
-        &RESAMPLE_KERNEL
-    } else {
-        owned_kernel = Some(build_resample_kernel(precision, RESAMPLE_OVERSAMPLE));
-        owned_kernel.as_deref().unwrap()
-    };
     let os_f = RESAMPLE_OVERSAMPLE as f64;
     let mut out = vec![0.0f64; n_out];
 
-    for m in 0..n_out {
-        let x = (m as f64 + 0.5) * ratio - 0.5;
-        let lo_f = (x - n_half).ceil();
-        let hi_f = (x + n_half).floor();
-        let mut lo = lo_f as isize;
-        let mut hi = hi_f as isize;
-        if lo < 0 {
-            lo = 0;
+    // Inner loop. Same body for the thread-local-cached path and the
+    // build-per-call fallback path; the only thing that varies is which
+    // kernel slice we hand it.
+    fn run_stage2(
+        n_out: usize,
+        n_in: usize,
+        ratio: f64,
+        n_half: f64,
+        os_f: f64,
+        kernel: &[f64],
+        filtered: &[f64],
+        out: &mut [f64],
+    ) {
+        for m in 0..n_out {
+            let x = (m as f64 + 0.5) * ratio - 0.5;
+            let lo_f = (x - n_half).ceil();
+            let hi_f = (x + n_half).floor();
+            let mut lo = lo_f as isize;
+            let mut hi = hi_f as isize;
+            if lo < 0 {
+                lo = 0;
+            }
+            if hi > (n_in as isize) - 1 {
+                hi = (n_in as isize) - 1;
+            }
+            if hi < lo {
+                continue;
+            }
+            // Per-output: t(k) = (k - x + n_half) * OVERSAMPLE = t0 + k * OVERSAMPLE
+            // Precompute t0 and step the integer offset by OVERSAMPLE per tap so
+            // the inner loop avoids one multiply per tap.
+            let t0 = (n_half - x) * os_f;
+            let mut t = t0 + (lo as f64) * os_f;
+            let mut acc = 0.0f64;
+            for k in lo..=hi {
+                let ti = t as usize; // floor; t ≥ 0 by construction
+                let frac = t - (ti as f64);
+                let k0 = kernel[ti];
+                let k1 = kernel[ti + 1];
+                acc += filtered[k as usize] * (k0 + (k1 - k0) * frac);
+                t += os_f;
+            }
+            out[m] = acc;
         }
-        if hi > (n_in as isize) - 1 {
-            hi = (n_in as isize) - 1;
-        }
-        if hi < lo {
-            continue;
-        }
-        // Per-output: t(k) = (k - x + n_half) * OVERSAMPLE = t0 + k * OVERSAMPLE
-        // Precompute t0 and step the integer offset by OVERSAMPLE per tap so
-        // the inner loop avoids one multiply per tap.
-        let t0 = (n_half - x) * os_f;
-        let mut t = t0 + (lo as f64) * os_f;
-        let mut acc = 0.0f64;
-        for k in lo..=hi {
-            let ti = t as usize; // floor; t ≥ 0 by construction
-            let frac = t - (ti as f64);
-            let k0 = kernel[ti];
-            let k1 = kernel[ti + 1];
-            acc += filtered[k as usize] * (k0 + (k1 - k0) * frac);
-            t += os_f;
-        }
-        out[m] = acc;
+    }
+
+    if precision == RESAMPLE_PRECISION {
+        // Standard path: thread-local cached kernel. Each rayon worker has
+        // its own copy hot in its private L1/L2; no shared-memory L3
+        // bandwidth contention with other workers.
+        with_resample_kernel(|kernel| {
+            run_stage2(n_out, n_in, ratio, n_half, os_f, kernel, &filtered, &mut out);
+        });
+    } else {
+        // Nonstandard precision: build per call. No current caller hits this.
+        let kernel = build_resample_kernel(precision, RESAMPLE_OVERSAMPLE);
+        run_stage2(n_out, n_in, ratio, n_half, os_f, &kernel, &filtered, &mut out);
     }
     out
 }
