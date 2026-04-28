@@ -32,12 +32,57 @@
 //! - LPC order: 2 × max_formants (each formant needs 2 poles)
 //! - Formant filtering: remove frequencies < 50 Hz and > (max_formant - 50) Hz
 
+use std::sync::LazyLock;
+
 use ndarray::Array1;
 use num_complex::Complex64;
 // rustfft no longer used in formant — smallft (vendored) drives the
 // brick-wall LPF. Keep `Complex` alias for any future complex math.
 
 use crate::sound::Sound;
+
+// =============================================================================
+// Resampler stage-2 kernel: shared, immutable, built once per process.
+// =============================================================================
+//
+// `resample_two_stage` looks up `kernel[j] = sinc(phi_j) · Hann(phi_j/n_half)`
+// on a fractional-phase grid. The table values depend only on the precision
+// and oversampling factor, both compile-time constants in our pipeline. Build
+// it lazily on first use and share read-only across threads — avoids the
+// ~5 ms / 1.6 MB allocation that each `resample` call paid before, which
+// dominated wall-clock for callers driving many resamples in tight loops
+// (e.g. formantwise scoring across many ceilings, especially in rayon-parallel
+// configurations where N workers each `mmap`'d their own table simultaneously).
+//
+// `RESAMPLE_PRECISION` and `RESAMPLE_OVERSAMPLE` together determine the table
+// length: `OVERSAMPLE * (2 * precision + 1) + 2`. The `+2` reserves an extra
+// entry so `kernel[ti + 1]` is always in-bounds when `ti = (table_len - 2)`.
+const RESAMPLE_PRECISION: usize = 50;
+const RESAMPLE_OVERSAMPLE: usize = 2048;
+
+fn build_resample_kernel(precision: usize, oversample: usize) -> Vec<f64> {
+    let n_half = (precision as f64) + 0.5;
+    let inv_n_half = 1.0 / n_half;
+    let table_len = oversample * (2 * precision + 1) + 2;
+    let mut kernel = vec![0.0f64; table_len];
+    let inv_os = 1.0 / oversample as f64;
+    let pi = std::f64::consts::PI;
+    for j in 0..table_len {
+        let phi = (j as f64) * inv_os - n_half;
+        let s = if phi.abs() < 1e-12 {
+            1.0
+        } else {
+            let pa = pi * phi;
+            pa.sin() / pa
+        };
+        let w = 0.5 + 0.5 * (pi * phi * inv_n_half).cos();
+        kernel[j] = s * w;
+    }
+    kernel
+}
+
+static RESAMPLE_KERNEL: LazyLock<Vec<f64>> =
+    LazyLock::new(|| build_resample_kernel(RESAMPLE_PRECISION, RESAMPLE_OVERSAMPLE));
 
 // =============================================================================
 // Data Structures
@@ -995,26 +1040,18 @@ fn resample_two_stage(
     let n_out = ((n_in as f64) * new_rate / old_rate).floor() as usize;
     let ratio = old_rate / new_rate;
     let n_half = (precision as f64) + 0.5;
-    let inv_n_half = 1.0 / n_half;
 
-    const OVERSAMPLE: usize = 2048;
-    let table_len = OVERSAMPLE * (2 * precision + 1) + 2; // +2 so kernel[ti+1] is always in-bounds
-    let mut kernel = vec![0.0f64; table_len];
-    let inv_os = 1.0 / OVERSAMPLE as f64;
-    let pi = std::f64::consts::PI;
-    for j in 0..table_len {
-        let phi = (j as f64) * inv_os - n_half;
-        let s = if phi.abs() < 1e-12 {
-            1.0
-        } else {
-            let pa = pi * phi;
-            pa.sin() / pa
-        };
-        let w = 0.5 + 0.5 * (pi * phi * inv_n_half).cos();
-        kernel[j] = s * w;
-    }
-
-    let os_f = OVERSAMPLE as f64;
+    // Use the process-wide kernel for the common (precision, oversample)
+    // pair; build once per call only for nonstandard precisions (none of the
+    // current callers hit this path, but keep it for API completeness).
+    let owned_kernel: Option<Vec<f64>>;
+    let kernel: &[f64] = if precision == RESAMPLE_PRECISION {
+        &RESAMPLE_KERNEL
+    } else {
+        owned_kernel = Some(build_resample_kernel(precision, RESAMPLE_OVERSAMPLE));
+        owned_kernel.as_deref().unwrap()
+    };
+    let os_f = RESAMPLE_OVERSAMPLE as f64;
     let mut out = vec![0.0f64; n_out];
 
     for m in 0..n_out {
