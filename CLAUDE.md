@@ -751,6 +751,37 @@ The pre-two-stage rustfft path is preserved for reference at
 `BACKUP_resampler_two_stage_2026-04-28.md` (gitignored), in case we ever
 want to compare or revert without git archaeology.
 
+**Cubic Catmull-Rom interpolation (2026-04-29, commit c647c8f):**
+Linear interpolation between LazyLock kernel-table entries gave a worst-case
+sample-level residual of ~2.1e-10 vs the trig-per-tap reference (analytic
+bound `O(step² · max|k''|)` with step = 1/2048 input-sample, observed
+2.5e-6 worst case). Switched to Catmull-Rom cubic between four adjacent
+entries — error scales as `O(step⁴ · max|k''''|)` ≈ 1e-13, under the f64
+rounding noise floor. Verified vs `praatfan.formant._resample` (Python
+trig-per-tap, bit-equivalent to the original Rust trig-per-tap):
+
+  max  = 9.375e-15
+  mean = 1.096e-16
+  p99  = 1.871e-15
+
+That's 5 orders of magnitude tighter than linear's 2.1e-10 residual and
+effectively bit-parity with Python within FP rounding.
+
+**The compromise:** cubic does ~4× more arithmetic per tap (4 reads + a
+Horner-evaluated cubic vs 2 reads + lerp). On a single-fixture local
+micro-bench wall-clock came out neutral or slightly faster (the 4
+adjacent reads always fit in one 64-byte cache line where the 2-read
+linear stencil sometimes straddled). On the downstream rayon-parallel
+formantwise workload it ran *slower* than linear interp. We accepted the
+slowdown for the bit-parity gain — the Python and Rust resampler outputs
+now agree to f64 noise floor across the full sample stream, which makes
+cross-backend regression tests and the Burg-parity audit simpler.
+
+If perf becomes the priority and Python-Rust bit-parity is dispensable,
+revert to the linear interp form (commit ec9ea94 / `4f52e01`) — it's
+faster on the rayon workload and still well below the parselmouth-
+comparison tolerance the two-stage shape was originally verified against.
+
 **Rust free-wins (2026-04-26):** Per `docs/TRANSFERABLE_FINDINGS.md`:
 - **faer for eigendecomposition.** `lpc_roots` in `rust/src/formant.rs` now
   uses `faer::Mat::eigenvalues()` instead of `nalgebra::Schur::try_new`.
