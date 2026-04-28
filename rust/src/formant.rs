@@ -54,20 +54,46 @@ use crate::sound::Sound;
 // (e.g. formantwise scoring across many ceilings, especially in rayon-parallel
 // configurations where N workers each `mmap`'d their own table simultaneously).
 //
+// **Catmull-Rom cubic interpolation**: each tap reads four adjacent table
+// entries `kernel[ti-1, ti, ti+1, ti+2]` and evaluates a cubic that passes
+// through `kernel[ti]` at frac=0 and `kernel[ti+1]` at frac=1, with tangents
+// derived from the outer two points. Linear interp between table entries
+// gives sample-level error `O((1/OVERSAMPLE)² · max|k''|)` ≈ 2.5e-6 worst
+// case at OVERSAMPLE=2048 — well above f64 noise. Cubic gives
+// `O((1/OVERSAMPLE)⁴ · max|k''''|)` ≈ 1e-13, in the f64 rounding-noise
+// floor. Worth ~4× more arithmetic per tap, but the four reads are
+// adjacent f64s — they fit in a single cache line, which the linear-interp
+// 2-entry stencil only sometimes does. So compute goes up but cache use
+// goes down; net effect on wall-time is empirical.
+//
+// Table padding: 1 prefix entry (zero) so `kernel[ti-1]` is in-bounds when
+// `ti=1`; 2 suffix entries (zero) so `kernel[ti+2]` is in-bounds at the
+// rightmost ti. Sinc·Hann is mathematically zero outside `±n_half` so
+// zero-padding is the correct boundary continuation.
+//
 // `RESAMPLE_PRECISION` and `RESAMPLE_OVERSAMPLE` together determine the table
-// length: `OVERSAMPLE * (2 * precision + 1) + 2`. The `+2` reserves an extra
-// entry so `kernel[ti + 1]` is always in-bounds when `ti = (table_len - 2)`.
+// length: `OVERSAMPLE * (2 * precision + 1) + 4` (1 prefix + real entries + 2
+// suffix; real-entry index range is `[1, OVERSAMPLE*(2*precision+1)+1]`).
 const RESAMPLE_PRECISION: usize = 50;
 const RESAMPLE_OVERSAMPLE: usize = 2048;
+
+/// Number of zero-padding entries before the real kernel values.
+/// Catmull-Rom needs `kernel[ti-1]`; the smallest in-range `ti` is 1 (when
+/// the input phase is exactly `-n_half`), so one prefix slot suffices.
+const RESAMPLE_KERNEL_PREFIX: usize = 1;
 
 fn build_resample_kernel(precision: usize, oversample: usize) -> Vec<f64> {
     let n_half = (precision as f64) + 0.5;
     let inv_n_half = 1.0 / n_half;
-    let table_len = oversample * (2 * precision + 1) + 2;
+    // Number of real (nonzero) entries the table covers, indexed 0..real_count.
+    // phi values run `j*inv_os - n_half` for j in 0..real_count, so phi covers
+    // [-n_half, +n_half] inclusive (real_count = OVERSAMPLE*(2*precision+1)+1).
+    let real_count = oversample * (2 * precision + 1) + 1;
+    let table_len = RESAMPLE_KERNEL_PREFIX + real_count + 2; // 2 suffix entries for ti+2
     let mut kernel = vec![0.0f64; table_len];
     let inv_os = 1.0 / oversample as f64;
     let pi = std::f64::consts::PI;
-    for j in 0..table_len {
+    for j in 0..real_count {
         let phi = (j as f64) * inv_os - n_half;
         let s = if phi.abs() < 1e-12 {
             1.0
@@ -76,7 +102,7 @@ fn build_resample_kernel(precision: usize, oversample: usize) -> Vec<f64> {
             pa.sin() / pa
         };
         let w = 0.5 + 0.5 * (pi * phi * inv_n_half).cos();
-        kernel[j] = s * w;
+        kernel[RESAMPLE_KERNEL_PREFIX + j] = s * w;
     }
     kernel
 }
@@ -1069,18 +1095,32 @@ fn resample_two_stage(
         if hi < lo {
             continue;
         }
-        // Per-output: t(k) = (k - x + n_half) * OVERSAMPLE = t0 + k * OVERSAMPLE
-        // Precompute t0 and step the integer offset by OVERSAMPLE per tap so
-        // the inner loop avoids one multiply per tap.
-        let t0 = (n_half - x) * os_f;
+        // Per-output: t(k) = (k - x + n_half) * OVERSAMPLE + PREFIX
+        // = t0 + k * OVERSAMPLE. Precompute t0 and step the integer offset
+        // by OVERSAMPLE per tap. The PREFIX shift accounts for the 1-entry
+        // zero-pad at the start of `kernel` (so `kernel[ti-1]` is in-bounds).
+        let t0 = (n_half - x) * os_f + RESAMPLE_KERNEL_PREFIX as f64;
         let mut t = t0 + (lo as f64) * os_f;
         let mut acc = 0.0f64;
         for k in lo..=hi {
-            let ti = t as usize; // floor; t ≥ 0 by construction
+            let ti = t as usize; // floor; t ≥ 1 by construction (PREFIX)
             let frac = t - (ti as f64);
+            // Catmull-Rom cubic interpolation between `kernel[ti]` (frac=0)
+            // and `kernel[ti+1]` (frac=1), with tangents derived from the
+            // outer two points. Coefficients form factored via Horner:
+            //   p(frac) = 0.5 * (2·k0 + frac·(a + frac·(b + frac·c)))
+            // where  a = k1 - km1
+            //        b = 2·km1 - 5·k0 + 4·k1 - k2
+            //        c = 3·k0 - 3·k1 + k2 - km1
+            let km1 = kernel[ti - 1];
             let k0 = kernel[ti];
             let k1 = kernel[ti + 1];
-            acc += filtered[k as usize] * (k0 + (k1 - k0) * frac);
+            let k2 = kernel[ti + 2];
+            let a = k1 - km1;
+            let b = 2.0 * km1 - 5.0 * k0 + 4.0 * k1 - k2;
+            let c = 3.0 * k0 - 3.0 * k1 + k2 - km1;
+            let kern_val = 0.5 * (2.0 * k0 + frac * (a + frac * (b + frac * c)));
+            acc += filtered[k as usize] * kern_val;
             t += os_f;
         }
         out[m] = acc;
