@@ -618,59 +618,55 @@ fn reflect_unstable_roots(roots: &mut [Complex64]) {
 /// # Returns
 ///
 /// Vector of complex roots.
+/// Compute polynomial roots from the companion matrix's eigenvalues.
+///
+/// Two-tier strategy:
+///
+/// 1. **Default: nalgebra `Schur::try_new`** with iteration cap `100 × order`.
+///    This was the original implementation (commit 6a8bb7f, "Fix Burg formant
+///    hang: bound nalgebra Schur iterations") and is measurably faster than
+///    faer on small (10×10) companion matrices in our workload.
+///
+/// 2. **Fallback: faer `evd_real`** when nalgebra fails to converge within
+///    the cap. faer's QR routine handles the degenerate cases that hung
+///    nalgebra's unbounded `Schur::new()` indefinitely (hardware-dependent;
+///    triggered by specific audio + ceiling combinations). This restores the
+///    convergence guarantee of commit 2e028cc ("swap nalgebra Schur for faer
+///    eigenvalues") on the rare frames that need it, without paying faer's
+///    per-call cost on the common path.
+///
+/// If both paths fail, returns an empty Vec so the caller emits NaN formants.
 fn lpc_roots(a: &[f64], polish: bool, reflect_unstable: bool) -> Vec<Complex64> {
     let order = a.len() - 1;
     if order < 1 {
         return Vec::new();
     }
 
-    // Check if coefficients are essentially zero (silent frame).
-    // This avoids numerical issues in eigenvalue computation for degenerate matrices.
+    // Silent-frame short-circuit: degenerate companion matrices give the
+    // eigensolvers numerical trouble and the formants are meaningless anyway.
     let coeff_sum: f64 = a.iter().skip(1).map(|c| c.abs()).sum();
     if coeff_sum < 1e-10 {
         return Vec::new();
     }
 
-    // =========================================================================
-    // Build companion matrix and compute eigenvalues via faer
-    // =========================================================================
-    // For polynomial z^p + c1×z^(p-1) + ... + cp:
-    // - First row contains negated coefficients: [-c1, -c2, ..., -cp]
-    // - Subdiagonal contains ones
-    // - All other entries are zero
-    //
-    // Eigenvalues of the companion matrix are exactly the polynomial roots.
-    // We use faer (pure-Rust, WASM-compatible, ~LAPACK dhseqr precision) —
-    // the upper-Hessenberg+Francis-QR path that nalgebra's Schur uses can
-    // fail to converge on degenerate cases and required hand-tuned
-    // max_niter; faer's eigendecomposition handles this internally.
-    let mut companion: faer::Mat<f64> = faer::Mat::zeros(order, order);
-    for i in 0..order {
-        companion[(0, i)] = -a[i + 1];
-    }
-    for i in 1..order {
-        companion[(i, i - 1)] = 1.0;
-    }
-
-    let eig = match companion.eigenvalues() {
-        Ok(v) => v,
-        Err(_) => return Vec::new(),
+    // Companion matrix layout (Numerical Recipes Ch. 9.5):
+    //     [ -a[1]  -a[2]  -a[3]  ...  -a[p] ]
+    //     [   1      0      0    ...    0   ]
+    // C = [   0      1      0    ...    0   ]
+    //     [   ⋮      ⋮      ⋮    ⋱     ⋮   ]
+    //     [   0      0      0    ...    0   ]
+    let mut roots = match try_nalgebra_schur(a, order) {
+        Some(r) => r,
+        None => match try_faer_evd(a, order) {
+            Some(r) => r,
+            None => return Vec::new(),
+        },
     };
 
-    // faer returns Vec<num_complex::Complex<f64>> already; alias to Complex64.
-    let mut roots: Vec<Complex64> = eig.iter().map(|c| Complex64::new(c.re, c.im)).collect();
-
-    // =========================================================================
-    // Post-processing: reflect unstable roots
-    // =========================================================================
     if reflect_unstable {
         reflect_unstable_roots(&mut roots);
     }
 
-    // =========================================================================
-    // Post-processing: polish roots with Newton-Raphson
-    // =========================================================================
-    // This improves accuracy, especially for closely-spaced roots
     if polish {
         for root in roots.iter_mut() {
             *root = polish_root(a, *root, 10, 1e-10);
@@ -678,6 +674,85 @@ fn lpc_roots(a: &[f64], polish: bool, reflect_unstable: bool) -> Vec<Complex64> 
     }
 
     roots
+}
+
+/// Fast path: nalgebra Schur with a bounded iteration count.
+///
+/// Returns `None` if the QR algorithm fails to converge within `100 × order`
+/// iterations — caller should fall back to faer.
+fn try_nalgebra_schur(a: &[f64], order: usize) -> Option<Vec<Complex64>> {
+    let companion = nalgebra::DMatrix::<f64>::from_fn(order, order, |row, col| {
+        if row == 0 {
+            -a[col + 1]
+        } else if row == col + 1 {
+            1.0
+        } else {
+            0.0
+        }
+    });
+    let schur = nalgebra::Schur::try_new(companion, f64::EPSILON, 100 * order)?;
+    let eig = schur.complex_eigenvalues();
+    Some(eig.iter().map(|c| Complex64::new(c.re, c.im)).collect())
+}
+
+/// Fallback path: faer `evd_real`. Used when nalgebra's bounded Schur fails
+/// to converge. Returns `None` only if faer itself reports an error.
+fn try_faer_evd(a: &[f64], order: usize) -> Option<Vec<Complex64>> {
+    let mut companion: faer::Mat<f64> = faer::Mat::zeros(order, order);
+    for i in 0..order {
+        companion[(0, i)] = -a[i + 1];
+    }
+    for i in 1..order {
+        companion[(i, i - 1)] = 1.0;
+    }
+    companion
+        .eigenvalues()
+        .ok()
+        .map(|eig| eig.iter().map(|c| Complex64::new(c.re, c.im)).collect())
+}
+
+#[cfg(test)]
+mod lpc_roots_tests {
+    use super::*;
+
+    /// Smoke test: roots of `(z - 0.5)(z - 0.8) = z^2 - 1.3 z + 0.4`
+    /// are `0.5` and `0.8`. Hits the nalgebra fast path.
+    #[test]
+    fn known_real_roots() {
+        let mut got: Vec<f64> = lpc_roots(&[1.0, -1.3, 0.4], false, false)
+            .iter()
+            .map(|c| c.re)
+            .collect();
+        got.sort_by(|a, b| a.partial_cmp(b).unwrap());
+        assert!((got[0] - 0.5).abs() < 1e-12, "got {:?}", got);
+        assert!((got[1] - 0.8).abs() < 1e-12, "got {:?}", got);
+    }
+
+    /// Silent frame (zero coefficients) must short-circuit.
+    #[test]
+    fn silent_frame_returns_empty() {
+        let roots = lpc_roots(&[1.0, 0.0, 0.0, 0.0, 0.0], false, false);
+        assert!(roots.is_empty());
+    }
+
+    /// Direct check that the faer fallback agrees with the nalgebra path
+    /// on a well-conditioned input (we can't easily synthesize a matrix
+    /// that hangs nalgebra's bounded Schur, so we just assert the two
+    /// solvers return the same root set up to ordering).
+    #[test]
+    fn faer_fallback_matches_nalgebra() {
+        // Same poly as known_real_roots.
+        let a = [1.0, -1.3, 0.4];
+        let mut na: Vec<f64> = try_nalgebra_schur(&a, 2).unwrap()
+            .iter().map(|c| c.re).collect();
+        let mut fa: Vec<f64> = try_faer_evd(&a, 2).unwrap()
+            .iter().map(|c| c.re).collect();
+        na.sort_by(|a, b| a.partial_cmp(b).unwrap());
+        fa.sort_by(|a, b| a.partial_cmp(b).unwrap());
+        for (n, f) in na.iter().zip(fa.iter()) {
+            assert!((n - f).abs() < 1e-10, "nalgebra {:?} vs faer {:?}", na, fa);
+        }
+    }
 }
 
 // =============================================================================
@@ -897,11 +972,49 @@ fn resample_two_stage(
     };
 
     // Stage 2: windowed-sinc interpolation of the bandlimited signal.
+    //
+    // The kernel `k(phi) = sinc(phi) · Hann(phi/n_half)` depends only on
+    // the fractional phase `phi = k − x ∈ [-n_half, +n_half]`. The
+    // straightforward implementation evaluates `sin` and `cos` for every
+    // (output × tap) pair — at precision=50 that's `(2·precision+1) =
+    // 101` trig calls per output sample, ≈ 3.3 M per resample for our
+    // fixture. Standard sigproc fix (e.g. Smith, Digital Audio Resampling
+    // Home Page; Crochiere & Rabiner 1983 §3): precompute the kernel on a
+    // fine fractional-phase grid once and look it up with linear
+    // interpolation in the inner loop.
+    //
+    // Table layout: `kernel[j]` for `j ∈ [0, table_len)` covers
+    // `phi_j = j / OVERSAMPLE - n_half`, i.e. `OVERSAMPLE` table entries
+    // per integer `phi` step. Linear-interp error is bounded by
+    // `O((1/OVERSAMPLE)² · max|k''|)`. With OVERSAMPLE=2048 the spacing
+    // is ~5e-4 input-samples and `max|k''| ≲ π² ≈ 10`, so worst-case
+    // sample-level error is ~2.5e-6 — well below the Burg-LPC noise
+    // floor and below the parselmouth-comparison tolerance the original
+    // two-stage was verified against (mean diff 2.7e-8, p99 1.3e-7).
     let n_in = filtered.len();
     let n_out = ((n_in as f64) * new_rate / old_rate).floor() as usize;
     let ratio = old_rate / new_rate;
     let n_half = (precision as f64) + 0.5;
     let inv_n_half = 1.0 / n_half;
+
+    const OVERSAMPLE: usize = 2048;
+    let table_len = OVERSAMPLE * (2 * precision + 1) + 2; // +2 so kernel[ti+1] is always in-bounds
+    let mut kernel = vec![0.0f64; table_len];
+    let inv_os = 1.0 / OVERSAMPLE as f64;
+    let pi = std::f64::consts::PI;
+    for j in 0..table_len {
+        let phi = (j as f64) * inv_os - n_half;
+        let s = if phi.abs() < 1e-12 {
+            1.0
+        } else {
+            let pa = pi * phi;
+            pa.sin() / pa
+        };
+        let w = 0.5 + 0.5 * (pi * phi * inv_n_half).cos();
+        kernel[j] = s * w;
+    }
+
+    let os_f = OVERSAMPLE as f64;
     let mut out = vec![0.0f64; n_out];
 
     for m in 0..n_out {
@@ -919,19 +1032,19 @@ fn resample_two_stage(
         if hi < lo {
             continue;
         }
+        // Per-output: t(k) = (k - x + n_half) * OVERSAMPLE = t0 + k * OVERSAMPLE
+        // Precompute t0 and step the integer offset by OVERSAMPLE per tap so
+        // the inner loop avoids one multiply per tap.
+        let t0 = (n_half - x) * os_f;
+        let mut t = t0 + (lo as f64) * os_f;
         let mut acc = 0.0f64;
         for k in lo..=hi {
-            let phi = (k as f64) - x;
-            // Pure sinc with zero-crossings at integer phi.
-            let s = if phi.abs() < 1e-12 {
-                1.0
-            } else {
-                let pa = std::f64::consts::PI * phi;
-                pa.sin() / pa
-            };
-            // Hann window over ±n_half.
-            let w = 0.5 + 0.5 * (std::f64::consts::PI * phi * inv_n_half).cos();
-            acc += filtered[k as usize] * s * w;
+            let ti = t as usize; // floor; t ≥ 0 by construction
+            let frac = t - (ti as f64);
+            let k0 = kernel[ti];
+            let k1 = kernel[ti + 1];
+            acc += filtered[k as usize] * (k0 + (k1 - k0) * frac);
+            t += os_f;
         }
         out[m] = acc;
     }

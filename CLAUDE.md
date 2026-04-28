@@ -724,11 +724,54 @@ details and full investigation log:
 - `rust/src/formant.rs::resample` (Rust)
 - `docs/RESAMPLER_INVESTIGATION.md` (gitignored — full investigation summary)
 
+**Two-stage resampler perf fix (2026-04-28):** Stage 2's inner loop was
+evaluating `sin/cos` per (output × tap) pair — at precision=50 that's ~3.3 M
+trig calls per resample on the hebrew fixture (139 264 samples, 48 k → 11 k),
+and `Sound.resample` cost 78.91 ms — *slower* than the pre-two-stage rustfft
+path (51.30 ms, measured directly via a temporary `bench_old_resample`
+example) and ~3.4× slower than parselmouth's C++ on the same input.
+Replaced the inline trig with a precomputed `kernel[j] = sinc(phi_j) ·
+Hann(phi_j/n_half)` table on a 2048× oversampled fractional-phase grid, with
+linear interpolation between adjacent table entries in the inner loop. The
+inner loop also keeps a running `t` and steps by `OVERSAMPLE` per tap to
+avoid a multiply. Standard sigproc technique — cited Smith's CCRMA "Digital
+Audio Resampling Home Page" and Crochiere & Rabiner §3 in the source
+comment, no Praat C++ examined. Result: `Sound.resample` 78.91 → 38.98 ms
+(2.0× faster); `Sound.to_formant_burg` 100 → 49.5 ms total. Sample-level
+parity vs the prior trig-per-tap form: max diff 2.1e-10, mean 3.5e-12 — well
+below the parselmouth-comparison tolerance the original two-stage was
+verified against. Formant frequency parity: max 1.6e-4 Hz, p99 9.4e-6 Hz —
+far below the 1 Hz Burg tolerance. Linear-interp error bound is
+`O((1/OVERSAMPLE)² · max|k''|)` ≈ 2.5e-6 sample-level worst case (analytic).
+Stage 1 (FFT brick-wall LPF, smallft) unchanged. Python `_resample`
+unchanged (rare path). Rust lib tests, full Python suite (112), and both
+WASM targets pass. Implementation: `rust/src/formant.rs:974-1054`.
+
+The pre-two-stage rustfft path is preserved for reference at
+`BACKUP_resampler_two_stage_2026-04-28.md` (gitignored), in case we ever
+want to compare or revert without git archaeology.
+
 **Rust free-wins (2026-04-26):** Per `docs/TRANSFERABLE_FINDINGS.md`:
 - **faer for eigendecomposition.** `lpc_roots` in `rust/src/formant.rs` now
   uses `faer::Mat::eigenvalues()` instead of `nalgebra::Schur::try_new`.
   Pure Rust, WASM-compatible, ~LAPACK precision; no hand-tuned `max_niter`
   for degenerate companion matrices.
+  **Update (2026-04-28):** Reverted the eigensolver default to nalgebra
+  `Schur::try_new(.., f64::EPSILON, 100*order)` (the original bounded path
+  from commit 6a8bb7f) and kept faer `Mat::eigenvalues()` *only* as a
+  fallback when nalgebra returns `None`. faer turned out to be ~25–30%
+  slower than nalgebra on the small (10×10) companion matrices in our
+  workload — measured on `tam-haʃaʁav-haɡadol-mono.wav` (2.9 s, 571
+  frames): 77 → 56 ms/call for `Sound.to_formant_burg`. The hang
+  protection that motivated the swap (commit 2e028cc) is preserved by
+  the faer fallback. Frame-by-frame parity vs the faer-only path: max
+  freq diff 1.8e-12 Hz, max bw diff 1.3e-12 Hz, NaN pattern identical
+  (the tiny non-zeros are pivot-ordering noise from the QR algorithms
+  taking different paths). Implementation:
+  `try_nalgebra_schur` / `try_faer_evd` in `rust/src/formant.rs:639`.
+  Native build, both WASM targets (`web`, `nodejs`), Python wheel, lib
+  tests (4 incl. `faer_fallback_matches_nalgebra`), and full Python
+  suite (112 tests) all pass.
 - **Vendored speexdsp smallft FFT (f64).** 4 files at `rust/src/smallft/`
   — an MIT-licensed c2rust translation of Xiph/Vorbis smallft (public-domain
   FFTPACK port; neither file derives from Praat source). Promoted f32→f64
@@ -749,10 +792,10 @@ A `push: branches: [main]` block with `paths:` filter is included
 commented-out for future enablement.
 
 Plan: roll all changes (adapter wins + threshold kwargs + silence-normalization
-fix + two-stage resampler + Rust free-wins + wheels CI) into the next bump
-(~1–2 weeks) rather than chain a v0.1.6 right after v0.1.5. No PyPI action
-needed today. Tests: full 112-test suite passes locally (96 prior + 16 new
-threshold tests).
+fix + two-stage resampler + Rust free-wins + nalgebra-default eigensolver +
+resampler kernel-table + wheels CI) into the next bump (~1–2 weeks) rather
+than chain a v0.1.6 right after v0.1.5. No PyPI action needed today. Tests:
+full 112-test suite passes locally (96 prior + 16 new threshold tests).
 
 **Install from PyPI:**
 ```bash
