@@ -724,32 +724,46 @@ details and full investigation log:
 - `rust/src/formant.rs::resample` (Rust)
 - `docs/RESAMPLER_INVESTIGATION.md` (gitignored — full investigation summary)
 
-**Two-stage resampler perf fix (2026-04-28):** Stage 2's inner loop was
-evaluating `sin/cos` per (output × tap) pair — at precision=50 that's ~3.3 M
-trig calls per resample on the hebrew fixture (139 264 samples, 48 k → 11 k),
-and `Sound.resample` cost 78.91 ms — *slower* than the pre-two-stage rustfft
-path (51.30 ms, measured directly via a temporary `bench_old_resample`
-example) and ~3.4× slower than parselmouth's C++ on the same input.
-Replaced the inline trig with a precomputed `kernel[j] = sinc(phi_j) ·
-Hann(phi_j/n_half)` table on a 2048× oversampled fractional-phase grid, with
-linear interpolation between adjacent table entries in the inner loop. The
-inner loop also keeps a running `t` and steps by `OVERSAMPLE` per tap to
-avoid a multiply. Standard sigproc technique — cited Smith's CCRMA "Digital
-Audio Resampling Home Page" and Crochiere & Rabiner §3 in the source
-comment, no Praat C++ examined. Result: `Sound.resample` 78.91 → 38.98 ms
-(2.0× faster); `Sound.to_formant_burg` 100 → 49.5 ms total. Sample-level
-parity vs the prior trig-per-tap form: max diff 2.1e-10, mean 3.5e-12 — well
-below the parselmouth-comparison tolerance the original two-stage was
-verified against. Formant frequency parity: max 1.6e-4 Hz, p99 9.4e-6 Hz —
-far below the 1 Hz Burg tolerance. Linear-interp error bound is
-`O((1/OVERSAMPLE)² · max|k''|)` ≈ 2.5e-6 sample-level worst case (analytic).
-Stage 1 (FFT brick-wall LPF, smallft) unchanged. Python `_resample`
-unchanged (rare path). Rust lib tests, full Python suite (112), and both
-WASM targets pass. Implementation: `rust/src/formant.rs:974-1054`.
+**Two-stage resampler perf detour (2026-04-28, reverted same day):**
+Stage 2's inner loop was evaluating `sin/cos` per (output × tap) pair —
+at precision=50 that's ~3.3 M trig calls per resample on the hebrew
+fixture (139 264 samples, 48 k → 11 k). On a single-threaded local
+micro-bench `Sound.resample` cost 78.91 ms.
+
+We tried three shapes of a precomputed `kernel[j] = sinc(phi_j) ·
+Hann(phi_j/n_half)` lookup table on a 2048× oversampled fractional-phase
+grid (commits 602e6b1, ec9ea94, a9025b0): build per call; process-wide
+`LazyLock<Vec<f64>>`; thread_local `OnceCell<Vec<f64>>`. Single-thread
+in-process bench dropped from 78.91 → 27–39 ms (2× faster). However,
+on a downstream Rust binary doing formantwise scoring (rayon-parallel
+across many ceilings), all three shapes regressed wall-clock vs the
+trig-per-tap baseline:
+
+  | build                 | wall   | user   | parallelism |
+  | --------------------- | ------ | ------ | ----------- |
+  | hybrid + two-stage    | 60 s   | 202 s  | 3.37×       |  ← trig-per-tap, pre-table
+  | per-call build        | 1:44   | 384 s  | 3.69×       |  ← mmap contention
+  | LazyLock shared       | 78.5 s | 180 s  | 2.29×       |  ← L3 bandwidth
+  | thread_local          | 82 s   | 222 s  | 2.70×       |  ← total cache pressure
+
+Trig-per-tap is purely register-resident — perfect parallel scaling, no
+shared-memory or allocator pressure. Reverted stage 2 to the trig-per-tap
+form to restore the 60 s wall-time. Eigensolver fallback (nalgebra
+Schur::try_new default + faer fallback) remains in place — it's a pure
+win regardless of resampler shape.
+
+Sample-level parity vs the lookup-table form was 2.1e-10 (linear-interp
+residual); reverting to trig is byte-identical to the original two-stage
+shape from commit 98f8900 onward.
+
+Next try (separate commit): rubato as the resampler. It's the off-the-
+shelf candidate that mirrors our knobs (Hann window, configurable
+precision, FFT-LPF stage). May or may not be both fast per-call and
+parallel-friendly; will measure on the same downstream workload before
+committing.
 
 The pre-two-stage rustfft path is preserved for reference at
-`BACKUP_resampler_two_stage_2026-04-28.md` (gitignored), in case we ever
-want to compare or revert without git archaeology.
+`BACKUP_resampler_two_stage_2026-04-28.md` (gitignored).
 
 **Rust free-wins (2026-04-26):** Per `docs/TRANSFERABLE_FINDINGS.md`:
 - **faer for eigendecomposition.** `lpc_roots` in `rust/src/formant.rs` now
@@ -793,9 +807,11 @@ commented-out for future enablement.
 
 Plan: roll all changes (adapter wins + threshold kwargs + silence-normalization
 fix + two-stage resampler + Rust free-wins + nalgebra-default eigensolver +
-resampler kernel-table + wheels CI) into the next bump (~1–2 weeks) rather
-than chain a v0.1.6 right after v0.1.5. No PyPI action needed today. Tests:
-full 112-test suite passes locally (96 prior + 16 new threshold tests).
+wheels CI) into the next bump (~1–2 weeks) rather than chain a v0.1.6 right
+after v0.1.5. The kernel-table resampler optimization is *not* in this list
+— it was reverted (see above) after measuring against a real rayon-parallel
+workload. No PyPI action needed today. Tests: full 112-test suite passes
+locally (96 prior + 16 new threshold tests).
 
 **Install from PyPI:**
 ```bash
