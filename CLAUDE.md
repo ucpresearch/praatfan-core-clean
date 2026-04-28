@@ -724,68 +724,11 @@ details and full investigation log:
 - `rust/src/formant.rs::resample` (Rust)
 - `docs/RESAMPLER_INVESTIGATION.md` (gitignored — full investigation summary)
 
-**Two-stage resampler perf detour (2026-04-28, reverted same day):**
-Stage 2's inner loop was evaluating `sin/cos` per (output × tap) pair —
-at precision=50 that's ~3.3 M trig calls per resample on the hebrew
-fixture (139 264 samples, 48 k → 11 k). On a single-threaded local
-micro-bench `Sound.resample` cost 78.91 ms.
-
-We tried three shapes of a precomputed `kernel[j] = sinc(phi_j) ·
-Hann(phi_j/n_half)` lookup table on a 2048× oversampled fractional-phase
-grid (commits 602e6b1, ec9ea94, a9025b0): build per call; process-wide
-`LazyLock<Vec<f64>>`; thread_local `OnceCell<Vec<f64>>`. Single-thread
-in-process bench dropped from 78.91 → 27–39 ms (2× faster). However,
-on a downstream Rust binary doing formantwise scoring (rayon-parallel
-across many ceilings), all three shapes regressed wall-clock vs the
-trig-per-tap baseline:
-
-  | build                 | wall   | user   | parallelism |
-  | --------------------- | ------ | ------ | ----------- |
-  | hybrid + two-stage    | 60 s   | 202 s  | 3.37×       |  ← trig-per-tap, pre-table
-  | per-call build        | 1:44   | 384 s  | 3.69×       |  ← mmap contention
-  | LazyLock shared       | 78.5 s | 180 s  | 2.29×       |  ← L3 bandwidth
-  | thread_local          | 82 s   | 222 s  | 2.70×       |  ← total cache pressure
-
-Trig-per-tap is purely register-resident — perfect parallel scaling, no
-shared-memory or allocator pressure. Reverted stage 2 to the trig-per-tap
-form to restore the 60 s wall-time. Eigensolver fallback (nalgebra
-Schur::try_new default + faer fallback) remains in place — it's a pure
-win regardless of resampler shape.
-
-Sample-level parity vs the lookup-table form was 2.1e-10 (linear-interp
-residual); reverting to trig is byte-identical to the original two-stage
-shape from commit 98f8900 onward.
-
-Next try (separate commit): rubato as the resampler. It's the off-the-
-shelf candidate that mirrors our knobs (Hann window, configurable
-precision, FFT-LPF stage). May or may not be both fast per-call and
-parallel-friendly; will measure on the same downstream workload before
-committing.
-
-The pre-two-stage rustfft path is preserved for reference at
-`BACKUP_resampler_two_stage_2026-04-28.md` (gitignored).
-
 **Rust free-wins (2026-04-26):** Per `docs/TRANSFERABLE_FINDINGS.md`:
 - **faer for eigendecomposition.** `lpc_roots` in `rust/src/formant.rs` now
   uses `faer::Mat::eigenvalues()` instead of `nalgebra::Schur::try_new`.
   Pure Rust, WASM-compatible, ~LAPACK precision; no hand-tuned `max_niter`
   for degenerate companion matrices.
-  **Update (2026-04-28):** Reverted the eigensolver default to nalgebra
-  `Schur::try_new(.., f64::EPSILON, 100*order)` (the original bounded path
-  from commit 6a8bb7f) and kept faer `Mat::eigenvalues()` *only* as a
-  fallback when nalgebra returns `None`. faer turned out to be ~25–30%
-  slower than nalgebra on the small (10×10) companion matrices in our
-  workload — measured on `tam-haʃaʁav-haɡadol-mono.wav` (2.9 s, 571
-  frames): 77 → 56 ms/call for `Sound.to_formant_burg`. The hang
-  protection that motivated the swap (commit 2e028cc) is preserved by
-  the faer fallback. Frame-by-frame parity vs the faer-only path: max
-  freq diff 1.8e-12 Hz, max bw diff 1.3e-12 Hz, NaN pattern identical
-  (the tiny non-zeros are pivot-ordering noise from the QR algorithms
-  taking different paths). Implementation:
-  `try_nalgebra_schur` / `try_faer_evd` in `rust/src/formant.rs:639`.
-  Native build, both WASM targets (`web`, `nodejs`), Python wheel, lib
-  tests (4 incl. `faer_fallback_matches_nalgebra`), and full Python
-  suite (112 tests) all pass.
 - **Vendored speexdsp smallft FFT (f64).** 4 files at `rust/src/smallft/`
   — an MIT-licensed c2rust translation of Xiph/Vorbis smallft (public-domain
   FFTPACK port; neither file derives from Praat source). Promoted f32→f64
@@ -806,12 +749,10 @@ A `push: branches: [main]` block with `paths:` filter is included
 commented-out for future enablement.
 
 Plan: roll all changes (adapter wins + threshold kwargs + silence-normalization
-fix + two-stage resampler + Rust free-wins + nalgebra-default eigensolver +
-wheels CI) into the next bump (~1–2 weeks) rather than chain a v0.1.6 right
-after v0.1.5. The kernel-table resampler optimization is *not* in this list
-— it was reverted (see above) after measuring against a real rayon-parallel
-workload. No PyPI action needed today. Tests: full 112-test suite passes
-locally (96 prior + 16 new threshold tests).
+fix + two-stage resampler + Rust free-wins + wheels CI) into the next bump
+(~1–2 weeks) rather than chain a v0.1.6 right after v0.1.5. No PyPI action
+needed today. Tests: full 112-test suite passes locally (96 prior + 16 new
+threshold tests).
 
 **Install from PyPI:**
 ```bash

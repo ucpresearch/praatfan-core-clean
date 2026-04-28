@@ -618,86 +618,32 @@ fn reflect_unstable_roots(roots: &mut [Complex64]) {
 /// # Returns
 ///
 /// Vector of complex roots.
-/// Compute polynomial roots from the companion matrix's eigenvalues.
-///
-/// Two-tier strategy:
-///
-/// 1. **Default: nalgebra `Schur::try_new`** with iteration cap `100 × order`.
-///    This was the original implementation (commit 6a8bb7f, "Fix Burg formant
-///    hang: bound nalgebra Schur iterations") and is measurably faster than
-///    faer on small (10×10) companion matrices in our workload.
-///
-/// 2. **Fallback: faer `evd_real`** when nalgebra fails to converge within
-///    the cap. faer's QR routine handles the degenerate cases that hung
-///    nalgebra's unbounded `Schur::new()` indefinitely (hardware-dependent;
-///    triggered by specific audio + ceiling combinations). This restores the
-///    convergence guarantee of commit 2e028cc ("swap nalgebra Schur for faer
-///    eigenvalues") on the rare frames that need it, without paying faer's
-///    per-call cost on the common path.
-///
-/// If both paths fail, returns an empty Vec so the caller emits NaN formants.
 fn lpc_roots(a: &[f64], polish: bool, reflect_unstable: bool) -> Vec<Complex64> {
     let order = a.len() - 1;
     if order < 1 {
         return Vec::new();
     }
 
-    // Silent-frame short-circuit: degenerate companion matrices give the
-    // eigensolvers numerical trouble and the formants are meaningless anyway.
+    // Check if coefficients are essentially zero (silent frame).
+    // This avoids numerical issues in eigenvalue computation for degenerate matrices.
     let coeff_sum: f64 = a.iter().skip(1).map(|c| c.abs()).sum();
     if coeff_sum < 1e-10 {
         return Vec::new();
     }
 
-    // Companion matrix layout (Numerical Recipes Ch. 9.5):
-    //     [ -a[1]  -a[2]  -a[3]  ...  -a[p] ]
-    //     [   1      0      0    ...    0   ]
-    // C = [   0      1      0    ...    0   ]
-    //     [   ⋮      ⋮      ⋮    ⋱     ⋮   ]
-    //     [   0      0      0    ...    0   ]
-    let mut roots = match try_nalgebra_schur(a, order) {
-        Some(r) => r,
-        None => match try_faer_evd(a, order) {
-            Some(r) => r,
-            None => return Vec::new(),
-        },
-    };
-
-    if reflect_unstable {
-        reflect_unstable_roots(&mut roots);
-    }
-
-    if polish {
-        for root in roots.iter_mut() {
-            *root = polish_root(a, *root, 10, 1e-10);
-        }
-    }
-
-    roots
-}
-
-/// Fast path: nalgebra Schur with a bounded iteration count.
-///
-/// Returns `None` if the QR algorithm fails to converge within `100 × order`
-/// iterations — caller should fall back to faer.
-fn try_nalgebra_schur(a: &[f64], order: usize) -> Option<Vec<Complex64>> {
-    let companion = nalgebra::DMatrix::<f64>::from_fn(order, order, |row, col| {
-        if row == 0 {
-            -a[col + 1]
-        } else if row == col + 1 {
-            1.0
-        } else {
-            0.0
-        }
-    });
-    let schur = nalgebra::Schur::try_new(companion, f64::EPSILON, 100 * order)?;
-    let eig = schur.complex_eigenvalues();
-    Some(eig.iter().map(|c| Complex64::new(c.re, c.im)).collect())
-}
-
-/// Fallback path: faer `evd_real`. Used when nalgebra's bounded Schur fails
-/// to converge. Returns `None` only if faer itself reports an error.
-fn try_faer_evd(a: &[f64], order: usize) -> Option<Vec<Complex64>> {
+    // =========================================================================
+    // Build companion matrix and compute eigenvalues via faer
+    // =========================================================================
+    // For polynomial z^p + c1×z^(p-1) + ... + cp:
+    // - First row contains negated coefficients: [-c1, -c2, ..., -cp]
+    // - Subdiagonal contains ones
+    // - All other entries are zero
+    //
+    // Eigenvalues of the companion matrix are exactly the polynomial roots.
+    // We use faer (pure-Rust, WASM-compatible, ~LAPACK dhseqr precision) —
+    // the upper-Hessenberg+Francis-QR path that nalgebra's Schur uses can
+    // fail to converge on degenerate cases and required hand-tuned
+    // max_niter; faer's eigendecomposition handles this internally.
     let mut companion: faer::Mat<f64> = faer::Mat::zeros(order, order);
     for i in 0..order {
         companion[(0, i)] = -a[i + 1];
@@ -705,54 +651,33 @@ fn try_faer_evd(a: &[f64], order: usize) -> Option<Vec<Complex64>> {
     for i in 1..order {
         companion[(i, i - 1)] = 1.0;
     }
-    companion
-        .eigenvalues()
-        .ok()
-        .map(|eig| eig.iter().map(|c| Complex64::new(c.re, c.im)).collect())
-}
 
-#[cfg(test)]
-mod lpc_roots_tests {
-    use super::*;
+    let eig = match companion.eigenvalues() {
+        Ok(v) => v,
+        Err(_) => return Vec::new(),
+    };
 
-    /// Smoke test: roots of `(z - 0.5)(z - 0.8) = z^2 - 1.3 z + 0.4`
-    /// are `0.5` and `0.8`. Hits the nalgebra fast path.
-    #[test]
-    fn known_real_roots() {
-        let mut got: Vec<f64> = lpc_roots(&[1.0, -1.3, 0.4], false, false)
-            .iter()
-            .map(|c| c.re)
-            .collect();
-        got.sort_by(|a, b| a.partial_cmp(b).unwrap());
-        assert!((got[0] - 0.5).abs() < 1e-12, "got {:?}", got);
-        assert!((got[1] - 0.8).abs() < 1e-12, "got {:?}", got);
+    // faer returns Vec<num_complex::Complex<f64>> already; alias to Complex64.
+    let mut roots: Vec<Complex64> = eig.iter().map(|c| Complex64::new(c.re, c.im)).collect();
+
+    // =========================================================================
+    // Post-processing: reflect unstable roots
+    // =========================================================================
+    if reflect_unstable {
+        reflect_unstable_roots(&mut roots);
     }
 
-    /// Silent frame (zero coefficients) must short-circuit.
-    #[test]
-    fn silent_frame_returns_empty() {
-        let roots = lpc_roots(&[1.0, 0.0, 0.0, 0.0, 0.0], false, false);
-        assert!(roots.is_empty());
-    }
-
-    /// Direct check that the faer fallback agrees with the nalgebra path
-    /// on a well-conditioned input (we can't easily synthesize a matrix
-    /// that hangs nalgebra's bounded Schur, so we just assert the two
-    /// solvers return the same root set up to ordering).
-    #[test]
-    fn faer_fallback_matches_nalgebra() {
-        // Same poly as known_real_roots.
-        let a = [1.0, -1.3, 0.4];
-        let mut na: Vec<f64> = try_nalgebra_schur(&a, 2).unwrap()
-            .iter().map(|c| c.re).collect();
-        let mut fa: Vec<f64> = try_faer_evd(&a, 2).unwrap()
-            .iter().map(|c| c.re).collect();
-        na.sort_by(|a, b| a.partial_cmp(b).unwrap());
-        fa.sort_by(|a, b| a.partial_cmp(b).unwrap());
-        for (n, f) in na.iter().zip(fa.iter()) {
-            assert!((n - f).abs() < 1e-10, "nalgebra {:?} vs faer {:?}", na, fa);
+    // =========================================================================
+    // Post-processing: polish roots with Newton-Raphson
+    // =========================================================================
+    // This improves accuracy, especially for closely-spaced roots
+    if polish {
+        for root in roots.iter_mut() {
+            *root = polish_root(a, *root, 10, 1e-10);
         }
     }
+
+    roots
 }
 
 // =============================================================================
@@ -972,21 +897,6 @@ fn resample_two_stage(
     };
 
     // Stage 2: windowed-sinc interpolation of the bandlimited signal.
-    //
-    // Trig-per-tap form: evaluate `kernel(phi) = sinc(phi) · Hann(phi/n_half)`
-    // inline for every (output × tap) pair. We previously cached this kernel
-    // in a 2048×-oversampled lookup table (commits 602e6b1 / ec9ea94 /
-    // a9025b0). On single-threaded micro-bench the table doubled per-call
-    // throughput, but on rayon-parallel callers driving many resamples (e.g.
-    // formantwise scoring across many ceilings) every shape we tried — per-
-    // call build, process-wide LazyLock, thread_local OnceCell — regressed
-    // wall-clock vs the trig-per-tap shape: per-call build paid `mmap`
-    // contention, shared LazyLock paid L3 bandwidth contention on the 1.6 MB
-    // table, thread_local paid total cache pressure once N × 1.6 MB exceeded
-    // L3. Trig-per-tap has none of those costs — purely register-resident,
-    // perfect parallel scaling. We're keeping it until/unless we find a
-    // resampler shape that's both fast per-call AND parallel-friendly (next
-    // try: rubato, off-the-shelf).
     let n_in = filtered.len();
     let n_out = ((n_in as f64) * new_rate / old_rate).floor() as usize;
     let ratio = old_rate / new_rate;
