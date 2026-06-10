@@ -1,6 +1,6 @@
 [package]
 name = "praatfan_rust"
-version = "0.1.6"
+version = "0.1.7"
 edition = "2021"
 description = "Clean-room reimplementation of Praat's acoustic analysis algorithms"
 license = "MIT OR Apache-2.0"
@@ -47,7 +47,7 @@ console_error_panic_hook = { version = "0.1", optional = true }
 hound = { version = "3.5", optional = true }
 
 # Python bindings (optional, enabled with "python" feature)
-pyo3 = { version = "0.23", features = ["extension-module"], optional = true }
+pyo3 = { version = "0.23", features = ["extension-module", "abi3-py39"], optional = true }
 numpy = { version = "0.23", optional = true }
 
 # Data parallelism (native only; wasm32 uses sequential fallback)
