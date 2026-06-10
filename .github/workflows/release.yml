@@ -130,6 +130,34 @@ jobs:
           name: wheel-macos
           path: rust/dist/*.whl
 
+  # Build one abi3 wheel (cp39-abi3) for macOS x86_64 (Intel).
+  # macos-13 is the last Intel-native runner; build natively there to avoid
+  # cross-compilation. If macos-13 is retired, switch runs-on to macos-14 and
+  # cross-compile (maturin-action installs the x86_64-apple-darwin target).
+  build-rust-macos-intel-py:
+    runs-on: macos-13
+    steps:
+      - uses: actions/checkout@v6
+
+      - name: Set up Python
+        uses: actions/setup-python@v6
+        with:
+          python-version: "3.12"
+
+      - name: Build wheels
+        uses: PyO3/maturin-action@v1
+        with:
+          target: x86_64-apple-darwin
+          args: --release --out dist --features python -i python3.12
+          working-directory: rust
+          sccache: 'true'
+
+      - name: Upload wheels
+        uses: actions/upload-artifact@v7
+        with:
+          name: wheel-macos-intel
+          path: rust/dist/*.whl
+
   # Build one abi3 wheel (cp39-abi3) for Windows x86_64.
   build-rust-windows-py:
     runs-on: windows-latest
@@ -181,7 +209,7 @@ jobs:
 
   # Upload all wheels to the GitHub release
   upload-release:
-    needs: [build-python, build-rust-linux-py, build-rust-linux-aarch64-py, build-rust-macos-py, build-rust-windows-py, build-rust-windows-arm64-py, build-wasm]
+    needs: [build-python, build-rust-linux-py, build-rust-linux-aarch64-py, build-rust-macos-py, build-rust-macos-intel-py, build-rust-windows-py, build-rust-windows-arm64-py, build-wasm]
     runs-on: ubuntu-latest
     if: github.event_name == 'release'
     steps:
