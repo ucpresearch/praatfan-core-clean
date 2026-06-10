@@ -703,7 +703,7 @@ dependencies = [
 
 [[package]]
 name = "praatfan_rust"
-version = "0.1.6"
+version = "0.1.7"
 dependencies = [
  "approx",
  "console_error_panic_hook",
