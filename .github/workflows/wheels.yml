@@ -99,9 +99,11 @@ jobs:
           name: wheel-macos-arm64
           path: rust/dist/*.whl
 
-  # macOS x86_64 (Intel) — macos-13 is the last Intel-native runner.
+  # macOS x86_64 (Intel) — cross-compiled on arm64 macos-14 (native macos-13
+  # Intel runners queue indefinitely / are being retired). abi3 wheels don't
+  # link libpython, so cross-compilation is clean.
   build-rust-macos-intel:
-    runs-on: macos-13
+    runs-on: macos-14
     steps:
       - uses: actions/checkout@v6
       - uses: actions/setup-python@v6

@@ -131,11 +131,12 @@ jobs:
           path: rust/dist/*.whl
 
   # Build one abi3 wheel (cp39-abi3) for macOS x86_64 (Intel).
-  # macos-13 is the last Intel-native runner; build natively there to avoid
-  # cross-compilation. If macos-13 is retired, switch runs-on to macos-14 and
-  # cross-compile (maturin-action installs the x86_64-apple-darwin target).
+  # Cross-compiled on the arm64 macos-14 runner (native macos-13 Intel runners
+  # queue indefinitely / are being retired). abi3 wheels don't link libpython,
+  # so cross-compilation is clean; maturin-action installs the
+  # x86_64-apple-darwin target.
   build-rust-macos-intel-py:
-    runs-on: macos-13
+    runs-on: macos-14
     steps:
       - uses: actions/checkout@v6
 
