@@ -33,13 +33,12 @@ jobs:
           path: dist/*.whl
 
 
-  # Build for multiple Python versions on Linux
+  # Build one abi3 wheel (cp39-abi3) for Linux x86_64.
+  # abi3 (stable ABI, floor py3.9 — see rust/Cargo.toml pyo3 features) means
+  # a single wheel works on CPython 3.9, 3.10, ... 3.13 and every future 3.x,
+  # so no per-version matrix is needed.
   build-rust-linux-py:
     runs-on: ubuntu-latest
-    strategy:
-      fail-fast: false
-      matrix:
-        python-version: ["3.9", "3.10", "3.11", "3.12"]
     steps:
       - uses: actions/checkout@v6
 
@@ -47,7 +46,7 @@ jobs:
         uses: PyO3/maturin-action@v1
         with:
           target: x86_64-unknown-linux-gnu
-          args: --release --out dist --features python -i python${{ matrix.python-version }}
+          args: --release --out dist --features python -i python3.12
           working-directory: rust
           sccache: 'true'
           manylinux: auto
@@ -55,29 +54,20 @@ jobs:
       - name: Upload wheels
         uses: actions/upload-artifact@v7
         with:
-          name: wheel-linux-py${{ matrix.python-version }}
+          name: wheel-linux
           path: rust/dist/*.whl
 
-  # Build for multiple Python versions on Linux aarch64
+  # Build one abi3 wheel (cp39-abi3) for Linux aarch64.
   build-rust-linux-aarch64-py:
     runs-on: ubuntu-24.04-arm
-    strategy:
-      fail-fast: false
-      matrix:
-        python-version: ["3.9", "3.10", "3.11", "3.12"]
     steps:
       - uses: actions/checkout@v6
-
-      - name: Set up Python
-        uses: actions/setup-python@v6
-        with:
-          python-version: ${{ matrix.python-version }}
 
       - name: Build wheels
         uses: PyO3/maturin-action@v1
         with:
           target: aarch64-unknown-linux-gnu
-          args: --release --out dist --features python -i python${{ matrix.python-version }}
+          args: --release --out dist --features python -i python3.12
           working-directory: rust
           sccache: 'true'
           manylinux: auto
@@ -85,95 +75,84 @@ jobs:
       - name: Upload wheels
         uses: actions/upload-artifact@v7
         with:
-          name: wheel-linux-aarch64-py${{ matrix.python-version }}
+          name: wheel-linux-aarch64
           path: rust/dist/*.whl
 
-  # Build for multiple Python versions on Windows ARM64
-  # Note: Python ARM64 on Windows only available from 3.11+
+  # Build one abi3 wheel (cp39-abi3) for Windows ARM64.
+  # Note: Python ARM64 on Windows only available from 3.11+, so we build
+  # against 3.12; the abi3 wheel still works on 3.11 and 3.13+.
   build-rust-windows-arm64-py:
     runs-on: windows-11-arm
-    strategy:
-      fail-fast: false
-      matrix:
-        python-version: ["3.11", "3.12"]
     steps:
       - uses: actions/checkout@v6
 
       - name: Set up Python
         uses: actions/setup-python@v6
         with:
-          python-version: ${{ matrix.python-version }}
+          python-version: "3.12"
 
       - name: Build wheels
         uses: PyO3/maturin-action@v1
         with:
           target: aarch64-pc-windows-msvc
-          args: --release --out dist --features python -i python${{ matrix.python-version }}
+          args: --release --out dist --features python -i python3.12
           working-directory: rust
           sccache: 'true'
 
       - name: Upload wheels
         uses: actions/upload-artifact@v7
         with:
-          name: wheel-windows-arm64-py${{ matrix.python-version }}
+          name: wheel-windows-arm64
           path: rust/dist/*.whl
 
-  # Build for multiple Python versions on macOS ARM64
+  # Build one abi3 wheel (cp39-abi3) for macOS ARM64.
   build-rust-macos-py:
     runs-on: macos-14
-    strategy:
-      fail-fast: false
-      matrix:
-        python-version: ["3.9", "3.10", "3.11", "3.12"]
     steps:
       - uses: actions/checkout@v6
 
       - name: Set up Python
         uses: actions/setup-python@v6
         with:
-          python-version: ${{ matrix.python-version }}
+          python-version: "3.12"
 
       - name: Build wheels
         uses: PyO3/maturin-action@v1
         with:
           target: aarch64-apple-darwin
-          args: --release --out dist --features python -i python${{ matrix.python-version }}
+          args: --release --out dist --features python -i python3.12
           working-directory: rust
           sccache: 'true'
 
       - name: Upload wheels
         uses: actions/upload-artifact@v7
         with:
-          name: wheel-macos-py${{ matrix.python-version }}
+          name: wheel-macos
           path: rust/dist/*.whl
 
-  # Build for multiple Python versions on Windows
+  # Build one abi3 wheel (cp39-abi3) for Windows x86_64.
   build-rust-windows-py:
     runs-on: windows-latest
-    strategy:
-      fail-fast: false
-      matrix:
-        python-version: ["3.9", "3.10", "3.11", "3.12"]
     steps:
       - uses: actions/checkout@v6
 
       - name: Set up Python
         uses: actions/setup-python@v6
         with:
-          python-version: ${{ matrix.python-version }}
+          python-version: "3.12"
 
       - name: Build wheels
         uses: PyO3/maturin-action@v1
         with:
           target: x86_64-pc-windows-msvc
-          args: --release --out dist --features python -i python${{ matrix.python-version }}
+          args: --release --out dist --features python -i python3.12
           working-directory: rust
           sccache: 'true'
 
       - name: Upload wheels
         uses: actions/upload-artifact@v7
         with:
-          name: wheel-windows-py${{ matrix.python-version }}
+          name: wheel-windows
           path: rust/dist/*.whl
 
   # Build WASM package
