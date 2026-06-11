@@ -580,6 +580,40 @@ impl Sound {
         crate::pitch::sound_to_pitch_cc(self, time_step, pitch_floor, pitch_ceiling)
     }
 
+    /// Compute pitch (AC method) against a speech-scoped amplitude reference.
+    ///
+    /// Like [`Self::to_pitch_ac`], but the whole-file amplitude statistic is
+    /// replaced by `reference_peak` (`None` = estimate internally via
+    /// [`crate::speech_reference::estimate_speech_reference`]). Robust on
+    /// long recordings where a single loud event would otherwise suppress
+    /// voicing file-wide.
+    pub fn to_pitch_ac_referenced(
+        &self,
+        time_step: f64,
+        pitch_floor: f64,
+        pitch_ceiling: f64,
+        reference_peak: Option<f64>,
+    ) -> crate::error::Result<Pitch> {
+        crate::pitch::sound_to_pitch_ac_referenced(
+            self, time_step, pitch_floor, pitch_ceiling, reference_peak,
+        )
+    }
+
+    /// Compute pitch (CC method) against a speech-scoped amplitude reference.
+    ///
+    /// See [`Self::to_pitch_ac_referenced`] for semantics.
+    pub fn to_pitch_cc_referenced(
+        &self,
+        time_step: f64,
+        pitch_floor: f64,
+        pitch_ceiling: f64,
+        reference_peak: Option<f64>,
+    ) -> crate::error::Result<Pitch> {
+        crate::pitch::sound_to_pitch_cc_referenced(
+            self, time_step, pitch_floor, pitch_ceiling, reference_peak,
+        )
+    }
+
     /// Compute harmonicity (HNR) using autocorrelation method.
     ///
     /// Harmonicity measures the ratio of harmonic (periodic) energy to
@@ -641,6 +675,48 @@ impl Sound {
             min_pitch,
             silence_threshold,
             periods_per_window,
+        )
+    }
+
+    /// Compute HNR (AC method) against a speech-scoped amplitude reference.
+    ///
+    /// See [`Self::to_pitch_ac_referenced`] for semantics.
+    pub fn to_harmonicity_ac_referenced(
+        &self,
+        time_step: f64,
+        min_pitch: f64,
+        silence_threshold: f64,
+        periods_per_window: f64,
+        reference_peak: Option<f64>,
+    ) -> crate::error::Result<Harmonicity> {
+        crate::harmonicity::sound_to_harmonicity_ac_referenced(
+            self,
+            time_step,
+            min_pitch,
+            silence_threshold,
+            periods_per_window,
+            reference_peak,
+        )
+    }
+
+    /// Compute HNR (CC method) against a speech-scoped amplitude reference.
+    ///
+    /// See [`Self::to_pitch_ac_referenced`] for semantics.
+    pub fn to_harmonicity_cc_referenced(
+        &self,
+        time_step: f64,
+        min_pitch: f64,
+        silence_threshold: f64,
+        periods_per_window: f64,
+        reference_peak: Option<f64>,
+    ) -> crate::error::Result<Harmonicity> {
+        crate::harmonicity::sound_to_harmonicity_cc_referenced(
+            self,
+            time_step,
+            min_pitch,
+            silence_threshold,
+            periods_per_window,
+            reference_peak,
         )
     }
 

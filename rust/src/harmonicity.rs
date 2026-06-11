@@ -322,6 +322,58 @@ pub fn sound_to_harmonicity_ac(
     silence_threshold: f64,
     periods_per_window: f64,
 ) -> Harmonicity {
+    harmonicity_ac_internal(
+        sound,
+        time_step,
+        min_pitch,
+        silence_threshold,
+        periods_per_window,
+        None, // reference_peak: legacy whole-file statistic
+    )
+}
+
+/// Compute HNR (AC method) against a speech-scoped amplitude reference.
+///
+/// Like [`sound_to_harmonicity_ac`], but the whole-file amplitude
+/// statistic is replaced by `reference_peak` (`None` = estimate
+/// internally via [`crate::speech_reference::estimate_speech_reference`]).
+/// The original entry point is unchanged.
+///
+/// # Errors
+///
+/// `Error::InvalidParameter` if an explicit `reference_peak` is not
+/// finite and > 0.
+pub fn sound_to_harmonicity_ac_referenced(
+    sound: &Sound,
+    time_step: f64,
+    min_pitch: f64,
+    silence_threshold: f64,
+    periods_per_window: f64,
+    reference_peak: Option<f64>,
+) -> crate::error::Result<Harmonicity> {
+    let resolved = crate::speech_reference::resolve_reference_peak(
+        sound.samples().as_slice().unwrap(),
+        sound.sample_rate(),
+        reference_peak,
+    )?;
+    Ok(harmonicity_ac_internal(
+        sound,
+        time_step,
+        min_pitch,
+        silence_threshold,
+        periods_per_window,
+        resolved,
+    ))
+}
+
+fn harmonicity_ac_internal(
+    sound: &Sound,
+    time_step: f64,
+    min_pitch: f64,
+    silence_threshold: f64,
+    periods_per_window: f64,
+    reference_peak: Option<f64>,
+) -> Harmonicity {
     // Step 1: Compute pitch using AC method with harmonicity-specific settings
     //
     // Key differences from standard Pitch AC:
@@ -343,6 +395,7 @@ pub fn sound_to_harmonicity_ac(
         FrameTiming::Left, // Left-aligned for harmonicity
         false,             // apply_octave_cost = false for raw correlation
         false,             // apply_intensity_adjustment = false for raw correlation
+        reference_peak,
     );
 
     // Step 2: Extract times and convert correlation strengths to HNR
@@ -400,6 +453,50 @@ pub fn sound_to_harmonicity_cc(
     silence_threshold: f64,
     periods_per_window: f64,
 ) -> Harmonicity {
+    harmonicity_cc_internal(
+        sound,
+        time_step,
+        min_pitch,
+        silence_threshold,
+        periods_per_window,
+        None, // reference_peak: legacy whole-file statistic
+    )
+}
+
+/// Compute HNR (CC method) against a speech-scoped amplitude reference.
+///
+/// See [`sound_to_harmonicity_ac_referenced`] for semantics.
+pub fn sound_to_harmonicity_cc_referenced(
+    sound: &Sound,
+    time_step: f64,
+    min_pitch: f64,
+    silence_threshold: f64,
+    periods_per_window: f64,
+    reference_peak: Option<f64>,
+) -> crate::error::Result<Harmonicity> {
+    let resolved = crate::speech_reference::resolve_reference_peak(
+        sound.samples().as_slice().unwrap(),
+        sound.sample_rate(),
+        reference_peak,
+    )?;
+    Ok(harmonicity_cc_internal(
+        sound,
+        time_step,
+        min_pitch,
+        silence_threshold,
+        periods_per_window,
+        resolved,
+    ))
+}
+
+fn harmonicity_cc_internal(
+    sound: &Sound,
+    time_step: f64,
+    min_pitch: f64,
+    silence_threshold: f64,
+    periods_per_window: f64,
+    reference_peak: Option<f64>,
+) -> Harmonicity {
     // Step 1: Compute pitch using CC method with harmonicity-specific settings
     //
     // CC window = (ppw + 1) / min_pitch for forward cross-correlation (DP29)
@@ -420,6 +517,7 @@ pub fn sound_to_harmonicity_cc(
         FrameTiming::Centered,     // Centered for CC harmonicity
         false,                     // apply_octave_cost = false for raw correlation
         false,                     // apply_intensity_adjustment = false for raw correlation
+        reference_peak,
     );
 
     // Step 2: Extract times and convert correlation strengths to HNR

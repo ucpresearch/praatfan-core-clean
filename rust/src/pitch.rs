@@ -943,7 +943,52 @@ pub fn sound_to_pitch_ac(
         FrameTiming::Centered,
         true,  // apply_octave_cost
         true,  // apply_intensity_adjustment
+        None,  // reference_peak: legacy whole-file statistic
     )
+}
+
+/// Compute pitch (AC method) against a speech-scoped amplitude reference.
+///
+/// Like [`sound_to_pitch_ac`], but the whole-file amplitude statistic
+/// (`global_peak`) is replaced by `reference_peak`. With `None`, the
+/// reference is estimated internally via
+/// [`crate::speech_reference::estimate_speech_reference`] — robust on
+/// long recordings where a single loud event would otherwise suppress
+/// voicing file-wide. The original entry point is unchanged.
+///
+/// # Errors
+///
+/// `Error::InvalidParameter` if an explicit `reference_peak` is not
+/// finite and > 0.
+pub fn sound_to_pitch_ac_referenced(
+    sound: &Sound,
+    time_step: f64,
+    pitch_floor: f64,
+    pitch_ceiling: f64,
+    reference_peak: Option<f64>,
+) -> crate::error::Result<Pitch> {
+    let resolved = crate::speech_reference::resolve_reference_peak(
+        sound.samples().as_slice().unwrap(),
+        sound.sample_rate(),
+        reference_peak,
+    )?;
+    Ok(sound_to_pitch_internal(
+        sound,
+        time_step,
+        pitch_floor,
+        pitch_ceiling,
+        PitchMethod::Ac,
+        0.45,
+        0.03,
+        0.01,
+        0.35,
+        0.14,
+        3.0,
+        FrameTiming::Centered,
+        true,
+        true,
+        resolved,
+    ))
 }
 
 /// Compute pitch from sound using cross-correlation method.
@@ -978,7 +1023,42 @@ pub fn sound_to_pitch_cc(
         FrameTiming::Centered,
         true,  // apply_octave_cost
         true,  // apply_intensity_adjustment
+        None,  // reference_peak: legacy whole-file statistic
     )
+}
+
+/// Compute pitch (CC method) against a speech-scoped amplitude reference.
+///
+/// See [`sound_to_pitch_ac_referenced`] for semantics.
+pub fn sound_to_pitch_cc_referenced(
+    sound: &Sound,
+    time_step: f64,
+    pitch_floor: f64,
+    pitch_ceiling: f64,
+    reference_peak: Option<f64>,
+) -> crate::error::Result<Pitch> {
+    let resolved = crate::speech_reference::resolve_reference_peak(
+        sound.samples().as_slice().unwrap(),
+        sound.sample_rate(),
+        reference_peak,
+    )?;
+    Ok(sound_to_pitch_internal(
+        sound,
+        time_step,
+        pitch_floor,
+        pitch_ceiling,
+        PitchMethod::Cc,
+        0.45,
+        0.03,
+        0.01,
+        0.35,
+        0.14,
+        2.0,
+        FrameTiming::Centered,
+        true,
+        true,
+        resolved,
+    ))
 }
 
 /// Internal pitch computation with full parameter control.
@@ -1015,6 +1095,7 @@ pub fn sound_to_pitch_internal(
     frame_timing: FrameTiming,
     apply_octave_cost: bool,
     apply_intensity_adjustment: bool,
+    reference_peak: Option<f64>,
 ) -> Pitch {
     let samples = sound.samples();
     let sample_rate = sound.sample_rate();
@@ -1097,7 +1178,11 @@ pub fn sound_to_pitch_internal(
     // (clicks, coughs) that would otherwise inflate the denominator and cause
     // Boersma's silence bonus to fire on normal-level voiced frames. Chosen by
     // black-box minimizing frame-level voicing disagreement with praatfan_gpl.
-    let global_peak = {
+    // A caller-supplied reference_peak (speech-scoped, see speech_reference.rs)
+    // replaces the whole-file statistic entirely.
+    let global_peak = if let Some(reference) = reference_peak {
+        reference
+    } else {
         let mut abs_samples: Vec<f64> = samples.iter().map(|&s| s.abs()).collect();
         if abs_samples.is_empty() {
             0.0

@@ -70,6 +70,7 @@ pub mod smallft;
 pub mod sound;
 pub mod spectrogram;
 pub mod spectrum;
+pub mod speech_reference;
 
 // WASM bindings (enabled with "wasm" feature)
 #[cfg(feature = "wasm")]
@@ -103,7 +104,10 @@ pub use formant::{sound_to_formant_burg, Formant, FormantFrame, FormantPoint};
 /// - `Harmonicity`: Result of HNR analysis
 /// - `sound_to_harmonicity_ac`: Compute HNR using autocorrelation method
 /// - `sound_to_harmonicity_cc`: Compute HNR using cross-correlation method
-pub use harmonicity::{sound_to_harmonicity_ac, sound_to_harmonicity_cc, Harmonicity};
+pub use harmonicity::{
+    sound_to_harmonicity_ac, sound_to_harmonicity_ac_referenced, sound_to_harmonicity_cc,
+    sound_to_harmonicity_cc_referenced, Harmonicity,
+};
 
 /// Intensity analysis types and functions.
 ///
@@ -119,7 +123,10 @@ pub use intensity::{sound_to_intensity, Intensity, Interpolation};
 /// - `PitchCandidate`: Individual pitch candidate
 /// - `sound_to_pitch_ac`: Compute pitch using autocorrelation method
 /// - `sound_to_pitch_cc`: Compute pitch using cross-correlation method
-pub use pitch::{sound_to_pitch_ac, sound_to_pitch_cc, Pitch, PitchCandidate, PitchFrame};
+pub use pitch::{
+    sound_to_pitch_ac, sound_to_pitch_ac_referenced, sound_to_pitch_cc,
+    sound_to_pitch_cc_referenced, Pitch, PitchCandidate, PitchFrame,
+};
 
 /// Sound loading and basic operations.
 ///
@@ -138,3 +145,10 @@ pub use spectrogram::{sound_to_spectrogram, Spectrogram, WindowShape};
 /// - `Spectrum`: Result of FFT analysis
 /// - `sound_to_spectrum`: Compute single-frame spectrum
 pub use spectrum::{sound_to_spectrum, Spectrum};
+
+/// Speech-referenced amplitude normalization (estimator).
+///
+/// - `SpeechReference`: Speech mask + reference peak + frame times
+/// - `estimate_speech_reference`: Compute a speech-scoped amplitude
+///   reference for the `*_referenced` analysis variants
+pub use speech_reference::{estimate_speech_reference, SpeechReference};

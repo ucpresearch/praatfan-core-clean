@@ -40,6 +40,8 @@ from .selector import (
     set_backend,
     get_available_backends,
     BackendNotAvailableError,
+    ReferencePeakIgnoredWarning,
+    estimate_speech_reference,
     # Unified result types
     UnifiedPitch,
     UnifiedFormant,
@@ -48,6 +50,9 @@ from .selector import (
     UnifiedSpectrum,
     UnifiedSpectrogram,
 )
+
+# Speech-reference result type (shared across backends)
+from .speech_reference import SpeechReference
 
 # Import parselmouth compatibility
 from .compatibility import call, PraatCallError
@@ -78,6 +83,10 @@ __all__ = [
     "set_backend",
     "get_available_backends",
     "BackendNotAvailableError",
+    # Speech-referenced normalization
+    "estimate_speech_reference",
+    "SpeechReference",
+    "ReferencePeakIgnoredWarning",
     # Result types
     "Pitch",
     "Formant",

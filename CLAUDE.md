@@ -772,7 +772,7 @@ Horner-evaluated cubic vs 2 reads + lerp). On a single-fixture local
 micro-bench wall-clock came out neutral or slightly faster (the 4
 adjacent reads always fit in one 64-byte cache line where the 2-read
 linear stencil sometimes straddled). On the downstream rayon-parallel
-formantwise workload it ran *slower* than linear interp. We accepted the
+batch-formant workload it ran *slower* than linear interp. We accepted the
 slowdown for the bit-parity gain — the Python and Rust resampler outputs
 now agree to f64 noise floor across the full sample stream, which makes
 cross-backend regression tests and the Burg-parity audit simpler.

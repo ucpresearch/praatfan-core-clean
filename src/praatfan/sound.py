@@ -259,6 +259,87 @@ class Sound:
             voiced_unvoiced_cost=voiced_unvoiced_cost,
         )
 
+    def to_pitch_ac_referenced(
+        self,
+        time_step: float = 0.0,
+        pitch_floor: float = 75.0,
+        pitch_ceiling: float = 600.0,
+        voicing_threshold: float = 0.45,
+        silence_threshold: float = 0.03,
+        octave_cost: float = 0.01,
+        octave_jump_cost: float = 0.35,
+        voiced_unvoiced_cost: float = 0.14,
+        reference_peak: float = None,
+    ) -> "Pitch":
+        """
+        Compute pitch (AC method) against a speech-scoped amplitude reference.
+
+        Like to_pitch(method="ac"), but the whole-file amplitude statistic
+        (global_peak) is replaced by *reference_peak*. With the default
+        None, the reference is estimated internally via
+        estimate_speech_reference() — robust on long recordings where a
+        single loud event would otherwise suppress voicing file-wide.
+        The original to_pitch() is unchanged (Praat-parity behavior).
+
+        Args:
+            reference_peak: Explicit amplitude reference (finite, > 0), or
+                None to estimate it from the signal.
+            (remaining args as in to_pitch)
+
+        Returns:
+            Pitch object
+        """
+        from .pitch import sound_to_pitch
+        from .speech_reference import resolve_reference_peak
+        ref = resolve_reference_peak(self._samples, self._sample_rate, reference_peak)
+        return sound_to_pitch(
+            self,
+            time_step=time_step,
+            pitch_floor=pitch_floor,
+            pitch_ceiling=pitch_ceiling,
+            method="ac",
+            voicing_threshold=voicing_threshold,
+            silence_threshold=silence_threshold,
+            octave_cost=octave_cost,
+            octave_jump_cost=octave_jump_cost,
+            voiced_unvoiced_cost=voiced_unvoiced_cost,
+            reference_peak=ref,
+        )
+
+    def to_pitch_cc_referenced(
+        self,
+        time_step: float = 0.0,
+        pitch_floor: float = 75.0,
+        pitch_ceiling: float = 600.0,
+        voicing_threshold: float = 0.45,
+        silence_threshold: float = 0.03,
+        octave_cost: float = 0.01,
+        octave_jump_cost: float = 0.35,
+        voiced_unvoiced_cost: float = 0.14,
+        reference_peak: float = None,
+    ) -> "Pitch":
+        """
+        Compute pitch (CC method) against a speech-scoped amplitude reference.
+
+        See to_pitch_ac_referenced for semantics.
+        """
+        from .pitch import sound_to_pitch
+        from .speech_reference import resolve_reference_peak
+        ref = resolve_reference_peak(self._samples, self._sample_rate, reference_peak)
+        return sound_to_pitch(
+            self,
+            time_step=time_step,
+            pitch_floor=pitch_floor,
+            pitch_ceiling=pitch_ceiling,
+            method="cc",
+            voicing_threshold=voicing_threshold,
+            silence_threshold=silence_threshold,
+            octave_cost=octave_cost,
+            octave_jump_cost=octave_jump_cost,
+            voiced_unvoiced_cost=voiced_unvoiced_cost,
+            reference_peak=ref,
+        )
+
     def to_harmonicity_ac(
         self,
         time_step: float = 0.01,
@@ -307,6 +388,54 @@ class Sound:
         return sound_to_harmonicity_cc(
             self, time_step=time_step, min_pitch=min_pitch,
             silence_threshold=silence_threshold, periods_per_window=periods_per_window
+        )
+
+    def to_harmonicity_ac_referenced(
+        self,
+        time_step: float = 0.01,
+        min_pitch: float = 75.0,
+        silence_threshold: float = 0.1,
+        periods_per_window: float = 4.5,
+        reference_peak: float = None,
+    ) -> "Harmonicity":
+        """
+        Compute HNR (AC method) against a speech-scoped amplitude reference.
+
+        Like to_harmonicity_ac, but the whole-file amplitude statistic is
+        replaced by *reference_peak* (None = estimate internally via
+        estimate_speech_reference()). See to_pitch_ac_referenced.
+        """
+        from .harmonicity import sound_to_harmonicity_ac
+        from .speech_reference import resolve_reference_peak
+        ref = resolve_reference_peak(self._samples, self._sample_rate, reference_peak)
+        return sound_to_harmonicity_ac(
+            self, time_step=time_step, min_pitch=min_pitch,
+            silence_threshold=silence_threshold,
+            periods_per_window=periods_per_window,
+            reference_peak=ref,
+        )
+
+    def to_harmonicity_cc_referenced(
+        self,
+        time_step: float = 0.01,
+        min_pitch: float = 75.0,
+        silence_threshold: float = 0.1,
+        periods_per_window: float = 1.0,
+        reference_peak: float = None,
+    ) -> "Harmonicity":
+        """
+        Compute HNR (CC method) against a speech-scoped amplitude reference.
+
+        See to_harmonicity_ac_referenced for semantics.
+        """
+        from .harmonicity import sound_to_harmonicity_cc
+        from .speech_reference import resolve_reference_peak
+        ref = resolve_reference_peak(self._samples, self._sample_rate, reference_peak)
+        return sound_to_harmonicity_cc(
+            self, time_step=time_step, min_pitch=min_pitch,
+            silence_threshold=silence_threshold,
+            periods_per_window=periods_per_window,
+            reference_peak=ref,
         )
 
     def to_formant_burg(

@@ -55,6 +55,10 @@ use crate::pitch::{sound_to_pitch_internal, FrameTiming, Pitch as RustPitch, Pit
 use crate::sound::Sound as RustSound;
 use crate::spectrogram::Spectrogram as RustSpectrogram;
 use crate::spectrum::Spectrum as RustSpectrum;
+use crate::speech_reference::{
+    estimate_speech_reference as rust_estimate_speech_reference, resolve_reference_peak,
+    SpeechReference as RustSpeechReference,
+};
 
 // ============================================================================
 // Sound - Main audio type
@@ -255,6 +259,7 @@ impl PySound {
                 FrameTiming::Centered,
                 true,
                 true,
+                None,
             ),
         }
     }
@@ -322,8 +327,133 @@ impl PySound {
                 FrameTiming::Centered,
                 true,
                 true,
+                None,
             ),
         }
+    }
+
+    /// Compute pitch (AC method) against a speech-scoped amplitude reference.
+    ///
+    /// Like to_pitch_ac, but the whole-file amplitude statistic
+    /// (global_peak) is replaced by ``reference_peak``. With the default
+    /// None, the reference is estimated internally via
+    /// ``estimate_speech_reference`` — robust on long recordings where a
+    /// single loud event would otherwise suppress voicing file-wide.
+    /// The original to_pitch_ac is unchanged (Praat-parity behavior).
+    ///
+    /// Parameters
+    /// ----------
+    /// reference_peak : float or None, optional
+    ///     Explicit amplitude reference (finite, > 0), or None (default)
+    ///     to estimate it from the signal.
+    /// (remaining parameters as in to_pitch_ac)
+    ///
+    /// Returns
+    /// -------
+    /// Pitch
+    #[allow(clippy::too_many_arguments)]
+    #[pyo3(signature = (
+        time_step=0.0,
+        pitch_floor=75.0,
+        pitch_ceiling=600.0,
+        voicing_threshold=0.45,
+        silence_threshold=0.03,
+        octave_cost=0.01,
+        octave_jump_cost=0.35,
+        voiced_unvoiced_cost=0.14,
+        reference_peak=None,
+    ))]
+    fn to_pitch_ac_referenced(
+        &self,
+        time_step: f64,
+        pitch_floor: f64,
+        pitch_ceiling: f64,
+        voicing_threshold: f64,
+        silence_threshold: f64,
+        octave_cost: f64,
+        octave_jump_cost: f64,
+        voiced_unvoiced_cost: f64,
+        reference_peak: Option<f64>,
+    ) -> PyResult<PyPitch> {
+        let resolved = resolve_reference_peak(
+            self.inner.samples().as_slice().unwrap(),
+            self.inner.sample_rate(),
+            reference_peak,
+        )
+        .map_err(|e| PyValueError::new_err(e.to_string()))?;
+        Ok(PyPitch {
+            inner: sound_to_pitch_internal(
+                &self.inner,
+                time_step,
+                pitch_floor,
+                pitch_ceiling,
+                PitchMethod::Ac,
+                voicing_threshold,
+                silence_threshold,
+                octave_cost,
+                octave_jump_cost,
+                voiced_unvoiced_cost,
+                3.0,
+                FrameTiming::Centered,
+                true,
+                true,
+                resolved,
+            ),
+        })
+    }
+
+    /// Compute pitch (CC method) against a speech-scoped amplitude reference.
+    ///
+    /// See to_pitch_ac_referenced for semantics.
+    #[allow(clippy::too_many_arguments)]
+    #[pyo3(signature = (
+        time_step=0.0,
+        pitch_floor=75.0,
+        pitch_ceiling=600.0,
+        voicing_threshold=0.45,
+        silence_threshold=0.03,
+        octave_cost=0.01,
+        octave_jump_cost=0.35,
+        voiced_unvoiced_cost=0.14,
+        reference_peak=None,
+    ))]
+    fn to_pitch_cc_referenced(
+        &self,
+        time_step: f64,
+        pitch_floor: f64,
+        pitch_ceiling: f64,
+        voicing_threshold: f64,
+        silence_threshold: f64,
+        octave_cost: f64,
+        octave_jump_cost: f64,
+        voiced_unvoiced_cost: f64,
+        reference_peak: Option<f64>,
+    ) -> PyResult<PyPitch> {
+        let resolved = resolve_reference_peak(
+            self.inner.samples().as_slice().unwrap(),
+            self.inner.sample_rate(),
+            reference_peak,
+        )
+        .map_err(|e| PyValueError::new_err(e.to_string()))?;
+        Ok(PyPitch {
+            inner: sound_to_pitch_internal(
+                &self.inner,
+                time_step,
+                pitch_floor,
+                pitch_ceiling,
+                PitchMethod::Cc,
+                voicing_threshold,
+                silence_threshold,
+                octave_cost,
+                octave_jump_cost,
+                voiced_unvoiced_cost,
+                2.0,
+                FrameTiming::Centered,
+                true,
+                true,
+                resolved,
+            ),
+        })
     }
 
     /// Alias for to_pitch_ac (parselmouth compatibility).
@@ -518,6 +648,58 @@ impl PySound {
                 periods_per_window,
             ),
         }
+    }
+
+    /// Compute HNR (AC method) against a speech-scoped amplitude reference.
+    ///
+    /// Like to_harmonicity_ac, but the whole-file amplitude statistic is
+    /// replaced by ``reference_peak`` (None = estimate internally via
+    /// ``estimate_speech_reference``). See to_pitch_ac_referenced.
+    #[pyo3(signature = (time_step=0.01, minimum_pitch=75.0, silence_threshold=0.1, periods_per_window=4.5, reference_peak=None))]
+    fn to_harmonicity_ac_referenced(
+        &self,
+        time_step: f64,
+        minimum_pitch: f64,
+        silence_threshold: f64,
+        periods_per_window: f64,
+        reference_peak: Option<f64>,
+    ) -> PyResult<PyHarmonicity> {
+        let inner = self
+            .inner
+            .to_harmonicity_ac_referenced(
+                time_step,
+                minimum_pitch,
+                silence_threshold,
+                periods_per_window,
+                reference_peak,
+            )
+            .map_err(|e| PyValueError::new_err(e.to_string()))?;
+        Ok(PyHarmonicity { inner })
+    }
+
+    /// Compute HNR (CC method) against a speech-scoped amplitude reference.
+    ///
+    /// See to_harmonicity_ac_referenced for semantics.
+    #[pyo3(signature = (time_step=0.01, minimum_pitch=75.0, silence_threshold=0.1, periods_per_window=1.0, reference_peak=None))]
+    fn to_harmonicity_cc_referenced(
+        &self,
+        time_step: f64,
+        minimum_pitch: f64,
+        silence_threshold: f64,
+        periods_per_window: f64,
+        reference_peak: Option<f64>,
+    ) -> PyResult<PyHarmonicity> {
+        let inner = self
+            .inner
+            .to_harmonicity_cc_referenced(
+                time_step,
+                minimum_pitch,
+                silence_threshold,
+                periods_per_window,
+                reference_peak,
+            )
+            .map_err(|e| PyValueError::new_err(e.to_string()))?;
+        Ok(PyHarmonicity { inner })
     }
 
     /// Alias for to_harmonicity_ac (parselmouth compatibility).
@@ -1175,6 +1357,115 @@ impl PySpectrogram {
 }
 
 // ============================================================================
+// SpeechReference - speech-scoped amplitude reference (estimator result)
+// ============================================================================
+
+/// Result of estimate_speech_reference().
+///
+/// Attributes
+/// ----------
+/// speech_mask : numpy.ndarray of bool
+///     Per-frame "this looks like speech" flags (hop grid).
+/// frame_times : numpy.ndarray of float
+///     Per-frame center times in seconds.
+/// mean : float
+///     Median per-frame mean over speech frames (DC reference).
+/// std : float
+///     Median per-frame RMS over speech frames (the z-norm scale).
+/// reference_peak : float
+///     The norming standard (75th-percentile of per-frame peak |x| over
+///     speech frames by default). 0.0 for an all-zero signal.
+/// speech_fraction : float
+///     Fraction of frames in the speech mask.
+#[pyclass(name = "SpeechReference")]
+pub struct PySpeechReference {
+    inner: RustSpeechReference,
+}
+
+#[pymethods]
+impl PySpeechReference {
+    #[getter]
+    fn speech_mask<'py>(&self, py: Python<'py>) -> Bound<'py, PyArray1<bool>> {
+        self.inner.speech_mask.clone().to_pyarray(py)
+    }
+
+    #[getter]
+    fn frame_times<'py>(&self, py: Python<'py>) -> Bound<'py, PyArray1<f64>> {
+        self.inner.frame_times.clone().to_pyarray(py)
+    }
+
+    #[getter]
+    fn mean(&self) -> f64 {
+        self.inner.mean
+    }
+
+    #[getter]
+    fn std(&self) -> f64 {
+        self.inner.std
+    }
+
+    #[getter]
+    fn reference_peak(&self) -> f64 {
+        self.inner.reference_peak
+    }
+
+    #[getter]
+    fn speech_fraction(&self) -> f64 {
+        self.inner.speech_fraction
+    }
+
+    fn __repr__(&self) -> String {
+        format!(
+            "SpeechReference({} frames, {} speech, reference_peak={:.6})",
+            self.inner.speech_mask.len(),
+            self.inner.speech_mask.iter().filter(|&&m| m).count(),
+            self.inner.reference_peak
+        )
+    }
+}
+
+/// Estimate a speech-scoped amplitude reference for normalization.
+///
+/// Pure function, no analysis side effects. Run once per recording; the
+/// result is shared across pitch, HNR, and downstream normalization.
+/// See DECISIONS-speech-reference-normalization.md for the normative
+/// algorithm (shared across the praatfan package family).
+///
+/// Parameters
+/// ----------
+/// samples : numpy.ndarray of float64
+///     Mono audio samples.
+/// sample_rate : float
+///     Sample rate in Hz.
+/// frame_s, hop_s, speech_floor_db, reference_percentile : float, optional
+///     Estimator parameters (defaults 0.05, 0.01, 30.0, 75.0).
+///
+/// Returns
+/// -------
+/// SpeechReference
+#[pyfunction]
+#[pyo3(signature = (samples, sample_rate, *, frame_s=0.05, hop_s=0.01, speech_floor_db=30.0, reference_percentile=75.0))]
+fn estimate_speech_reference(
+    samples: &Bound<'_, PyArray1<f64>>,
+    sample_rate: f64,
+    frame_s: f64,
+    hop_s: f64,
+    speech_floor_db: f64,
+    reference_percentile: f64,
+) -> PyResult<PySpeechReference> {
+    let s = samples.readonly();
+    let inner = rust_estimate_speech_reference(
+        s.as_slice()?,
+        sample_rate,
+        frame_s,
+        hop_s,
+        speech_floor_db,
+        reference_percentile,
+    );
+    Ok(PySpeechReference { inner })
+}
+
+// ============================================================================
 // Test-only smallft FFT bindings
 // ============================================================================
 //
@@ -1229,6 +1520,10 @@ fn praatfan_rust(m: &Bound<'_, PyModule>) -> PyResult<()> {
     m.add_class::<PyHarmonicity>()?;
     m.add_class::<PySpectrum>()?;
     m.add_class::<PySpectrogram>()?;
+    m.add_class::<PySpeechReference>()?;
+
+    // Speech-referenced normalization estimator
+    m.add_function(wrap_pyfunction!(estimate_speech_reference, m)?)?;
 
     // Test-only smallft bindings
     m.add_function(wrap_pyfunction!(smallft_forward, m)?)?;

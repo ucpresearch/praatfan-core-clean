@@ -179,7 +179,8 @@ def sound_to_harmonicity_ac(
     time_step: float = 0.01,
     min_pitch: float = 75.0,
     silence_threshold: float = 0.1,
-    periods_per_window: float = 4.5
+    periods_per_window: float = 4.5,
+    reference_peak: float = None
 ) -> Harmonicity:
     """
     Compute harmonicity using autocorrelation method.
@@ -195,6 +196,10 @@ def sound_to_harmonicity_ac(
         min_pitch: Minimum pitch in Hz
         silence_threshold: Silence threshold (0-1)
         periods_per_window: Number of periods per window
+        reference_peak: Amplitude reference substituted for the internal
+            whole-file statistic; None keeps the legacy behavior (see
+            sound_to_pitch). Use Sound.to_harmonicity_ac_referenced for
+            the robust speech-referenced default.
 
     Returns:
         Harmonicity object
@@ -213,7 +218,8 @@ def sound_to_harmonicity_ac(
         periods_per_window=periods_per_window,
         frame_timing="left",
         apply_octave_cost=False,
-        apply_intensity_adjustment=False
+        apply_intensity_adjustment=False,
+        reference_peak=reference_peak
     )
 
     # Step 2: Extract times and convert strengths to HNR
@@ -240,7 +246,8 @@ def sound_to_harmonicity_cc(
     time_step: float = 0.01,
     min_pitch: float = 75.0,
     silence_threshold: float = 0.1,
-    periods_per_window: float = 1.0
+    periods_per_window: float = 1.0,
+    reference_peak: float = None
 ) -> Harmonicity:
     """
     Compute harmonicity using cross-correlation method.
@@ -276,7 +283,8 @@ def sound_to_harmonicity_cc(
         periods_per_window=periods_per_window + 1.0,  # +1 for forward CC
         frame_timing="centered",
         apply_octave_cost=False,
-        apply_intensity_adjustment=False
+        apply_intensity_adjustment=False,
+        reference_peak=reference_peak
     )
 
     # Step 2: Extract times and convert strengths to HNR

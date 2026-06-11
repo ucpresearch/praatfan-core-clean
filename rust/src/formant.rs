@@ -51,7 +51,7 @@ use crate::sound::Sound;
 // it lazily on first use and share read-only across threads — avoids the
 // ~5 ms / 1.6 MB allocation that each `resample` call paid before, which
 // dominated wall-clock for callers driving many resamples in tight loops
-// (e.g. formantwise scoring across many ceilings, especially in rayon-parallel
+// (e.g. batched formant scoring across many ceilings, especially in rayon-parallel
 // configurations where N workers each `mmap`'d their own table simultaneously).
 //
 // **Catmull-Rom cubic interpolation**: each tap reads four adjacent table

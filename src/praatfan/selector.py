@@ -56,6 +56,7 @@ Usage:
 """
 
 import os
+import warnings
 from pathlib import Path
 from typing import Optional, List, Union
 from abc import ABC, abstractmethod
@@ -66,6 +67,37 @@ import numpy as np
 class BackendNotAvailableError(Exception):
     """Raised when the requested backend is not installed or available."""
     pass
+
+
+class ReferencePeakIgnoredWarning(UserWarning):
+    """The active backend cannot honor ``reference_peak`` — it is IGNORED.
+
+    Raised (as a warning) by the ``*_referenced`` analysis methods when the
+    active backend has no native support: parselmouth (always — the
+    whole-file statistic lives inside real Praat) or an outdated
+    praatfan_gpl / praatfan_rust wheel. The call falls back to the legacy
+    whole-file amplitude statistic, which on long recordings is exactly the
+    behavior the referenced variants exist to avoid — hence a warning on
+    EVERY affected call, so the degradation stays visible per file in a
+    corpus run (DECISIONS-speech-reference-normalization.md §3.3).
+    """
+    pass
+
+
+# Fire on every call, not once per location: a corpus run that silently
+# degrades to the whole-file statistic after the first file would hide
+# the very bug the referenced variants fix.
+warnings.filterwarnings("always", category=ReferencePeakIgnoredWarning)
+
+
+def _warn_reference_ignored(backend: str, method: str, hint: str) -> None:
+    warnings.warn(
+        f"{method}: backend '{backend}' has no native reference_peak support; "
+        f"the value is IGNORED and the legacy whole-file amplitude statistic "
+        f"is used instead. {hint}",
+        ReferencePeakIgnoredWarning,
+        stacklevel=4,
+    )
 
 
 # =============================================================================
@@ -894,6 +926,22 @@ class BaseSound(ABC):
         pass
 
     @abstractmethod
+    def to_pitch_ac_referenced(self, time_step=0.0, pitch_floor=75.0, pitch_ceiling=600.0,
+                               voicing_threshold=0.45, silence_threshold=0.03,
+                               octave_cost=0.01, octave_jump_cost=0.35,
+                               voiced_unvoiced_cost=0.14,
+                               reference_peak=None) -> UnifiedPitch:
+        pass
+
+    @abstractmethod
+    def to_pitch_cc_referenced(self, time_step=0.0, pitch_floor=75.0, pitch_ceiling=600.0,
+                               voicing_threshold=0.45, silence_threshold=0.03,
+                               octave_cost=0.01, octave_jump_cost=0.35,
+                               voiced_unvoiced_cost=0.14,
+                               reference_peak=None) -> UnifiedPitch:
+        pass
+
+    @abstractmethod
     def to_formant_burg(self, time_step=0.0, max_number_of_formants=5,
                         maximum_formant=5500.0, window_length=0.025,
                         pre_emphasis_from=50.0) -> UnifiedFormant:
@@ -917,6 +965,18 @@ class BaseSound(ABC):
     @abstractmethod
     def to_harmonicity_cc(self, time_step=0.01, minimum_pitch=75.0,
                           silence_threshold=0.1, periods_per_window=1.0) -> UnifiedHarmonicity:
+        pass
+
+    @abstractmethod
+    def to_harmonicity_ac_referenced(self, time_step=0.01, minimum_pitch=75.0,
+                                     silence_threshold=0.1, periods_per_window=4.5,
+                                     reference_peak=None) -> UnifiedHarmonicity:
+        pass
+
+    @abstractmethod
+    def to_harmonicity_cc_referenced(self, time_step=0.01, minimum_pitch=75.0,
+                                     silence_threshold=0.1, periods_per_window=1.0,
+                                     reference_peak=None) -> UnifiedHarmonicity:
         pass
 
     @abstractmethod
@@ -993,6 +1053,46 @@ class ParselmouthSound(BaseSound):
             voiced_unvoiced_cost=voiced_unvoiced_cost,
         )
         return UnifiedPitch(result, self.BACKEND)
+
+    # parselmouth wraps real Praat: the whole-file statistic is computed
+    # inside Praat's C++ and cannot be substituted. Per DECISIONS §3.3,
+    # warn loudly on every call and run the legacy path.
+    _REFERENCE_HINT = ("parselmouth can never honor it; use the praatfan, "
+                       "praatfan_rust, or praatfan_gpl backend.")
+
+    def to_pitch_ac_referenced(self, time_step=0.0, pitch_floor=75.0, pitch_ceiling=600.0,
+                               voicing_threshold=0.45, silence_threshold=0.03,
+                               octave_cost=0.01, octave_jump_cost=0.35,
+                               voiced_unvoiced_cost=0.14,
+                               reference_peak=None) -> UnifiedPitch:
+        _warn_reference_ignored(self.BACKEND, "to_pitch_ac_referenced", self._REFERENCE_HINT)
+        return self.to_pitch_ac(time_step, pitch_floor, pitch_ceiling,
+                                voicing_threshold, silence_threshold,
+                                octave_cost, octave_jump_cost, voiced_unvoiced_cost)
+
+    def to_pitch_cc_referenced(self, time_step=0.0, pitch_floor=75.0, pitch_ceiling=600.0,
+                               voicing_threshold=0.45, silence_threshold=0.03,
+                               octave_cost=0.01, octave_jump_cost=0.35,
+                               voiced_unvoiced_cost=0.14,
+                               reference_peak=None) -> UnifiedPitch:
+        _warn_reference_ignored(self.BACKEND, "to_pitch_cc_referenced", self._REFERENCE_HINT)
+        return self.to_pitch_cc(time_step, pitch_floor, pitch_ceiling,
+                                voicing_threshold, silence_threshold,
+                                octave_cost, octave_jump_cost, voiced_unvoiced_cost)
+
+    def to_harmonicity_ac_referenced(self, time_step=0.01, minimum_pitch=75.0,
+                                     silence_threshold=0.1, periods_per_window=4.5,
+                                     reference_peak=None) -> UnifiedHarmonicity:
+        _warn_reference_ignored(self.BACKEND, "to_harmonicity_ac_referenced", self._REFERENCE_HINT)
+        return self.to_harmonicity_ac(time_step, minimum_pitch,
+                                      silence_threshold, periods_per_window)
+
+    def to_harmonicity_cc_referenced(self, time_step=0.01, minimum_pitch=75.0,
+                                     silence_threshold=0.1, periods_per_window=1.0,
+                                     reference_peak=None) -> UnifiedHarmonicity:
+        _warn_reference_ignored(self.BACKEND, "to_harmonicity_cc_referenced", self._REFERENCE_HINT)
+        return self.to_harmonicity_cc(time_step, minimum_pitch,
+                                      silence_threshold, periods_per_window)
 
     def to_formant_burg(self, time_step=0.0, max_number_of_formants=5,
                         maximum_formant=5500.0, window_length=0.025,
@@ -1119,6 +1219,58 @@ class PraatfanPythonSound(BaseSound):
             voiced_unvoiced_cost=voiced_unvoiced_cost,
         )
         return UnifiedPitch(result, self.BACKEND)
+
+    def to_pitch_ac_referenced(self, time_step=0.0, pitch_floor=75.0, pitch_ceiling=600.0,
+                               voicing_threshold=0.45, silence_threshold=0.03,
+                               octave_cost=0.01, octave_jump_cost=0.35,
+                               voiced_unvoiced_cost=0.14,
+                               reference_peak=None) -> UnifiedPitch:
+        result = self._inner.to_pitch_ac_referenced(
+            time_step=time_step, pitch_floor=pitch_floor,
+            pitch_ceiling=pitch_ceiling,
+            voicing_threshold=voicing_threshold, silence_threshold=silence_threshold,
+            octave_cost=octave_cost, octave_jump_cost=octave_jump_cost,
+            voiced_unvoiced_cost=voiced_unvoiced_cost,
+            reference_peak=reference_peak,
+        )
+        return UnifiedPitch(result, self.BACKEND)
+
+    def to_pitch_cc_referenced(self, time_step=0.0, pitch_floor=75.0, pitch_ceiling=600.0,
+                               voicing_threshold=0.45, silence_threshold=0.03,
+                               octave_cost=0.01, octave_jump_cost=0.35,
+                               voiced_unvoiced_cost=0.14,
+                               reference_peak=None) -> UnifiedPitch:
+        result = self._inner.to_pitch_cc_referenced(
+            time_step=time_step, pitch_floor=pitch_floor,
+            pitch_ceiling=pitch_ceiling,
+            voicing_threshold=voicing_threshold, silence_threshold=silence_threshold,
+            octave_cost=octave_cost, octave_jump_cost=octave_jump_cost,
+            voiced_unvoiced_cost=voiced_unvoiced_cost,
+            reference_peak=reference_peak,
+        )
+        return UnifiedPitch(result, self.BACKEND)
+
+    def to_harmonicity_ac_referenced(self, time_step=0.01, minimum_pitch=75.0,
+                                     silence_threshold=0.1, periods_per_window=4.5,
+                                     reference_peak=None) -> UnifiedHarmonicity:
+        result = self._inner.to_harmonicity_ac_referenced(
+            time_step=time_step, min_pitch=minimum_pitch,
+            silence_threshold=silence_threshold,
+            periods_per_window=periods_per_window,
+            reference_peak=reference_peak,
+        )
+        return UnifiedHarmonicity(result, self.BACKEND)
+
+    def to_harmonicity_cc_referenced(self, time_step=0.01, minimum_pitch=75.0,
+                                     silence_threshold=0.1, periods_per_window=1.0,
+                                     reference_peak=None) -> UnifiedHarmonicity:
+        result = self._inner.to_harmonicity_cc_referenced(
+            time_step=time_step, min_pitch=minimum_pitch,
+            silence_threshold=silence_threshold,
+            periods_per_window=periods_per_window,
+            reference_peak=reference_peak,
+        )
+        return UnifiedHarmonicity(result, self.BACKEND)
 
     def to_formant_burg(self, time_step=0.0, max_number_of_formants=5,
                         maximum_formant=5500.0, window_length=0.025,
@@ -1252,6 +1404,70 @@ class PraatfanRustSound(BaseSound):
             octave_cost, octave_jump_cost, voiced_unvoiced_cost,
         )
         return UnifiedPitch(result, self.BACKEND)
+
+    _REFERENCE_HINT = "Upgrade the praatfan_rust wheel to get native support."
+
+    def to_pitch_ac_referenced(self, time_step=0.0, pitch_floor=75.0, pitch_ceiling=600.0,
+                               voicing_threshold=0.45, silence_threshold=0.03,
+                               octave_cost=0.01, octave_jump_cost=0.35,
+                               voiced_unvoiced_cost=0.14,
+                               reference_peak=None) -> UnifiedPitch:
+        if hasattr(self._inner, "to_pitch_ac_referenced"):
+            result = self._inner.to_pitch_ac_referenced(
+                time_step, pitch_floor, pitch_ceiling,
+                voicing_threshold, silence_threshold,
+                octave_cost, octave_jump_cost, voiced_unvoiced_cost,
+                reference_peak,
+            )
+            return UnifiedPitch(result, self.BACKEND)
+        _warn_reference_ignored(self.BACKEND, "to_pitch_ac_referenced", self._REFERENCE_HINT)
+        return self.to_pitch_ac(time_step, pitch_floor, pitch_ceiling,
+                                voicing_threshold, silence_threshold,
+                                octave_cost, octave_jump_cost, voiced_unvoiced_cost)
+
+    def to_pitch_cc_referenced(self, time_step=0.0, pitch_floor=75.0, pitch_ceiling=600.0,
+                               voicing_threshold=0.45, silence_threshold=0.03,
+                               octave_cost=0.01, octave_jump_cost=0.35,
+                               voiced_unvoiced_cost=0.14,
+                               reference_peak=None) -> UnifiedPitch:
+        if hasattr(self._inner, "to_pitch_cc_referenced"):
+            result = self._inner.to_pitch_cc_referenced(
+                time_step, pitch_floor, pitch_ceiling,
+                voicing_threshold, silence_threshold,
+                octave_cost, octave_jump_cost, voiced_unvoiced_cost,
+                reference_peak,
+            )
+            return UnifiedPitch(result, self.BACKEND)
+        _warn_reference_ignored(self.BACKEND, "to_pitch_cc_referenced", self._REFERENCE_HINT)
+        return self.to_pitch_cc(time_step, pitch_floor, pitch_ceiling,
+                                voicing_threshold, silence_threshold,
+                                octave_cost, octave_jump_cost, voiced_unvoiced_cost)
+
+    def to_harmonicity_ac_referenced(self, time_step=0.01, minimum_pitch=75.0,
+                                     silence_threshold=0.1, periods_per_window=4.5,
+                                     reference_peak=None) -> UnifiedHarmonicity:
+        if hasattr(self._inner, "to_harmonicity_ac_referenced"):
+            result = self._inner.to_harmonicity_ac_referenced(
+                time_step, minimum_pitch, silence_threshold,
+                periods_per_window, reference_peak,
+            )
+            return UnifiedHarmonicity(result, self.BACKEND)
+        _warn_reference_ignored(self.BACKEND, "to_harmonicity_ac_referenced", self._REFERENCE_HINT)
+        return self.to_harmonicity_ac(time_step, minimum_pitch,
+                                      silence_threshold, periods_per_window)
+
+    def to_harmonicity_cc_referenced(self, time_step=0.01, minimum_pitch=75.0,
+                                     silence_threshold=0.1, periods_per_window=1.0,
+                                     reference_peak=None) -> UnifiedHarmonicity:
+        if hasattr(self._inner, "to_harmonicity_cc_referenced"):
+            result = self._inner.to_harmonicity_cc_referenced(
+                time_step, minimum_pitch, silence_threshold,
+                periods_per_window, reference_peak,
+            )
+            return UnifiedHarmonicity(result, self.BACKEND)
+        _warn_reference_ignored(self.BACKEND, "to_harmonicity_cc_referenced", self._REFERENCE_HINT)
+        return self.to_harmonicity_cc(time_step, minimum_pitch,
+                                      silence_threshold, periods_per_window)
 
     def to_formant_burg(self, time_step=0.0, max_number_of_formants=5,
                         maximum_formant=5500.0, window_length=0.025,
@@ -1388,6 +1604,77 @@ class PraatfanCoreSound(BaseSound):
             voiced_unvoiced_cost=voiced_unvoiced_cost,
         )
         return UnifiedPitch(result, self.BACKEND)
+
+    _REFERENCE_HINT = ("Upgrade the praatfan_gpl wheel to a version that "
+                       "implements the speech-reference contract.")
+
+    def to_pitch_ac_referenced(self, time_step=0.0, pitch_floor=75.0, pitch_ceiling=600.0,
+                               voicing_threshold=0.45, silence_threshold=0.03,
+                               octave_cost=0.01, octave_jump_cost=0.35,
+                               voiced_unvoiced_cost=0.14,
+                               reference_peak=None) -> UnifiedPitch:
+        if hasattr(self._inner, "to_pitch_ac_referenced"):
+            result = self._inner.to_pitch_ac_referenced(
+                time_step, pitch_floor, pitch_ceiling,
+                voicing_threshold=voicing_threshold,
+                silence_threshold=silence_threshold,
+                octave_cost=octave_cost,
+                octave_jump_cost=octave_jump_cost,
+                voiced_unvoiced_cost=voiced_unvoiced_cost,
+                reference_peak=reference_peak,
+            )
+            return UnifiedPitch(result, self.BACKEND)
+        _warn_reference_ignored(self.BACKEND, "to_pitch_ac_referenced", self._REFERENCE_HINT)
+        return self.to_pitch_ac(time_step, pitch_floor, pitch_ceiling,
+                                voicing_threshold, silence_threshold,
+                                octave_cost, octave_jump_cost, voiced_unvoiced_cost)
+
+    def to_pitch_cc_referenced(self, time_step=0.0, pitch_floor=75.0, pitch_ceiling=600.0,
+                               voicing_threshold=0.45, silence_threshold=0.03,
+                               octave_cost=0.01, octave_jump_cost=0.35,
+                               voiced_unvoiced_cost=0.14,
+                               reference_peak=None) -> UnifiedPitch:
+        if hasattr(self._inner, "to_pitch_cc_referenced"):
+            result = self._inner.to_pitch_cc_referenced(
+                time_step, pitch_floor, pitch_ceiling,
+                voicing_threshold=voicing_threshold,
+                silence_threshold=silence_threshold,
+                octave_cost=octave_cost,
+                octave_jump_cost=octave_jump_cost,
+                voiced_unvoiced_cost=voiced_unvoiced_cost,
+                reference_peak=reference_peak,
+            )
+            return UnifiedPitch(result, self.BACKEND)
+        _warn_reference_ignored(self.BACKEND, "to_pitch_cc_referenced", self._REFERENCE_HINT)
+        return self.to_pitch_cc(time_step, pitch_floor, pitch_ceiling,
+                                voicing_threshold, silence_threshold,
+                                octave_cost, octave_jump_cost, voiced_unvoiced_cost)
+
+    def to_harmonicity_ac_referenced(self, time_step=0.01, minimum_pitch=75.0,
+                                     silence_threshold=0.1, periods_per_window=4.5,
+                                     reference_peak=None) -> UnifiedHarmonicity:
+        if hasattr(self._inner, "to_harmonicity_ac_referenced"):
+            result = self._inner.to_harmonicity_ac_referenced(
+                time_step, minimum_pitch, silence_threshold,
+                periods_per_window, reference_peak=reference_peak,
+            )
+            return UnifiedHarmonicity(result, self.BACKEND)
+        _warn_reference_ignored(self.BACKEND, "to_harmonicity_ac_referenced", self._REFERENCE_HINT)
+        return self.to_harmonicity_ac(time_step, minimum_pitch,
+                                      silence_threshold, periods_per_window)
+
+    def to_harmonicity_cc_referenced(self, time_step=0.01, minimum_pitch=75.0,
+                                     silence_threshold=0.1, periods_per_window=1.0,
+                                     reference_peak=None) -> UnifiedHarmonicity:
+        if hasattr(self._inner, "to_harmonicity_cc_referenced"):
+            result = self._inner.to_harmonicity_cc_referenced(
+                time_step, minimum_pitch, silence_threshold,
+                periods_per_window, reference_peak=reference_peak,
+            )
+            return UnifiedHarmonicity(result, self.BACKEND)
+        _warn_reference_ignored(self.BACKEND, "to_harmonicity_cc_referenced", self._REFERENCE_HINT)
+        return self.to_harmonicity_cc(time_step, minimum_pitch,
+                                      silence_threshold, periods_per_window)
 
     def to_formant_burg(self, time_step=0.0, max_number_of_formants=5,
                         maximum_formant=5500.0, window_length=0.025,
@@ -1634,6 +1921,49 @@ class Sound:
             octave_cost, octave_jump_cost, voiced_unvoiced_cost,
         )
 
+    def to_pitch_ac_referenced(self, time_step=0.0, pitch_floor=75.0, pitch_ceiling=600.0,
+                               voicing_threshold=0.45, silence_threshold=0.03,
+                               octave_cost=0.01, octave_jump_cost=0.35,
+                               voiced_unvoiced_cost=0.14,
+                               reference_peak=None):
+        """Compute pitch (AC) against a speech-scoped amplitude reference.
+
+        Like :meth:`to_pitch_ac`, but the whole-file amplitude statistic
+        (``global_peak``) is replaced by ``reference_peak``. With the default
+        ``None``, the reference is estimated internally via
+        :func:`estimate_speech_reference` — robust on long recordings where a
+        single loud event (click, laugh, interviewer) would otherwise
+        suppress voicing file-wide. :meth:`to_pitch_ac` itself is unchanged
+        (exact legacy/Praat-parity behavior).
+
+        Backends without native support (parselmouth always; outdated
+        praatfan_gpl / praatfan_rust wheels) emit a loud
+        :class:`ReferencePeakIgnoredWarning` on every call and run the
+        legacy path.
+        """
+        return self._inner.to_pitch_ac_referenced(
+            time_step, pitch_floor, pitch_ceiling,
+            voicing_threshold, silence_threshold,
+            octave_cost, octave_jump_cost, voiced_unvoiced_cost,
+            reference_peak,
+        )
+
+    def to_pitch_cc_referenced(self, time_step=0.0, pitch_floor=75.0, pitch_ceiling=600.0,
+                               voicing_threshold=0.45, silence_threshold=0.03,
+                               octave_cost=0.01, octave_jump_cost=0.35,
+                               voiced_unvoiced_cost=0.14,
+                               reference_peak=None):
+        """Compute pitch (CC) against a speech-scoped amplitude reference.
+
+        See :meth:`to_pitch_ac_referenced` for semantics.
+        """
+        return self._inner.to_pitch_cc_referenced(
+            time_step, pitch_floor, pitch_ceiling,
+            voicing_threshold, silence_threshold,
+            octave_cost, octave_jump_cost, voiced_unvoiced_cost,
+            reference_peak,
+        )
+
     def to_formant_burg(self, time_step=0.0, max_number_of_formants=5,
                         maximum_formant=5500.0, window_length=0.025,
                         pre_emphasis_from=50.0):
@@ -1672,6 +2002,30 @@ class Sound:
         """Compute harmonicity using cross-correlation method."""
         return self._inner.to_harmonicity_cc(time_step, minimum_pitch,
                                              silence_threshold, periods_per_window)
+
+    def to_harmonicity_ac_referenced(self, time_step=0.01, minimum_pitch=75.0,
+                                     silence_threshold=0.1, periods_per_window=4.5,
+                                     reference_peak=None):
+        """Compute HNR (AC) against a speech-scoped amplitude reference.
+
+        See :meth:`to_pitch_ac_referenced` for semantics.
+        """
+        return self._inner.to_harmonicity_ac_referenced(
+            time_step, minimum_pitch, silence_threshold,
+            periods_per_window, reference_peak,
+        )
+
+    def to_harmonicity_cc_referenced(self, time_step=0.01, minimum_pitch=75.0,
+                                     silence_threshold=0.1, periods_per_window=1.0,
+                                     reference_peak=None):
+        """Compute HNR (CC) against a speech-scoped amplitude reference.
+
+        See :meth:`to_pitch_ac_referenced` for semantics.
+        """
+        return self._inner.to_harmonicity_cc_referenced(
+            time_step, minimum_pitch, silence_threshold,
+            periods_per_window, reference_peak,
+        )
 
     def to_harmonicity(self, time_step=0.01, minimum_pitch=75.0,
                        silence_threshold=0.1, periods_per_window=4.5):
@@ -1962,3 +2316,70 @@ class Sound:
 
     def __repr__(self):
         return f"Sound<{self._backend}>({self.n_samples} samples, {self.sampling_frequency} Hz, {self.duration:.3f}s)"
+
+
+# =============================================================================
+# Speech-referenced amplitude normalization (unified estimator)
+# =============================================================================
+
+def estimate_speech_reference(samples, sample_rate, *, frame_s=0.05, hop_s=0.01,
+                              speech_floor_db=30.0, reference_percentile=75.0):
+    """Estimate a speech-scoped amplitude reference for normalization.
+
+    Unified entry point: dispatches to the active backend's native
+    estimator when present (praatfan_rust / praatfan_gpl), falling back
+    to the pure-Python implementation. All implementations follow the
+    same normative definition (DECISIONS-speech-reference-normalization.md),
+    so the result does not depend on which backend is installed.
+
+    Run once per recording; pass the resulting ``reference_peak`` to the
+    ``Sound.to_pitch_*_referenced`` / ``Sound.to_harmonicity_*_referenced``
+    methods (and, downstream, to any other consumer of the shared
+    speech-reference contract).
+
+    Returns:
+        SpeechReference(speech_mask, frame_times, mean, std, reference_peak,
+        speech_fraction)
+    """
+    from .speech_reference import SpeechReference, estimate_speech_reference as _pure
+
+    samples = np.asarray(samples, dtype=np.float64)
+    backend = _select_backend()
+
+    native = None
+    if backend == "praatfan_rust":
+        try:
+            import praatfan_rust
+            native = getattr(praatfan_rust, "estimate_speech_reference", None)
+        except ImportError:
+            pass
+    elif backend == "praatfan_gpl":
+        try:
+            import praatfan_gpl
+            native = getattr(praatfan_gpl, "estimate_speech_reference", None)
+        except ImportError:
+            pass
+
+    if native is not None:
+        result = native(
+            samples, float(sample_rate),
+            frame_s=frame_s, hop_s=hop_s,
+            speech_floor_db=speech_floor_db,
+            reference_percentile=reference_percentile,
+        )
+        # Normalize to the shared Python dataclass regardless of backend.
+        return SpeechReference(
+            np.asarray(result.speech_mask, dtype=bool),
+            np.asarray(result.frame_times, dtype=np.float64),
+            float(result.mean),
+            float(result.std),
+            float(result.reference_peak),
+            float(result.speech_fraction),
+        )
+
+    return _pure(
+        samples, sample_rate,
+        frame_s=frame_s, hop_s=hop_s,
+        speech_floor_db=speech_floor_db,
+        reference_percentile=reference_percentile,
+    )

@@ -706,7 +706,8 @@ def sound_to_pitch(
     periods_per_window: float = None,
     frame_timing: str = "centered",
     apply_octave_cost: bool = True,
-    apply_intensity_adjustment: bool = True
+    apply_intensity_adjustment: bool = True,
+    reference_peak: float = None
 ) -> Pitch:
     """
     Compute pitch from sound using autocorrelation or cross-correlation method.
@@ -733,6 +734,13 @@ def sound_to_pitch(
         apply_intensity_adjustment: Whether to apply intensity-periodicity
             interaction to strength (default True). Set to False for Harmonicity
             to get raw correlation strength for HNR formula.
+        reference_peak: Amplitude reference substituted for the internal
+            whole-file statistic (global_peak) in the local_intensity
+            computation. None (default) keeps the legacy whole-file
+            statistic. Callers wanting the robust speech-referenced
+            default should resolve via
+            speech_reference.resolve_reference_peak() first (see the
+            Sound.to_pitch_*_referenced methods).
 
     Returns:
         Pitch object
@@ -797,7 +805,12 @@ def sound_to_pitch(
     # Boersma's silence bonus to fire on normal-level voiced frames. Chosen by
     # black-box minimizing frame-level voicing disagreement with praatfan_gpl
     # across s0101a and fixture files (see memory/silence_normalization.md).
-    global_peak = np.percentile(np.abs(samples), 99.99)
+    # A caller-supplied reference_peak (speech-scoped, see speech_reference.py)
+    # replaces the whole-file statistic entirely.
+    if reference_peak is None:
+        global_peak = np.percentile(np.abs(samples), 99.99)
+    else:
+        global_peak = reference_peak
 
     # Process each frame
     frames = []
