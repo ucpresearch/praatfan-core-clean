@@ -3,6 +3,12 @@
 A clean-room reimplementation of Praat's acoustic analysis algorithms, with a unified API that supports multiple backends.
 
 > **Note:** Current release **v0.1.9**. The API is stabilizing but may still change.
+>
+> **v0.1.9 is strictly additive over v0.1.8.** It only adds NIST SPHERE
+> decoding, which engages *solely* when the existing loader fails on a file it
+> couldn't read before. Any file that loaded under v0.1.8 takes the exact same
+> code path and produces identical results under v0.1.9 — no behavior changes
+> for existing inputs, and the new `desphere` dependency is optional.
 
 ## Installation
 
