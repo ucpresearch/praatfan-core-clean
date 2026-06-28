@@ -72,21 +72,69 @@ pub struct Sound {
 ///
 /// Returns (samples, sample_rate, n_channels).
 /// If `channel` is Some, extracts only that channel; otherwise returns interleaved samples.
+///
+/// If symphonia cannot decode the file (e.g. NIST SPHERE, which it does not
+/// support), this falls back to transcoding the file to in-memory WAV via the
+/// `desphere` crate and decoding that instead. The fallback only fires on the
+/// primary error path, so ordinary WAV/FLAC/MP3/… files are unaffected. If the
+/// fallback also fails, the *original* symphonia error is surfaced (a SPHERE
+/// decode error only reaches the caller when the bytes actually were SPHERE).
 fn decode_audio_file(path: &Path, channel: Option<usize>) -> Result<(Vec<f64>, f64, usize)> {
-    // Open the file
-    let file = File::open(path).map_err(|e| {
-        Error::AudioDecodeError(format!("Failed to open file: {}", e))
-    })?;
-
-    // Create a media source stream
-    let mss = MediaSourceStream::new(Box::new(file), Default::default());
-
     // Use file extension as a hint for format detection
     let mut hint = Hint::new();
     if let Some(ext) = path.extension().and_then(|e| e.to_str()) {
         hint.with_extension(ext);
     }
 
+    // Open the file and try symphonia first.
+    let file = File::open(path).map_err(|e| {
+        Error::AudioDecodeError(format!("Failed to open file: {}", e))
+    })?;
+    let mss = MediaSourceStream::new(Box::new(file), Default::default());
+
+    match decode_audio_source(mss, hint, channel) {
+        Ok(result) => Ok(result),
+        Err(primary_err) => decode_via_desphere(path, channel).unwrap_or(Err(primary_err)),
+    }
+}
+
+/// Fallback decode for formats symphonia rejects: transcode SPHERE → WAV with
+/// `desphere`, then decode the resulting WAV bytes with symphonia.
+///
+/// Returns `None` when the fallback is not applicable (file unreadable, or not a
+/// SPHERE file desphere can handle), so the caller can surface the original
+/// error. Native-only; the wasm build does not load audio from a file path.
+#[cfg(not(target_arch = "wasm32"))]
+fn decode_via_desphere(
+    path: &Path,
+    channel: Option<usize>,
+) -> Option<Result<(Vec<f64>, f64, usize)>> {
+    let bytes = std::fs::read(path).ok()?;
+    let wav = desphere::transcode(&bytes).ok()?;
+
+    let mss = MediaSourceStream::new(Box::new(std::io::Cursor::new(wav)), Default::default());
+    let mut hint = Hint::new();
+    hint.with_extension("wav");
+    Some(decode_audio_source(mss, hint, channel))
+}
+
+#[cfg(target_arch = "wasm32")]
+fn decode_via_desphere(
+    _path: &Path,
+    _channel: Option<usize>,
+) -> Option<Result<(Vec<f64>, f64, usize)>> {
+    None
+}
+
+/// Decode audio from a prepared media source stream using symphonia.
+///
+/// Shared by the primary file path and the desphere WAV fallback.
+/// Returns (samples, sample_rate, n_channels).
+fn decode_audio_source(
+    mss: MediaSourceStream,
+    hint: Hint,
+    channel: Option<usize>,
+) -> Result<(Vec<f64>, f64, usize)> {
     // Probe the file to detect format
     let format_opts = FormatOptions::default();
     let metadata_opts = MetadataOptions::default();

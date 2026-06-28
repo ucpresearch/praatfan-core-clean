@@ -54,6 +54,17 @@ numpy = { version = "0.23", optional = true }
 [target.'cfg(not(target_arch = "wasm32"))'.dependencies]
 rayon = "1"
 
+# NIST SPHERE (incl. shorten-compressed) decoder, used only as a fallback in
+# Sound::from_file when symphonia cannot decode the file. Dependency-free core,
+# so it adds negligible build weight. Native-only: the wasm build uses the
+# in-memory hound path and does not currently wire SPHERE.
+#
+# Pinned to a tag for reproducible CI wheel builds. desphere is not on crates.io
+# by design; its repo-root virtual workspace exposes the `desphere` crate from
+# the rust/ subdirectory so this git dep resolves. For local iteration against an
+# unreleased desphere, temporarily swap in: path = "../../desphere/rust".
+desphere = { git = "https://github.com/ucpresearch/desphere", tag = "v0.1.0" }
+
 [dev-dependencies]
 approx = "0.5"
 

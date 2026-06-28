@@ -121,6 +121,11 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "930c7171c8df9fb1782bdf9b918ed9ed2d33d1d22300abb754f9085bc48bf8e8"
 
 [[package]]
+name = "desphere"
+version = "0.1.0"
+source = "git+https://github.com/ucpresearch/desphere?tag=v0.1.0#a12223ab1e373024f9022bc796b927fb31507335"
+
+[[package]]
 name = "dyn-stack"
 version = "0.13.2"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -707,6 +712,7 @@ version = "0.1.8"
 dependencies = [
  "approx",
  "console_error_panic_hook",
+ "desphere",
  "faer",
  "hound",
  "js-sys",

@@ -36,9 +36,19 @@ dev = [
     "praat-parselmouth",
     "matplotlib",
     "pytest",
+    "desphere",
 ]
 # Alternative backends (install separately)
 parselmouth = ["praat-parselmouth"]
+# NIST SPHERE support (incl. shorten-compressed) for Sound.from_file. libsndfile
+# reads uncompressed SPHERE natively; this adds the codings it lacks.
+#
+# Pulls desphere WITH its optional Rust accelerator (`desphere[fast]` ->
+# desphere-native), which speeds up shorten decoding of large files. Output is
+# byte-identical either way. Consumers who want the pure-Python decoder (no
+# compiled wheel — e.g. unusual platforms) can instead require plain "desphere"
+# in their own dependencies; praatfan uses whichever is installed.
+sphere = ["desphere[fast]"]
 
 [project.urls]
 Homepage = "https://github.com/ucpresearch/praatfan-core-clean"

@@ -89,6 +89,52 @@ class Sound:
         self._samples = samples
         self._sample_rate = float(sample_rate)
 
+    @staticmethod
+    def _read_audio(path: Union[str, Path]):
+        """
+        Read an audio file to ``(data, sample_rate)`` via soundfile/libsndfile,
+        falling back to the optional ``desphere`` package for NIST SPHERE files
+        that libsndfile cannot decode.
+
+        libsndfile already reads *some* SPHERE files natively (uncompressed PCM
+        with a NIST header); those go through soundfile unchanged. Only when
+        soundfile raises — e.g. shorten-compressed SPHERE, the main gap — do we
+        transcode the file to in-memory WAV via ``desphere`` and re-read it.
+
+        If ``desphere`` is not installed (it is an optional dependency, install
+        with ``pip install praatfan[sphere]``) or the file is not a SPHERE file
+        desphere can handle, the original soundfile error is re-raised.
+        """
+        import soundfile as sf
+
+        try:
+            return sf.read(path, dtype='float64')
+        except Exception as primary_exc:
+            wav_bytes = Sound._desphere_transcode(path, primary_exc)
+            import io
+            return sf.read(io.BytesIO(wav_bytes), dtype='float64')
+
+    @staticmethod
+    def _desphere_transcode(path: Union[str, Path], primary_exc: Exception) -> bytes:
+        """
+        Transcode a SPHERE file at ``path`` to WAV bytes using ``desphere``.
+
+        Re-raises ``primary_exc`` (the original soundfile error) if desphere is
+        unavailable or cannot decode the file, so non-SPHERE failures surface
+        with their original, more informative message.
+        """
+        try:
+            import desphere
+        except ImportError:
+            raise primary_exc
+
+        try:
+            return desphere.transcode_bytes(Path(path).read_bytes())
+        except Exception:
+            # Not a SPHERE file desphere can handle (or an unreadable path) —
+            # surface the original soundfile error rather than desphere's.
+            raise primary_exc
+
     @classmethod
     def from_file(cls, path: Union[str, Path]) -> "Sound":
         """
@@ -100,6 +146,9 @@ class Sound:
             - MP3 (MPEG Audio Layer III) - requires libsndfile 1.1.0+
             - OGG Vorbis
             - AIFF, AU, CAF, and many others
+            - NIST SPHERE: uncompressed via libsndfile; shorten-compressed and
+              other codings via the optional `desphere` package (pip install
+              praatfan[sphere]).
 
         Multi-channel files will raise an error - use from_file_channel() instead.
 
@@ -113,9 +162,7 @@ class Sound:
             ValueError: If file has multiple channels
             RuntimeError: If file format is not supported
         """
-        import soundfile as sf
-
-        data, sample_rate = sf.read(path, dtype='float64')
+        data, sample_rate = cls._read_audio(path)
 
         if data.ndim > 1:
             raise ValueError(
@@ -137,9 +184,7 @@ class Sound:
         Returns:
             Sound object with the specified channel
         """
-        import soundfile as sf
-
-        data, sample_rate = sf.read(path, dtype='float64')
+        data, sample_rate = cls._read_audio(path)
 
         if data.ndim == 1:
             if channel != 0:

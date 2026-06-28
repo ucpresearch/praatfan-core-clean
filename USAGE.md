@@ -25,7 +25,21 @@ praatfan provides acoustic analysis functions equivalent to Praat:
 # From PyPI (recommended)
 pip install praatfan              # Pure Python (works everywhere)
 pip install praatfan-rust         # Rust backend (optional, faster)
+pip install "praatfan[sphere]"    # + NIST SPHERE (TIMIT/WSJ/Switchboard) support
+```
 
+#### NIST SPHERE files (`.sph`)
+
+`Sound.from_file` reads SPHERE audio (incl. shorten-compressed) when the optional
+[`desphere`](https://pypi.org/project/desphere/) package is installed; without it,
+libsndfile still handles uncompressed SPHERE, and other `.sph` files raise the
+usual unsupported-format error. The `praatfan[sphere]` extra pulls `desphere[fast]`
+(with a small Rust accelerator for large shorten files); output is byte-identical
+to the pure-Python decoder. To stay pure-Python, require plain `desphere` in your
+own dependencies instead — praatfan uses whichever is installed. The `praatfan-rust`
+backend has SPHERE support compiled in, so it needs nothing extra.
+
+```bash
 # Or build Rust backend from source
 cd rust
 pip install maturin
