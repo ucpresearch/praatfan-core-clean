@@ -662,9 +662,11 @@ This is an optional dependency enabled automatically by the `wasm` feature flag.
 
 ### Release Status
 
-**Current version:** v0.1.5 (Pre-release)
+**Current version:** v0.1.9
 
-This is a **pre-release** - the API is stabilizing but may still change. Use at your own risk in production.
+v0.1.9 adds NIST SPHERE support (incl. shorten-compressed) to `Sound.from_file`
+via the optional `desphere` package (pure Python) and the statically-linked
+desphere crate (praatfan_rust native + WASM). See `pip install praatfan[sphere]`.
 
 ### Pending v0.1.6 (on `main`, unreleased)
 
