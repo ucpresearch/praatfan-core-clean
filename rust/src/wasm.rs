@@ -65,6 +65,53 @@ pub fn init() {
 // Sound - Main audio type for WASM
 // ============================================================================
 
+/// Parse WAV bytes into `(interleaved samples, sample_rate, n_channels)` using
+/// hound, falling back to desphere for NIST SPHERE bytes hound can't read (e.g.
+/// shorten-compressed SPHERE).
+///
+/// The fallback only fires on hound's error path, so ordinary WAV input is
+/// unaffected. desphere is dependency-free and statically linked into the WASM
+/// bundle, so this works fully client-side with nothing sent to a server. If
+/// desphere also can't decode the bytes, the original hound error is surfaced.
+fn read_audio_bytes(bytes: &[u8]) -> Result<(Vec<f64>, f64, usize), JsError> {
+    match parse_wav(bytes) {
+        Ok(decoded) => Ok(decoded),
+        Err(primary_err) => match desphere::transcode(bytes) {
+            Ok(wav) => parse_wav(&wav),
+            Err(_) => Err(primary_err),
+        },
+    }
+}
+
+/// Decode WAV bytes to `(interleaved samples, sample_rate, n_channels)` via hound.
+fn parse_wav(wav_bytes: &[u8]) -> Result<(Vec<f64>, f64, usize), JsError> {
+    let reader = hound::WavReader::new(Cursor::new(wav_bytes))
+        .map_err(|e| JsError::new(&format!("Failed to read WAV: {}", e)))?;
+
+    let spec = reader.spec();
+    let sample_rate = spec.sample_rate as f64;
+    let n_channels = spec.channels as usize;
+
+    let samples: Vec<f64> = match spec.sample_format {
+        hound::SampleFormat::Float => reader
+            .into_samples::<f32>()
+            .map(|s| s.map(|v| v as f64))
+            .collect::<Result<Vec<f64>, _>>()
+            .map_err(|e| JsError::new(&format!("Failed to read samples: {}", e)))?,
+        hound::SampleFormat::Int => {
+            let bits = spec.bits_per_sample;
+            let max_val = (1i64 << (bits - 1)) as f64;
+            reader
+                .into_samples::<i32>()
+                .map(|s| s.map(|v| v as f64 / max_val))
+                .collect::<Result<Vec<f64>, _>>()
+                .map_err(|e| JsError::new(&format!("Failed to read samples: {}", e)))?
+        }
+    };
+
+    Ok((samples, sample_rate, n_channels))
+}
+
 /// Audio samples with sample rate.
 ///
 /// This is the main type for acoustic analysis in WASM. Create a Sound
@@ -96,68 +143,42 @@ impl Sound {
         }
     }
 
-    /// Create a Sound from WAV file bytes.
+    /// Create a Sound from WAV or NIST SPHERE file bytes.
     ///
-    /// Supports mono WAV files. For stereo files, use `from_wav_channel()`.
+    /// Reads mono WAV directly; NIST SPHERE (including shorten-compressed) is
+    /// transcoded in-memory via the statically-linked desphere decoder. For
+    /// multi-channel files, use `from_wav_channel()`.
     ///
     /// # Arguments
     ///
-    /// * `wav_bytes` - WAV file contents as Uint8Array
+    /// * `wav_bytes` - WAV or `.sph` file contents as Uint8Array
     ///
     /// # Errors
     ///
-    /// Throws if the WAV file is invalid or has multiple channels.
+    /// Throws if the file is not a supported audio file or has multiple channels.
     pub fn from_wav(wav_bytes: &[u8]) -> Result<Sound, JsError> {
-        let cursor = Cursor::new(wav_bytes);
-        let reader = hound::WavReader::new(cursor)
-            .map_err(|e| JsError::new(&format!("Failed to read WAV: {}", e)))?;
+        let (samples, sample_rate, n_channels) = read_audio_bytes(wav_bytes)?;
 
-        let spec = reader.spec();
-
-        if spec.channels != 1 {
+        if n_channels != 1 {
             return Err(JsError::new(&format!(
                 "Audio must be mono. Got {} channels. Use from_wav_channel() for multi-channel files.",
-                spec.channels
+                n_channels
             )));
         }
-
-        let sample_rate = spec.sample_rate as f64;
-
-        let samples: Vec<f64> = match spec.sample_format {
-            hound::SampleFormat::Float => {
-                reader.into_samples::<f32>()
-                    .map(|s| s.map(|v| v as f64))
-                    .collect::<Result<Vec<f64>, _>>()
-                    .map_err(|e| JsError::new(&format!("Failed to read samples: {}", e)))?
-            }
-            hound::SampleFormat::Int => {
-                let bits = spec.bits_per_sample;
-                let max_val = (1i64 << (bits - 1)) as f64;
-                reader.into_samples::<i32>()
-                    .map(|s| s.map(|v| v as f64 / max_val))
-                    .collect::<Result<Vec<f64>, _>>()
-                    .map_err(|e| JsError::new(&format!("Failed to read samples: {}", e)))?
-            }
-        };
 
         Ok(Sound {
             inner: RustSound::from_slice(&samples, sample_rate),
         })
     }
 
-    /// Create a Sound from a specific channel of a WAV file.
+    /// Create a Sound from a specific channel of a WAV or NIST SPHERE file.
     ///
     /// # Arguments
     ///
-    /// * `wav_bytes` - WAV file contents as Uint8Array
+    /// * `wav_bytes` - WAV or `.sph` file contents as Uint8Array
     /// * `channel` - Channel index (0 = left, 1 = right, etc.)
     pub fn from_wav_channel(wav_bytes: &[u8], channel: usize) -> Result<Sound, JsError> {
-        let cursor = Cursor::new(wav_bytes);
-        let reader = hound::WavReader::new(cursor)
-            .map_err(|e| JsError::new(&format!("Failed to read WAV: {}", e)))?;
-
-        let spec = reader.spec();
-        let n_channels = spec.channels as usize;
+        let (all_samples, sample_rate, n_channels) = read_audio_bytes(wav_bytes)?;
 
         if channel >= n_channels {
             return Err(JsError::new(&format!(
@@ -165,25 +186,6 @@ impl Sound {
                 channel, n_channels
             )));
         }
-
-        let sample_rate = spec.sample_rate as f64;
-
-        let all_samples: Vec<f64> = match spec.sample_format {
-            hound::SampleFormat::Float => {
-                reader.into_samples::<f32>()
-                    .map(|s| s.map(|v| v as f64))
-                    .collect::<Result<Vec<f64>, _>>()
-                    .map_err(|e| JsError::new(&format!("Failed to read samples: {}", e)))?
-            }
-            hound::SampleFormat::Int => {
-                let bits = spec.bits_per_sample;
-                let max_val = (1i64 << (bits - 1)) as f64;
-                reader.into_samples::<i32>()
-                    .map(|s| s.map(|v| v as f64 / max_val))
-                    .collect::<Result<Vec<f64>, _>>()
-                    .map_err(|e| JsError::new(&format!("Failed to read samples: {}", e)))?
-            }
-        };
 
         // Extract the specified channel
         let samples: Vec<f64> = all_samples

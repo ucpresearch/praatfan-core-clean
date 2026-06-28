@@ -62,6 +62,11 @@ wasm-pack build --target nodejs --features wasm
 
 The built package will be in `rust/pkg/`.
 
+`Sound.from_wav()` accepts WAV **and** NIST SPHERE bytes (including
+shorten-compressed): the SPHERE decoder is statically linked into the WASM
+bundle, so `.sph` files are handled fully client-side with nothing sent to a
+server. No extra package or configuration is required.
+
 ### Rust
 
 Add to your `Cargo.toml`:
