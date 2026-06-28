@@ -55,8 +55,31 @@ praatfan uses **soundfile/libsndfile** for audio I/O, supporting a wide range of
 | AIFF | `.aiff`, `.aif` | Apple audio format |
 | AU | `.au` | Sun/NeXT audio |
 | CAF | `.caf` | Core Audio Format |
+| NIST SPHERE | `.sph` | TIMIT/WSJ/Switchboard. Uncompressed via libsndfile; **shorten-compressed** via the optional `desphere` package (see below) |
 
 **Note:** Multi-channel files require explicit channel selection via `Sound.from_file_channel(path, channel=0)`.
+
+### NIST SPHERE via desphere (v0.1.9+)
+
+`Sound.from_file` falls back to the MIT-licensed [`desphere`](https://github.com/ucpresearch/desphere)
+transcoder when the primary loader can't decode a `.sph` file (the gap is
+**shorten** compression; libsndfile reads uncompressed SPHERE natively). The
+fallback only fires on the primary-loader error path, so other formats are
+unaffected, and malformed files surface the original error rather than loading
+corrupt audio.
+
+- **Pure-Python `praatfan`**: optional dep. `pip install "praatfan[sphere]"`
+  (pulls `desphere[fast]`); plain `desphere` also works. Wired in
+  `src/praatfan/sound.py` (`_read_audio` → `desphere.transcode_bytes`).
+- **`praatfan_rust` (native + WASM)**: the desphere crate is **statically
+  linked in** (tag-pinned git dep, native-only build), so `.sph`/shorten decode
+  with no extra dependency — fully offline / client-side in the browser. Wired in
+  `rust/src/sound.rs` (`decode_via_desphere`) and `rust/src/wasm.rs` (`from_wav`).
+
+Note: Praat/parselmouth itself only partially supports SPHERE — it errors on
+shorten-PCM and *silently corrupts* shorten-µ-law, so the parselmouth backend is
+the one backend that still mishandles `.sph`. The sibling `praatfan-core-rs`
+(GPL) and its `praatfan-gpl` wheel got the same desphere integration.
 
 ---
 
@@ -668,7 +691,11 @@ v0.1.9 adds NIST SPHERE support (incl. shorten-compressed) to `Sound.from_file`
 via the optional `desphere` package (pure Python) and the statically-linked
 desphere crate (praatfan_rust native + WASM). See `pip install praatfan[sphere]`.
 
-### Pending v0.1.6 (on `main`, unreleased)
+### Historical: changes that rolled into v0.1.6–v0.1.8 (all shipped)
+
+> **Note:** The items below were "pending" notes written between v0.1.5 and the
+> v0.1.6 bump. They have all **shipped** (the repo is now at **v0.1.9** — see
+> Release Status above). Kept for the development record; no longer pending.
 
 After v0.1.5 shipped, `praatfan-gpl==0.1.5` published to PyPI with three
 new native methods: `Sound.to_pitch_cc`, `Sound.resample`, and
@@ -833,11 +860,12 @@ full 112-test suite passes locally (96 prior + 16 new threshold tests).
 **Install from PyPI:**
 ```bash
 pip install praatfan              # Pure Python (all platforms)
-pip install praatfan-rust         # Rust backend (optional, faster)
+pip install "praatfan[sphere]"    # + NIST SPHERE (incl. shorten) support
+pip install praatfan-rust         # Rust backend (optional, faster; SPHERE built in)
 ```
 
-- PyPI: [praatfan](https://pypi.org/project/praatfan/0.1.5/) | [praatfan-rust](https://pypi.org/project/praatfan-rust/0.1.5/)
-- GitHub: [v0.1.5 release](https://github.com/ucpresearch/praatfan-core-clean/releases/tag/v0.1.5)
+- PyPI: [praatfan](https://pypi.org/project/praatfan/0.1.9/) | [praatfan-rust](https://pypi.org/project/praatfan-rust/0.1.9/)
+- GitHub: [v0.1.9 release](https://github.com/ucpresearch/praatfan-core-clean/releases/tag/v0.1.9)
 
 Available `praatfan-rust` platforms:
 - Linux x86_64: Python 3.9, 3.10, 3.11, 3.12

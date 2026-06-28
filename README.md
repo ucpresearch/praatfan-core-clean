@@ -2,7 +2,7 @@
 
 A clean-room reimplementation of Praat's acoustic analysis algorithms, with a unified API that supports multiple backends.
 
-> **Note:** This is a pre-release (v0.1.3). The API is stabilizing but may still change.
+> **Note:** Current release **v0.1.9**. The API is stabilizing but may still change.
 
 ## Installation
 
@@ -14,15 +14,25 @@ pip install praatfan
 
 # Rust-accelerated backend (optional, faster)
 pip install praatfan-rust
+
+# + NIST SPHERE support (TIMIT/WSJ/Switchboard, incl. shorten)
+pip install "praatfan[sphere]"
 ```
 
 Both packages are on PyPI: [praatfan](https://pypi.org/project/praatfan/) | [praatfan-rust](https://pypi.org/project/praatfan-rust/)
 
-Available `praatfan-rust` wheels:
-- **Linux x86_64**: Python 3.9, 3.10, 3.11, 3.12
-- **Linux aarch64**: Python 3.12
-- **macOS ARM64**: Python 3.9, 3.10, 3.11, 3.12
-- **Windows x86_64**: Python 3.9, 3.10, 3.11, 3.12
+Available `praatfan-rust` wheels (single abi3 wheel per platform, CPython 3.9+):
+- **Linux**: x86_64, aarch64
+- **macOS**: ARM64, x86_64 (Intel)
+- **Windows**: x86_64, ARM64
+
+### NIST SPHERE (`.sph`) files
+
+`Sound.from_file` reads SPHERE audio (incl. shorten-compressed) when the optional
+[`desphere`](https://pypi.org/project/desphere/) package is installed —
+`pip install "praatfan[sphere]"` pulls it with a Rust accelerator. The
+`praatfan-rust` backend has SPHERE support compiled in, so it needs nothing extra.
+Without desphere, libsndfile still handles uncompressed SPHERE.
 
 ### From source
 
