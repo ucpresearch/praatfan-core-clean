@@ -46,7 +46,7 @@ use crate::spectrogram::Spectrogram;
 /// # Example
 ///
 /// ```no_run
-/// use praatfan::Sound;
+/// use praatfan_rust::Sound;
 ///
 /// let sound = Sound::from_file("audio.wav").unwrap();
 /// println!("Duration: {:.3}s", sound.duration());

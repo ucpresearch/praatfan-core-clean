@@ -1,5 +1,5 @@
 
-use praatfan::Sound;
+use praatfan_rust::Sound;
 
 fn main() {
     let path = "../tests/fixtures/tam-haʃaʁav-haɡadol-mono.wav";

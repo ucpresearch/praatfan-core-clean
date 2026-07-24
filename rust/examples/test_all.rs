@@ -1,6 +1,6 @@
 //! Test all praatfan modules against the fixture audio files.
 
-use praatfan::Sound;
+use praatfan_rust::Sound;
 use std::path::Path;
 
 fn test_sound_file(path: &Path) -> Result<(), Box<dyn std::error::Error>> {
@@ -11,7 +11,7 @@ fn test_sound_file(path: &Path) -> Result<(), Box<dyn std::error::Error>> {
     // Load sound - try mono first, then extract channel 0 if stereo
     let sound = match Sound::from_file(path) {
         Ok(s) => s,
-        Err(praatfan::Error::NotMono(channels)) => {
+        Err(praatfan_rust::Error::NotMono(channels)) => {
             println!("  (Stereo file with {} channels, extracting channel 0)", channels);
             Sound::from_file_channel(path, 0)?
         }

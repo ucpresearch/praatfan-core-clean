@@ -1,6 +1,6 @@
 //! Test formant computation specifically
 
-use praatfan::Sound;
+use praatfan_rust::Sound;
 use std::time::Instant;
 
 fn main() {
@@ -9,7 +9,7 @@ fn main() {
     println!("Loading: {}", path);
     let sound = match Sound::from_file(path) {
         Ok(s) => s,
-        Err(praatfan::Error::NotMono(ch)) => {
+        Err(praatfan_rust::Error::NotMono(ch)) => {
             println!("Stereo ({} ch), extracting channel 0...", ch);
             Sound::from_file_channel(path, 0).unwrap()
         }

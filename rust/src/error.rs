@@ -19,7 +19,7 @@ use thiserror::Error;
 /// # Example
 ///
 /// ```no_run
-/// use praatfan::{Result, Sound};
+/// use praatfan_rust::{Result, Sound};
 ///
 /// fn load_and_analyze(path: &str) -> Result<()> {
 ///     let sound = Sound::from_file(path)?;
