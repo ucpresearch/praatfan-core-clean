@@ -161,31 +161,30 @@ pf_uninstall <- function(sources = TRUE) {
 
 #' Platform naming for this machine (GitHub Releases asset names).
 #'
-#' Asset names are \code{<binary>-<suffix>}, with the per-platform suffix
-#' taken from the engine's \code{assets} table (the two engine repos use
-#' different arch spellings).
+#' Asset names are \code{<binary>-<os>-<arch>[.exe]} with Rust-target arch
+#' spellings — the shared convention both engine repos publish under.
 #'
 #' @keywords internal
 .pf_platform <- function(eng) {
   os <- tolower(Sys.info()[["sysname"]])
   arch <- Sys.info()[["machine"]]
 
-  key <- if (os == "darwin" && arch == "arm64") {
-    "macos_aarch64"
+  suffix <- if (os == "darwin" && arch == "arm64") {
+    "macos-aarch64"
   } else if (os == "darwin") {
-    "macos_x86_64"
+    "macos-x86_64"
   } else if (os == "linux" && arch == "aarch64") {
-    "linux_aarch64"
+    "linux-aarch64"
   } else if (os == "linux") {
-    "linux_x86_64"
+    "linux-x86_64"
   } else if (os == "windows") {
-    "windows_x86_64"
+    "windows-x86_64.exe"
   } else {
     stop("Unsupported platform: ", os, " ", arch, call. = FALSE)
   }
 
   list(os = os, arch = arch,
-       asset = paste0(eng$bin, "-", eng$assets[[key]]),
+       asset = paste0(eng$bin, "-", suffix),
        exe = if (os == "windows") paste0(eng$bin, ".exe") else eng$bin)
 }
 
