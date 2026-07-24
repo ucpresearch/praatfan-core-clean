@@ -156,6 +156,53 @@ jobs:
           name: wheel-windows-arm64
           path: rust/dist/*.whl
 
+  # praatfan-open-pipe JSON pipe binaries, named exactly as the R package's
+  # pf_setup() binary route expects them as release assets
+  # (praatfan-open-pipe-<os>-<arch>[.exe] — see r-package/R/setup.R).
+  # To attach to a release: gh run download <run-id>, then
+  # gh release upload <tag> <files>.
+  build-pipe:
+    name: pipe ${{ matrix.asset }}
+    runs-on: ${{ matrix.os }}
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - os: ubuntu-latest
+            target: x86_64-unknown-linux-gnu
+            asset: praatfan-open-pipe-linux-x86_64
+            bin: praatfan-open-pipe
+          - os: ubuntu-24.04-arm
+            target: aarch64-unknown-linux-gnu
+            asset: praatfan-open-pipe-linux-aarch64
+            bin: praatfan-open-pipe
+          - os: macos-14
+            target: aarch64-apple-darwin
+            asset: praatfan-open-pipe-macos-aarch64
+            bin: praatfan-open-pipe
+          # Intel macOS cross-compiled on arm64 (same rationale as the wheels).
+          - os: macos-14
+            target: x86_64-apple-darwin
+            asset: praatfan-open-pipe-macos-x86_64
+            bin: praatfan-open-pipe
+          - os: windows-latest
+            target: x86_64-pc-windows-msvc
+            asset: praatfan-open-pipe-windows-x86_64.exe
+            bin: praatfan-open-pipe.exe
+    steps:
+      - uses: actions/checkout@v6
+      - run: rustup target add ${{ matrix.target }}
+      - name: Build praatfan-open-pipe
+        run: cargo build --release --features pipe --bin praatfan-open-pipe --target ${{ matrix.target }}
+        working-directory: rust
+      - name: Rename to asset name
+        shell: bash
+        run: cp "rust/target/${{ matrix.target }}/release/${{ matrix.bin }}" "${{ matrix.asset }}"
+      - uses: actions/upload-artifact@v7
+        with:
+          name: ${{ matrix.asset }}
+          path: ${{ matrix.asset }}
+
   build-wasm:
     runs-on: ubuntu-latest
     steps:
