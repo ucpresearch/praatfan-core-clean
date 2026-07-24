@@ -58,8 +58,7 @@ stdin/stdout — no Python required) lives in [`r-package/`](r-package/):
 ```r
 remotes::install_github("ucpresearch/praatfan-core-clean", subdir = "r-package")
 library(praatfan)
-pf_setup()                    # one-time: fetch or build the binary
-f0  <- pf_pitch("audio.wav")
+f0  <- pf_pitch("audio.wav")  # engine binary auto-installs on first use
 fmt <- pf_formants("audio.wav", max_formant_hz = 5000)
 ```
 

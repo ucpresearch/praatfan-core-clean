@@ -427,9 +427,21 @@ pf_uninstall <- function(sources = TRUE) {
   Sys.which(eng$bin) != ""
 }
 
+#' Ensure the engine binary is available, bootstrapping it if needed.
+#'
+#' On first use after `install_github`, the binary is fetched automatically
+#' (the standard R pattern for packages wrapping a native tool — the GitHub
+#' tarball that `install_github` installs contains no binaries).  Disable
+#' with `options(praatfan.auto_setup = FALSE)` for a hard error instead.
+#'
+#' @keywords internal
 .pf_ensure_ready <- function(eng = .pf_engine_of()) {
-  if (!.pf_is_ready(eng)) {
+  if (.pf_is_ready(eng)) return(invisible(TRUE))
+  if (isFALSE(getOption("praatfan.auto_setup", TRUE))) {
     stop(eng$bin, " not installed. Run pf_setup(engine = \"", eng$name,
          "\") first.", call. = FALSE)
   }
+  message(eng$bin, " not found; installing it now. ",
+          "(Disable with options(praatfan.auto_setup = FALSE).)")
+  pf_setup(engine = eng$name)
 }

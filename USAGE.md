@@ -81,7 +81,8 @@ praatfan = { path = "../praatfan-core-clean/rust" }
 ```r
 remotes::install_github("ucpresearch/praatfan-core-clean", subdir = "r-package")
 library(praatfan)
-pf_setup()   # one-time: fetches or builds the praatfan-open-pipe binary
+# The praatfan-open-pipe binary is fetched automatically on first use;
+# call pf_setup() to control when/how (or set PRAATFAN_PIPE to a binary).
 ```
 
 Analysis functions return tidy data.frames:

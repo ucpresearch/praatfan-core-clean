@@ -11,10 +11,12 @@ conda required.
 ```r
 # install.packages("remotes")
 remotes::install_github("ucpresearch/praatfan-core-clean", subdir = "r-package")
-
-library(praatfan)
-pf_setup()   # one-time: fetches or builds the praatfan-open-pipe binary
 ```
+
+That's it — the native engine binary is fetched automatically on first use
+(disable with `options(praatfan.auto_setup = FALSE)`). To fetch it
+explicitly — e.g. to pre-provision a cluster node, pin a version with
+`ref =`, or install the GPL engine — call `pf_setup()`.
 
 `pf_setup()` tries, in order: a pre-built binary from GitHub Releases, a git
 clone built with cargo, and a local source tree. Point the package at an
