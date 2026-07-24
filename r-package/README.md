@@ -56,6 +56,31 @@ res <- pf_analyze("audio.wav", list(
 (Wrap vector fields like `times` in `I()` so length-1 vectors stay JSON
 arrays.)
 
+## Engines
+
+Two interchangeable native engines speak the same JSON schema; every
+analysis function works identically with either:
+
+| Engine | Binary | License | Notes |
+|--------|--------|---------|-------|
+| `"open"` (default) | `praatfan-open-pipe` | MIT | Clean-room implementation, validated frame-by-frame against Praat |
+| `"gpl"` | `praatfan-gpl-pipe` | GPL | Tracks Praat's values even more closely |
+
+```r
+pf_setup(engine = "gpl")     # install alongside the default engine
+pf_engine("gpl")             # use it for the rest of the session
+pf_engine()                  # query the current engine
+
+# Or per call, e.g. to compare engines side by side:
+a <- pf_analyze("audio.wav", list(list(type = "formant_burg")), engine = "open")
+b <- pf_analyze("audio.wav", list(list(type = "formant_burg")), engine = "gpl")
+```
+
+Selection precedence: `PRAATFAN_PIPE` (explicit binary path, always wins) >
+`pf_engine(...)` / `pf_analyze(engine = ...)` > `PRAATFAN_ENGINE`
+environment variable > default `"open"`. The engine choice affects only
+which subprocess runs; this package itself remains MIT either way.
+
 ## Notes
 
 - For generic spectra/spectrograms, R is already well served (seewave,

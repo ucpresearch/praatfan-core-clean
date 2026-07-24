@@ -709,8 +709,13 @@ bit-exactly.
 `pf_setup()` (binary download → git+cargo → local source), `pf_analyze()`
 (raw batch), and tidy wrappers `pf_pitch`, `pf_formants`, `pf_intensity`,
 `pf_harmonicity`, `pf_spectral_moments`, `pf_band_energy` returning
-data.frames (JSON null → NA; unvoiced f0 → NA + `voiced` column). Binary
-override: `PRAATFAN_PIPE` env var. Install:
+data.frames (JSON null → NA; unvoiced f0 → NA + `voiced` column). Two
+interchangeable engines speak the same schema: `"open"` (praatfan-open-pipe,
+MIT, default) and `"gpl"` (praatfan-gpl-pipe from ucpresearch/praatfan-core-rs,
+closer to Praat's exact values). Select via `pf_engine("gpl")`,
+`pf_analyze(engine=)`, or `PRAATFAN_ENGINE`; `pf_setup(engine=)` installs
+either; both can coexist. Binary
+override: `PRAATFAN_PIPE` env var (always wins). Install:
 `remotes::install_github("ucpresearch/praatfan-core-clean", subdir = "r-package")`.
 Release assets expected as `praatfan-open-pipe-<os>-<arch>[.exe]`.
 

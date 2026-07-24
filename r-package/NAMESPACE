@@ -1,3 +1,4 @@
+export(pf_engine)
 export(pf_setup)
 export(pf_uninstall)
 export(pf_analyze)
