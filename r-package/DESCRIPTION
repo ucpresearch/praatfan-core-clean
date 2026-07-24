@@ -1,0 +1,22 @@
+Package: praatfan
+Title: Praat-Compatible Acoustic Analysis
+Version: 0.1.9
+Authors@R: person("praatfan contributors", role = c("aut", "cre"),
+                   email = "noreply@example.com")
+Description: R interface to praatfan, a clean-room reimplementation of
+    Praat's core acoustic analysis algorithms. Computes pitch (F0),
+    formants (Burg LPC), intensity, harmonicity (HNR), spectral moments,
+    and band energy with values validated frame-by-frame against Praat.
+    Uses a native Rust backend (the praatfan-open-pipe binary) with no
+    Python dependencies. Reads WAV, FLAC, MP3, OGG, and NIST SPHERE audio.
+License: MIT + file LICENSE
+Encoding: UTF-8
+Roxygen: list(markdown = TRUE)
+RoxygenNote: 7.3.0
+Imports:
+    jsonlite,
+    utils
+Suggests:
+    testthat (>= 3.0.0)
+URL: https://github.com/ucpresearch/praatfan-core-clean
+BugReports: https://github.com/ucpresearch/praatfan-core-clean/issues
