@@ -208,9 +208,54 @@ jobs:
           name: wasm-package
           path: rust/praatfan-wasm.tar.gz
 
-  # Upload all wheels to the GitHub release
+  # praatfan-open-pipe JSON pipe binaries, named exactly as the R package's
+  # pf_setup() download route expects (praatfan-open-pipe-<os>-<arch>[.exe],
+  # see r-package/R/setup.R). Attached to the release below so R users get
+  # the fast binary route instead of a cargo build.
+  build-pipe:
+    name: pipe ${{ matrix.asset }}
+    runs-on: ${{ matrix.os }}
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - os: ubuntu-latest
+            target: x86_64-unknown-linux-gnu
+            asset: praatfan-open-pipe-linux-x86_64
+            bin: praatfan-open-pipe
+          - os: ubuntu-24.04-arm
+            target: aarch64-unknown-linux-gnu
+            asset: praatfan-open-pipe-linux-aarch64
+            bin: praatfan-open-pipe
+          - os: macos-14
+            target: aarch64-apple-darwin
+            asset: praatfan-open-pipe-macos-aarch64
+            bin: praatfan-open-pipe
+          - os: macos-14
+            target: x86_64-apple-darwin
+            asset: praatfan-open-pipe-macos-x86_64
+            bin: praatfan-open-pipe
+          - os: windows-latest
+            target: x86_64-pc-windows-msvc
+            asset: praatfan-open-pipe-windows-x86_64.exe
+            bin: praatfan-open-pipe.exe
+    steps:
+      - uses: actions/checkout@v6
+      - run: rustup target add ${{ matrix.target }}
+      - name: Build praatfan-open-pipe
+        run: cargo build --release --features pipe --bin praatfan-open-pipe --target ${{ matrix.target }}
+        working-directory: rust
+      - name: Rename to asset name
+        shell: bash
+        run: cp "rust/target/${{ matrix.target }}/release/${{ matrix.bin }}" "${{ matrix.asset }}"
+      - uses: actions/upload-artifact@v7
+        with:
+          name: ${{ matrix.asset }}
+          path: ${{ matrix.asset }}
+
+  # Upload all wheels + pipe binaries to the GitHub release
   upload-release:
-    needs: [build-python, build-rust-linux-py, build-rust-linux-aarch64-py, build-rust-macos-py, build-rust-macos-intel-py, build-rust-windows-py, build-rust-windows-arm64-py, build-wasm]
+    needs: [build-python, build-rust-linux-py, build-rust-linux-aarch64-py, build-rust-macos-py, build-rust-macos-intel-py, build-rust-windows-py, build-rust-windows-arm64-py, build-wasm, build-pipe]
     runs-on: ubuntu-latest
     if: github.event_name == 'release'
     steps:
@@ -220,7 +265,7 @@ jobs:
           path: dist
           merge-multiple: true
 
-      - name: List wheels
+      - name: List artifacts
         run: ls -la dist/
 
       - name: Upload to GitHub Release
@@ -229,6 +274,7 @@ jobs:
           files: |
             dist/*.whl
             dist/praatfan-wasm.tar.gz
+            dist/praatfan-open-pipe-*
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
 
