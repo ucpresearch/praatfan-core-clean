@@ -478,8 +478,12 @@ praatfan-core-clean/
 │       ├── __init__.py    # Deprecation wrapper
 │       ├── selector.py    # Re-exports from praatfan.selector
 │       └── compatibility.py # Re-exports from praatfan.compatibility
+├── r-package/             # R source package (praatfan) wrapping the pipe binary
+│   ├── DESCRIPTION        # Package metadata
+│   ├── NAMESPACE          # Exports (pf_setup, pf_pitch, pf_formants, ...)
+│   └── R/                 # pipe.R (JSON call), setup.R (install), praatfan.R (wrappers)
 └── rust/                  # Rust implementation (praatfan_rust)
-    ├── Cargo.toml         # Dependencies and feature flags (wasm, python)
+    ├── Cargo.toml         # Dependencies and feature flags (wasm, python, pipe)
     ├── Cargo.lock         # Locked dependency versions
     ├── pyproject.toml     # Maturin config for Python builds (praatfan_rust)
     ├── src/
@@ -492,6 +496,8 @@ praatfan-core-clean/
     │   ├── formant.rs     # Formant analysis (Burg LPC)
     │   ├── spectrogram.rs # STFT spectrogram
     │   ├── error.rs       # Error types
+    │   ├── pipe.rs        # JSON pipe interface (feature "pipe")
+    │   ├── bin/praatfan_open_pipe.rs  # JSON stdin/stdout binary
     │   ├── wasm.rs        # WASM bindings (wasm-bindgen)
     │   └── python.rs      # Python bindings (PyO3)
     └── pkg/               # Built WASM package (after wasm-pack build)
@@ -674,9 +680,39 @@ cd rust
 wasm-pack build --target web --features wasm     # For browsers
 wasm-pack build --target nodejs --features wasm  # For Node.js
 
+# JSON pipe binary (for R / shell callers; see rust/src/pipe.rs)
+cd rust
+cargo build --release --features pipe --bin praatfan-open-pipe
+
 # Rust tests
 cargo test
 ```
+
+### JSON Pipe Interface (praatfan-open-pipe)
+
+`rust/src/pipe.rs` + `rust/src/bin/praatfan_open_pipe.rs` (feature-gated:
+`pipe`) provide a JSON-stdin → JSON-stdout binary for R and other external
+callers. One request = one audio file + a list
+of analyses (`pitch_ac`, `pitch_cc`, `formant_burg`, `intensity`,
+`harmonicity_ac`, `harmonicity_cc`, `spectral_moments`, `band_energy`), so
+callers pay the file load once. Omitted params take Praat's defaults; unknown
+types/param keys are hard errors; NaN serializes as JSON `null` (jsonlite →
+`NA`). Raw spectrum bins and full spectrograms are deliberately not exposed —
+R covers generic spectra (seewave/phonTools/wrassp); the pipe carries the
+Praat-parity scalars R can't replicate. `praatfan-open-pipe --help` documents
+the full schema. serde_json uses `float_roundtrip` so request floats parse
+bit-exactly.
+
+### R Package (r-package/)
+
+`r-package/` is an R source package (`praatfan`) wrapping the pipe binary:
+`pf_setup()` (binary download → git+cargo → local source), `pf_analyze()`
+(raw batch), and tidy wrappers `pf_pitch`, `pf_formants`, `pf_intensity`,
+`pf_harmonicity`, `pf_spectral_moments`, `pf_band_energy` returning
+data.frames (JSON null → NA; unvoiced f0 → NA + `voiced` column). Binary
+override: `PRAATFAN_PIPE` env var. Install:
+`remotes::install_github("ucpresearch/praatfan-core-clean", subdir = "r-package")`.
+Release assets expected as `praatfan-open-pipe-<os>-<arch>[.exe]`.
 
 **Note:** The WASM build requires `hound` (WAV-only, for in-memory parsing in browsers).
 This is an optional dependency enabled automatically by the `wasm` feature flag.

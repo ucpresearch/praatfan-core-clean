@@ -76,6 +76,43 @@ Add to your `Cargo.toml`:
 praatfan = { path = "../praatfan-core-clean/rust" }
 ```
 
+### R
+
+```r
+remotes::install_github("ucpresearch/praatfan-core-clean", subdir = "r-package")
+library(praatfan)
+pf_setup()   # one-time: fetches or builds the praatfan-open-pipe binary
+```
+
+Analysis functions return tidy data.frames:
+
+```r
+p <- pf_pitch("audio.wav")                    # time, f0 (NA = unvoiced), strength, voiced
+f <- pf_formants("audio.wav")                 # time, n_formants, F1..F5, B1..B5
+i <- pf_intensity("audio.wav")                # time, intensity (dB)
+h <- pf_harmonicity("audio.wav")              # time, hnr (dB)
+m <- pf_spectral_moments("audio.wav", times = c(0.10, 0.15))
+b <- pf_band_energy("audio.wav", times = c(0.10, 0.15), f_min = 0, f_max = 1000)
+```
+
+See `r-package/README.md` for details, including the batch interface
+(`pf_analyze`) that computes several measures from one file load.
+
+### Any language (JSON pipe)
+
+The `praatfan-open-pipe` binary reads one JSON request on stdin and writes
+one JSON response to stdout — usable from any language that can spawn a
+process:
+
+```bash
+cd rust && cargo build --release --features pipe --bin praatfan-open-pipe
+
+echo '{"wav_path":"audio.wav","analyses":[{"type":"pitch_ac"}]}' \
+  | rust/target/release/praatfan-open-pipe
+```
+
+`praatfan-open-pipe --help` documents the full request/response schema.
+
 ---
 
 ## Python Usage

@@ -50,6 +50,25 @@ pip install git+https://github.com/ucpresearch/praatfan-core-clean.git
 cd rust && pip install maturin && maturin develop --features python
 ```
 
+### R
+
+An R package wrapping a native Rust binary (`praatfan-open-pipe`, JSON
+stdin/stdout — no Python required) lives in [`r-package/`](r-package/):
+
+```r
+remotes::install_github("ucpresearch/praatfan-core-clean", subdir = "r-package")
+library(praatfan)
+pf_setup()                    # one-time: fetch or build the binary
+f0  <- pf_pitch("audio.wav")
+fmt <- pf_formants("audio.wav", max_formant_hz = 5000)
+```
+
+See [`r-package/README.md`](r-package/README.md) for the full function list
+(`pf_pitch`, `pf_formants`, `pf_intensity`, `pf_harmonicity`,
+`pf_spectral_moments`, `pf_band_energy`, and batch `pf_analyze`). The same
+`praatfan-open-pipe` binary is usable from any language that can spawn a
+process and speak JSON (`praatfan-open-pipe --help` documents the schema).
+
 ## Quick Start
 
 ```python
