@@ -14,6 +14,14 @@ crate-type = ["cdylib", "rlib"]
 default = []
 wasm = ["wasm-bindgen", "js-sys", "serde", "serde-wasm-bindgen", "console_error_panic_hook", "hound"]
 python = ["pyo3", "numpy"]
+pipe = ["serde", "serde_json"]
+
+# JSON stdin → JSON stdout interface for R / shell / other languages.
+# Build with: cargo build --release --features pipe --bin praatfan-open-pipe
+[[bin]]
+name = "praatfan-open-pipe"
+path = "src/bin/praatfan_open_pipe.rs"
+required-features = ["pipe"]
 
 [dependencies]
 # Array operations (numpy equivalent)
@@ -54,6 +62,9 @@ nalgebra = "0.33"
 wasm-bindgen = { version = "0.2", optional = true }
 js-sys = { version = "0.3", optional = true }
 serde = { version = "1.0", features = ["derive"], optional = true }
+# float_roundtrip: exact f64 parsing, so request "times" (and test round-trips)
+# are bit-faithful; serialization is already exact-shortest via ryu.
+serde_json = { version = "1.0", features = ["float_roundtrip"], optional = true }
 serde-wasm-bindgen = { version = "0.6", optional = true }
 console_error_panic_hook = { version = "0.1", optional = true }
 hound = { version = "3.5", optional = true }

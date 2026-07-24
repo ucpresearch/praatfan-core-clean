@@ -72,6 +72,10 @@ pub mod spectrogram;
 pub mod spectrum;
 pub mod speech_reference;
 
+// JSON pipe interface (enabled with "pipe" feature; used by the praatfan-open-pipe binary)
+#[cfg(feature = "pipe")]
+pub mod pipe;
+
 // WASM bindings (enabled with "wasm" feature)
 #[cfg(feature = "wasm")]
 pub mod wasm;
@@ -83,10 +87,10 @@ pub mod python;
 // Re-export main types at crate root for convenient access
 //
 // Users can import the most common types directly:
-//   use praatfan::{Sound, Formant, Pitch};
+//   use praatfan_rust::{Sound, Formant, Pitch};
 //
 // Or import from specific modules for less common types:
-//   use praatfan::pitch::{PitchMethod, FrameTiming};
+//   use praatfan_rust::pitch::{PitchMethod, FrameTiming};
 
 /// Error types for praatfan operations.
 pub use error::{Error, Result};
