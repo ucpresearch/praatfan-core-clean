@@ -24,13 +24,25 @@ NULL
     name = "open",
     bin  = "praatfan-open-pipe",
     repo = "ucpresearch/praatfan-core-clean",
-    src  = "praatfan-core-clean"
+    src  = "praatfan-core-clean",
+    # Release-asset name suffix per platform (asset = <bin>-<suffix>).
+    assets = c(linux_x86_64   = "linux-x86_64",
+               linux_aarch64  = "linux-aarch64",
+               macos_aarch64  = "macos-aarch64",
+               macos_x86_64   = "macos-x86_64",
+               windows_x86_64 = "windows-x86_64.exe")
   ),
   gpl = list(
     name = "gpl",
     bin  = "praatfan-gpl-pipe",
     repo = "ucpresearch/praatfan-core-rs",
-    src  = "praatfan-core-rs"
+    src  = "praatfan-core-rs",
+    # That repo publishes x64/arm64-style names.
+    assets = c(linux_x86_64   = "linux-x64",
+               linux_aarch64  = "linux-arm64",
+               macos_aarch64  = "macos-arm64",
+               macos_x86_64   = "macos-x64",
+               windows_x86_64 = "windows-x64.exe")
   )
 )
 
