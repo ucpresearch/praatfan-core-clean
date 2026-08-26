@@ -246,7 +246,13 @@ band-limited noise at a known power ratio, 48 kHz, ppw=4.5:
 
 praatfan is closer to truth in every cell, and near Nyquist parselmouth barely
 responds at all (14.96 dB where truth is 9.54) — i.e. Praat's HNR is
-effectively band-limited while ours is broadband. On this fixture the two
+effectively band-limited while ours is broadband.
+
+**Independently confirmed (2026-08-26, via formantwise):** the broadband
+reading is the one consistent with Boersma (1993) as published; parselmouth's
+output departs from the published algorithm on this material. Recorded here at
+that level deliberately — this repo takes no position on *how* the reference
+diverges internally, and no such account may enter the clean-room record. On this fixture the two
 definitions simply disagree, and the fixture is unusually rich in the band
 where they differ. It is a poor parity benchmark at its native rate; the same
 content resampled to 24 kHz scores 0.953 and to 16 kHz 0.969.
