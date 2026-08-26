@@ -208,12 +208,69 @@ Two independent defects, one masking the other.
 - `rust/src/harmonicity.rs::boundary_tests` — 7 mirrored unit tests.
 - Full suite: **188 Python passed**, **19 Rust passed**, WASM target builds.
 
-### Known, pre-existing, out of scope
+### Follow-up: the 48 kHz fixture (investigated 2026-08-26, resolved as not-a-defect)
 
 `tests/fixtures/tam-haʃaʁav-haɡadol-mono.wav` (48 kHz) sits at Pearson 0.638
-against parselmouth at ppw=4.5 — **unchanged** by this fix (0.6381 before and
-after) and unrelated to the clamp (it had zero clipped frames either way).
-Median absolute difference is only 0.48 dB, but ~5 % of frames run 10-16 dB
-low in short runs (t≈1.52-1.545, 1.715-1.74 s), pulling Pearson to 0.737 when
-excluded. That is a distinct AC-strength accuracy question deserving its own
-investigation.
+against parselmouth at ppw=4.5 — unchanged by this fix, and with zero clipped
+frames either way. Investigated separately under the same clean-room rules.
+
+**It is a definitional difference, not an error in the correlation machinery.**
+The disagreement is a monotone function of how much 12-14 kHz energy a frame
+carries:
+
+| 12-14 kHz energy fraction | frames | mean signed diff | median abs diff |
+|---|---|---|---|
+| Q1 (lowest) | 59 | -0.129 dB | **0.178 dB** |
+| Q2 | 59 | -3.275 dB | 3.289 dB |
+| Q3 | 59 | -3.273 dB | 0.328 dB |
+| Q4 (highest) | 60 | -5.233 dB | 6.172 dB |
+
+Spearman(HF fraction, signed diff) = -0.470; Spearman(HF fraction, |diff|) =
++0.474. In the lowest-HF quartile we match parselmouth to 0.178 dB median —
+the same agreement we get on every other fixture. Lowpassing the file at the
+original 48 kHz sample rate confirms the causal band: Pearson 0.638 (none) →
+0.654 (14 kHz) → **0.934 (12 kHz)** → 0.968 (8 kHz), bias -2.99 → -0.10 dB.
+
+That band is genuine speech-driven high-frequency energy, not an artifact: its
+envelope tracks the full-band speech envelope (r = 0.60) over a 2422:1 dynamic
+range — sibilant frication, plausibly the /ʃ/ and /ʁ/ of *ha-ʃaʁav*. Frication
+is aperiodic, so it legitimately lowers a broadband HNR.
+
+**Ground truth favours praatfan.** Harmonic stack (120 Hz + 33 harmonics) plus
+band-limited noise at a known power ratio, 48 kHz, ppw=4.5:
+
+| noise band | noise fraction | true HNR | praatfan | parselmouth |
+|---|---|---|---|---|
+| 8-16 kHz | 0.02 / 0.05 / 0.10 | 16.90 / 12.79 / 9.54 | **16.91 / 12.88 / 9.72** | 17.07 / 12.97 / 10.42 |
+| 16-23 kHz | 0.02 / 0.05 / 0.10 | 16.90 / 12.79 / 9.54 | **16.96 / 12.93 / 9.75** | 17.62 / 16.40 / 14.96 |
+
+praatfan is closer to truth in every cell, and near Nyquist parselmouth barely
+responds at all (14.96 dB where truth is 9.54) — i.e. Praat's HNR is
+effectively band-limited while ours is broadband. On this fixture the two
+definitions simply disagree, and the fixture is unusually rich in the band
+where they differ. It is a poor parity benchmark at its native rate; the same
+content resampled to 24 kHz scores 0.953 and to 16 kHz 0.969.
+
+Hypotheses tested and **rejected**: Viterbi path selection (using the local
+correlation maximum instead of the path-selected candidate moves Pearson
+0.6381 → 0.6395); window placement (offset 0 is best of five offsets on all
+four test files); DC removal (plain and window-weighted mean both change
+results by <0.01 dB); autocorrelation FFT padding (correct, >= 2n).
+
+### Genuinely actionable finding, not yet applied
+
+`_sinc_interpolate` in `src/praatfan/pitch.py` implements Boersma (1993)
+Eq. 22 and is **dead code** — nothing calls it. The AC path takes the
+correlation strength at the integer lag (parabolic interpolation is used for
+the frequency only), so a peak falling between samples is under-read.
+Wiring it in reduces systematic bias measurably:
+
+| file | bias before | bias after | Pearson before → after |
+|---|---|---|---|
+| Buckeye 30 s | -0.360 dB | **-0.151 dB** | 0.9571 → 0.9574 |
+| 12345 @ 16 kHz | -0.363 dB | **-0.186 dB** | 0.9883 → 0.9901 |
+| 12345 @ 24 kHz | -0.512 dB | **-0.430 dB** | 0.9829 → 0.9838 |
+
+It does not help the 48 kHz fixture (0.8365 → 0.8363), consistent with the
+diagnosis above. It costs a per-frame search over fractional lags, and would
+need the usual Python/Rust lockstep work, so it is left as a separate change.
