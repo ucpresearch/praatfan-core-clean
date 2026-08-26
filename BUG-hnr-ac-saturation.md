@@ -91,3 +91,17 @@ needed to see it or to choose a remedy for it.
    at ppw=1.0 and its gate threshold was calibrated on the saturated outputs —
    any praatfan fix changes those values, so formantwise adoption is a
    separate, gated decision (documented in that repo); do not co-develop.
+
+## Sequencing note (added 2026-08-26, coordination with formantwise)
+
+The SIMPLEST acceptable resolution is likely: refuse `periods_per_window < 3.0`
+for the AC method (black-box-observable real-Praat behavior; clean-room-safe
+for any implementer) + a deliberate boundary representation at legal
+parameters — which makes the ill-conditioned regime unreachable and removes
+the need for the deeper math remedy.
+
+**Do NOT land the refusal before formantwise stops calling ac at ppw=1.0.**
+formantwise 0.3.0's prepass conditioning calls exactly that; adding the
+refusal first breaks every formantwise run. Order: formantwise 0.3.1 switches
+its conditioning to the CC method at 1.0 (Praat's own CC default) and
+recalibrates its gate; THEN this refusal can land here.
