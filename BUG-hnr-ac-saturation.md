@@ -105,3 +105,16 @@ formantwise 0.3.0's prepass conditioning calls exactly that; adding the
 refusal first breaks every formantwise run. Order: formantwise 0.3.1 switches
 its conditioning to the CC method at 1.0 (Praat's own CC default) and
 recalibrates its gate; THEN this refusal can land here.
+
+## Boundary-representation decision (maintainer, 2026-08-26)
+
+Perfect/near-perfect periodicity (r at the boundary) will be represented as
+**NaN / undefined**, not a numeric marker (neither the clamp constant nor
+±150-style values, and distinct from the unvoiced representation). Rationale:
+HNR is genuinely unbounded as r→1; NaN is the honest float for "undefined",
+and it composes correctly downstream (threshold comparisons reject NaN, so
+e.g. calibration tones drop out of vowel-frame gates by construction — the
+desirable outcome). This refines acceptance criterion 1: the "deliberate
+representation" is NaN, documented in the API docs, applied consistently in
+praatfan and praatfan_rust. Consumers that want to treat perfect periodicity
+as "maximally voiced" must handle NaN explicitly — note it in the CHANGELOG.
