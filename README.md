@@ -2,13 +2,24 @@
 
 A clean-room reimplementation of Praat's acoustic analysis algorithms, with a unified API that supports multiple backends.
 
-> **Note:** Current release **v0.1.9**. The API is stabilizing but may still change.
+> **Note:** Latest published release **v0.1.9**; **v0.2.0** is prepared in this
+> tree. The API is stabilizing but may still change.
 >
-> **v0.1.9 is strictly additive over v0.1.8.** It only adds NIST SPHERE
-> decoding, which engages *solely* when the existing loader fails on a file it
-> couldn't read before. Any file that loaded under v0.1.8 takes the exact same
-> code path and produces identical results under v0.1.9 — no behavior changes
-> for existing inputs, and the new `desphere` dependency is optional.
+> **v0.2.0 changes harmonicity output values — read before upgrading.**
+> `To Harmonicity (ac)` / `To Harmonicity (cc)` now report `nan` for frames
+> whose normalized correlation is not resolvable from 1 in double precision.
+> Earlier releases clamped those frames to a fixed ~100 dB (AC) or to -200 dB
+> (CC), which made an arithmetic boundary look like a measurement. Frames with
+> no periodicity at all still report -200 dB. Downstream code that averages or
+> thresholds HNR must now handle `nan` (e.g. `numpy.nanmean`).
+>
+> `periods_per_window < 3.0` on the AC method now raises a `FutureWarning`; the
+> autocorrelation estimator is ill-conditioned below that value and it will
+> become an error in a later release. Praat's standard value for this method is
+> 4.5; use the cross-correlation method if you need 1.0.
+>
+> Also new since v0.1.9: the `praatfan-open-pipe` JSON binary and the R package
+> that wraps it. The v0.1.9 NIST SPHERE support is unchanged.
 
 ## Installation
 

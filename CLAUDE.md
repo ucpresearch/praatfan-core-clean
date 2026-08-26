@@ -726,16 +726,39 @@ This is an optional dependency enabled automatically by the `wasm` feature flag.
 
 ### Release Status
 
-**Current version:** v0.1.9
+**Version in this tree:** 0.2.0 (prepared, **not yet released**).
+**Latest published release:** v0.1.9 (2026-06-28).
 
-v0.1.9 adds NIST SPHERE support (incl. shorten-compressed) to `Sound.from_file`
-via the optional `desphere` package (pure Python) and the statically-linked
-desphere crate (praatfan_rust native + WASM). See `pip install praatfan[sphere]`.
+Verify with `gh release list` / `git tag -l | sort -V | tail` rather than
+trusting this section — it goes stale.
+
+v0.2.0 (unreleased) is a minor bump because harmonicity output values change:
+
+- `to_harmonicity_ac` / `to_harmonicity_cc` report `nan` where the normalized
+  correlation is not resolvable from 1 (previously clamped to ~100 dB on AC and
+  to -200 dB on CC). Frames with no periodicity still report -200
+  (`UNDEFINED_HNR`). See `src/praatfan/harmonicity.py:strength_to_hnr` and
+  `rust/src/harmonicity.rs`.
+- `periods_per_window < 3.0` on the AC method emits a `FutureWarning`
+  (`AC_MIN_PERIODS_PER_WINDOW`); it will become an error.
+- Additive: `praatfan-open-pipe` JSON binary (feature `pipe`) and the R package.
+
+v0.1.9 added NIST SPHERE support (incl. shorten-compressed) to
+`Sound.from_file` via the optional `desphere` package (pure Python) and the
+statically-linked desphere crate (praatfan_rust native + WASM). See
+`pip install praatfan[sphere]`.
+
+**Version single-sourcing.** Only three files carry a literal version:
+`pyproject.toml`, `rust/Cargo.toml`, `r-package/DESCRIPTION` (plus
+`rust/Cargo.lock`, regenerated with `cargo update -p praatfan_rust --offline`).
+`rust/pyproject.toml` uses `dynamic = ["version"]` (maturin reads Cargo.toml),
+`praatfan.__version__` reads installed metadata, and the JSON pipe's
+`"version"` field is `env!("CARGO_PKG_VERSION")`. Do **not** add new literals.
 
 ### Historical: changes that rolled into v0.1.6–v0.1.8 (all shipped)
 
 > **Note:** The items below were "pending" notes written between v0.1.5 and the
-> v0.1.6 bump. They have all **shipped** (the repo is now at **v0.1.9** — see
+> v0.1.6 bump. They have all **shipped** (the repo is now at **0.2.0** — see
 > Release Status above). Kept for the development record; no longer pending.
 
 After v0.1.5 shipped, `praatfan-gpl==0.1.5` published to PyPI with three
@@ -905,14 +928,17 @@ pip install "praatfan[sphere]"    # + NIST SPHERE (incl. shorten) support
 pip install praatfan-rust         # Rust backend (optional, faster; SPHERE built in)
 ```
 
-- PyPI: [praatfan](https://pypi.org/project/praatfan/0.1.9/) | [praatfan-rust](https://pypi.org/project/praatfan-rust/0.1.9/)
-- GitHub: [v0.1.9 release](https://github.com/ucpresearch/praatfan-core-clean/releases/tag/v0.1.9)
+- PyPI: [praatfan](https://pypi.org/project/praatfan/) | [praatfan-rust](https://pypi.org/project/praatfan-rust/)
+- GitHub: [latest release](https://github.com/ucpresearch/praatfan-core-clean/releases/latest)
 
-Available `praatfan-rust` platforms:
-- Linux x86_64: Python 3.9, 3.10, 3.11, 3.12
-- Linux aarch64: Python 3.12
-- macOS ARM64: Python 3.9, 3.10, 3.11, 3.12
-- Windows x86_64: Python 3.9, 3.10, 3.11, 3.12
+Available `praatfan-rust` wheels — since v0.1.7 these are **abi3**, one wheel
+per platform covering CPython 3.9 and every later 3.x (not one per version):
+- Linux: x86_64, aarch64
+- macOS: ARM64, x86_64 (Intel)
+- Windows: x86_64, ARM64 (ARM64 needs CPython 3.11+)
+
+Note there is **no `praatfan_rust` sdist** — `pip install praatfan-rust` on a
+platform outside that list fails rather than building from source.
 
 ### Repository
 
