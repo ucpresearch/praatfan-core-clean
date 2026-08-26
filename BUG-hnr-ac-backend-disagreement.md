@@ -1,4 +1,4 @@
-# BUG: identical `to_harmonicity_ac` call — praatfan_gpl says "unvoiced", praatfan/praatfan_rust say "~100 dB". Please confirm and fix.
+# BUG (**FIXED** 2026-08-26): identical `to_harmonicity_ac` call — praatfan_gpl says "unvoiced", praatfan/praatfan_rust say "~100 dB". Please confirm and fix.
 
 Filed 2026-08-26. Companion minimal repro to `BUG-hnr-ac-saturation.md` (which
 carries the own-code analysis and the clean-room constraints — read its
@@ -54,3 +54,27 @@ BLACK-BOX comparison of outputs only.
 
 Repro artifacts: session scratchpad `hnrbug/` (excerpt wav, both JSON dumps,
 the comparison one-liner).
+
+---
+
+## Resolution (2026-08-26)
+
+Confirmed and fixed; see the "Resolution" section of
+`BUG-hnr-ac-saturation.md` for the full derivation and acceptance table.
+
+Reproduced exactly: **55 of 1 994** frames on the 10 s excerpt carried
+99.99999964022885 dB, at ppw=1.0, floor 60, time_step 0.005.
+
+Root cause of the disagreement in the table above: at ppw=1.0 the window is
+`1.0/60` s long while the lag search runs to `1/60` s, so the longest lag
+searched sits at the *end* of the window, where the window's own
+autocorrelation has decayed to `-4.2e-17`. Dividing by that produced
+correlations up to **35.9**; the old clamp then folded every one of them onto
+the ~100 dB constant. praatfan_gpl's -200 and our ~100 were two different
+renderings of the same non-measurement.
+
+After the fix, at ppw=1.0 those frames are **`nan`** (552 of 5 994 on a
+speech-dense 30 s excerpt), a `FutureWarning` explains why, and the call will
+become an error once formantwise moves off ppw=1.0. `praatfan` and
+`praatfan_rust` produce identical nan sets and agree to ~1e-13 dB on finite
+frames at ppw>=3.

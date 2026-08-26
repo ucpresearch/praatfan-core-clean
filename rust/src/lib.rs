@@ -109,8 +109,9 @@ pub use formant::{sound_to_formant_burg, Formant, FormantFrame, FormantPoint};
 /// - `sound_to_harmonicity_ac`: Compute HNR using autocorrelation method
 /// - `sound_to_harmonicity_cc`: Compute HNR using cross-correlation method
 pub use harmonicity::{
-    sound_to_harmonicity_ac, sound_to_harmonicity_ac_referenced, sound_to_harmonicity_cc,
-    sound_to_harmonicity_cc_referenced, Harmonicity,
+    ac_periods_per_window_is_ill_conditioned, sound_to_harmonicity_ac,
+    sound_to_harmonicity_ac_referenced, sound_to_harmonicity_cc,
+    sound_to_harmonicity_cc_referenced, Harmonicity, AC_MIN_PERIODS_PER_WINDOW, UNDEFINED_HNR,
 };
 
 /// Intensity analysis types and functions.

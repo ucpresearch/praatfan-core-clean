@@ -78,6 +78,30 @@ pub struct PySound {
     inner: RustSound,
 }
 
+
+/// Emit the same `FutureWarning` the pure-Python implementation raises when
+/// the AC method is asked to run below `AC_MIN_PERIODS_PER_WINDOW`, so both
+/// backends warn identically. See `harmonicity::AC_MIN_PERIODS_PER_WINDOW`.
+fn warn_if_ill_conditioned(py: Python<'_>, periods_per_window: f64) -> PyResult<()> {
+    if !crate::harmonicity::ac_periods_per_window_is_ill_conditioned(periods_per_window) {
+        return Ok(());
+    }
+    let msg = format!(
+        "periods_per_window={periods_per_window:?} is below {min:.1} and the \
+         autocorrelation method is ill-conditioned there: the longest lag \
+         searched falls where the window's own autocorrelation has decayed to \
+         (near) zero, so the normalized correlation is dominated by division \
+         by a vanishing denominator and routinely exceeds 1. Frames whose \
+         correlation exceeds 1 are reported as nan. Use periods_per_window >= \
+         {min:.1} (Praat's standard value for this method is 4.5), or the \
+         cross-correlation method, whose standard value is 1.0. This will \
+         raise an error in a future release.",
+        periods_per_window = periods_per_window,
+        min = crate::harmonicity::AC_MIN_PERIODS_PER_WINDOW,
+    );
+    PyErr::warn(py, &py.get_type::<pyo3::exceptions::PyFutureWarning>(), &std::ffi::CString::new(msg)?, 1)
+}
+
 #[pymethods]
 impl PySound {
     /// Create a Sound from a file path or numpy array.
@@ -616,19 +640,21 @@ impl PySound {
     #[pyo3(signature = (time_step=0.01, minimum_pitch=75.0, silence_threshold=0.1, periods_per_window=4.5))]
     fn to_harmonicity_ac(
         &self,
+        py: Python<'_>,
         time_step: f64,
         minimum_pitch: f64,
         silence_threshold: f64,
         periods_per_window: f64,
-    ) -> PyHarmonicity {
-        PyHarmonicity {
+    ) -> PyResult<PyHarmonicity> {
+        warn_if_ill_conditioned(py, periods_per_window)?;
+        Ok(PyHarmonicity {
             inner: self.inner.to_harmonicity_ac(
                 time_step,
                 minimum_pitch,
                 silence_threshold,
                 periods_per_window,
             ),
-        }
+        })
     }
 
     /// Compute harmonicity (HNR) using cross-correlation method.
@@ -658,12 +684,14 @@ impl PySound {
     #[pyo3(signature = (time_step=0.01, minimum_pitch=75.0, silence_threshold=0.1, periods_per_window=4.5, reference_peak=None))]
     fn to_harmonicity_ac_referenced(
         &self,
+        py: Python<'_>,
         time_step: f64,
         minimum_pitch: f64,
         silence_threshold: f64,
         periods_per_window: f64,
         reference_peak: Option<f64>,
     ) -> PyResult<PyHarmonicity> {
+        warn_if_ill_conditioned(py, periods_per_window)?;
         let inner = self
             .inner
             .to_harmonicity_ac_referenced(
@@ -706,12 +734,13 @@ impl PySound {
     #[pyo3(signature = (time_step=0.01, minimum_pitch=75.0, silence_threshold=0.1, periods_per_window=4.5))]
     fn to_harmonicity(
         &self,
+        py: Python<'_>,
         time_step: f64,
         minimum_pitch: f64,
         silence_threshold: f64,
         periods_per_window: f64,
-    ) -> PyHarmonicity {
-        self.to_harmonicity_ac(time_step, minimum_pitch, silence_threshold, periods_per_window)
+    ) -> PyResult<PyHarmonicity> {
+        self.to_harmonicity_ac(py, time_step, minimum_pitch, silence_threshold, periods_per_window)
     }
 
     /// Compute spectrum (single-frame FFT).

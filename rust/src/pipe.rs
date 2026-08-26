@@ -406,6 +406,21 @@ fn harmonicity_analysis(
         ));
     }
     let periods = p.periods_per_window.unwrap_or(if ac { 4.5 } else { 1.0 });
+    if ac && crate::harmonicity::ac_periods_per_window_is_ill_conditioned(periods) {
+        // Diagnostic only — stdout carries the JSON response, so this goes to
+        // stderr. See harmonicity::AC_MIN_PERIODS_PER_WINDOW; this will become
+        // a hard error in a future release.
+        eprintln!(
+            "warning: periods_per_window={:.1} is below {:.1} and the autocorrelation \
+             method is ill-conditioned there; frames whose correlation exceeds 1 \
+             are reported as null. Use periods_per_window >= {:.1} (standard value \
+             4.5), or harmonicity_cc (standard value 1.0). This will become an \
+             error in a future release.",
+            periods,
+            crate::harmonicity::AC_MIN_PERIODS_PER_WINDOW,
+            crate::harmonicity::AC_MIN_PERIODS_PER_WINDOW,
+        );
+    }
     let harmonicity = if ac {
         sound.to_harmonicity_ac(p.time_step, p.min_pitch, p.silence_threshold, periods)
     } else {

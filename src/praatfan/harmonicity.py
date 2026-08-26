@@ -21,13 +21,56 @@ HNR Formula (from Praat manual):
 where r is the normalized autocorrelation (pitch strength) at the pitch period.
 
 Decision points:
-- DP10: HNR clamping bounds (r → 0 or r → 1)
-- DP11: Value for unvoiced frames
+- DP10: HNR boundary representation (r <= 0 and r >= 1) — RESOLVED, see
+  strength_to_hnr: r <= 0 -> UNDEFINED_HNR (-200 dB), r >= 1 -> nan.
+- DP11: Value for unvoiced frames — RESOLVED: UNDEFINED_HNR (-200 dB),
+  confirmed black-box (Praat reports exactly -200 for silence and for DC).
+- DP30: Minimum periods_per_window for the AC method — RESOLVED, see
+  AC_MIN_PERIODS_PER_WINDOW (3.0).
 """
+
+import warnings
 
 import numpy as np
 from typing import Optional
 from .pitch import Pitch, sound_to_pitch
+
+
+#: Value reported for frames in which no periodicity was found.
+#:
+#: Determined by black-box observation: Praat reports exactly -200 dB for
+#: pure silence and for a constant (DC) signal.
+UNDEFINED_HNR = -200.0
+
+#: Resolution limit on the correlation, used as the upper boundary test.
+#:
+#: A correlation within one ulp of 1 carries no information about how close to
+#: 1 it is, so the HNR derived from it would be pure rounding. See
+#: ``strength_to_hnr``.
+EPS = float(np.finfo(np.float64).eps)
+
+#: Smallest ``periods_per_window`` for which the AC estimator is well posed.
+#:
+#: The AC method normalises the signal autocorrelation by the analysis
+#: window's own autocorrelation, ``r_norm(tau) = (r_x(tau)/r_x(0)) /
+#: (r_w(tau)/r_w(0))``, and searches lags up to ``sample_rate/pitch_floor``.
+#: The window is ``periods_per_window/pitch_floor`` long, so the longest lag
+#: searched sits at ``1/periods_per_window`` of the window length. As that
+#: ratio approaches 1 the denominator ``r_w(tau)`` decays to zero and the
+#: quotient is dominated by division by a vanishing number.
+#:
+#: Measured on a Hanning window at 16 kHz, floor 60 Hz -- ``r_w(tau_max) /
+#: r_w(0)`` is 0.472 at 3.0 periods per window, 0.167 at 2.0, and -4.2e-17
+#: (i.e. zero to within rounding, and of arbitrary sign) at 1.0. The maximum
+#: correlation observed on conversational speech follows directly: 1.13 at
+#: 3.0 periods per window, 1.76 at 2.0, and 35.9 at 1.0 -- the last two being
+#: impossible for a normalised correlation.
+#:
+#: Praat imposes the same lower bound, which is observable from outside as a
+#: user-visible refusal ("Number of periods per window must be at least
+#: 3.0"); note that parselmouth's ``Sound.to_harmonicity_ac()`` wrapper
+#: defaults to 1.0 and bypasses that check.
+AC_MIN_PERIODS_PER_WINDOW = 3.0
 
 
 class Harmonicity:
@@ -152,26 +195,82 @@ def strength_to_hnr(r: float) -> float:
     """
     Convert pitch strength (correlation) to HNR in dB.
 
-    Formula (from Praat manual):
-        HNR = 10 × log₁₀(r / (1 - r))
+    Formula (Praat manual, Harmonicity):
+        HNR = 10 * log10(r / (1 - r))
 
     Args:
-        r: Pitch strength (normalized autocorrelation, 0-1)
+        r: Normalized autocorrelation at the pitch period.
 
     Returns:
-        HNR in dB
+        HNR in dB; ``UNDEFINED_HNR`` (-200) when there is no periodicity to
+        measure; ``nan`` when the correlation is not a valid one.
+
+    Boundary policy (see DP10):
+        ``r`` is a normalized correlation, so a meaningful HNR exists only
+        for ``0 < r < 1``. The two boundaries are reported differently
+        because they mean opposite things:
+
+        * ``r <= 0`` -- no periodic component was found. Reported as
+          ``UNDEFINED_HNR`` (-200 dB), which is also what Praat reports for
+          silence and for a DC signal (black-box observation).
+        * ``1 - r <= EPS`` -- the correlation is not resolvable from 1 in
+          double precision, so ``10*log10(r/(1-r))`` is determined entirely by
+          rounding. This includes ``r > 1``, which no true correlation can
+          have; it arises from estimator noise on (near-)perfectly periodic
+          material and grows without bound once ``periods_per_window`` drops
+          below ``AC_MIN_PERIODS_PER_WINDOW``. Reported as ``nan``: no HNR can
+          be derived from a correlation that carries no information, so none
+          is invented.
+
+        The test is ``1 - r <= EPS`` rather than ``r >= 1`` so that the two
+        backends agree. When ``r`` lands on the last representable double
+        below 1, ``r >= 1`` is false and the formula returns 156.5356 dB,
+        while a one-ULP-larger ``r`` returns nan -- the pure-Python and Rust
+        correlations differ at exactly that scale, so the strict test made
+        them disagree on 59 frames of a 30 s excerpt.
+
+        Earlier releases clamped ``r`` to ``[1e-10, 1-1e-10]`` instead, which
+        collapsed every such frame onto the single value 99.99999964022885 dB
+        and made an arithmetic boundary look like a measurement of
+        near-perfect periodicity. Both boundaries are now distinguishable
+        from any real reading.
 
     Note:
-        - r = 0.5 → HNR = 0 dB (equal harmonic and noise energy)
-        - r = 0.99 → HNR = 20 dB
-        - r = 0.999 → HNR = 30 dB
-        Clamping is needed for r near 0 or 1.
+        - r = 0.5 -> HNR = 0 dB (equal harmonic and noise energy)
+        - r = 0.99 -> HNR = 20 dB
+        - r = 0.999 -> HNR = 30 dB
     """
-    # Clamp r to valid range [epsilon, 1-epsilon]
-    # The autocorrelation normalization can produce values slightly > 1
-    # due to parabolic interpolation and approximations
-    r = max(1e-10, min(r, 1.0 - 1e-10))
+    if not (r > 0.0):          # also catches nan
+        return UNDEFINED_HNR
+    if 1.0 - r <= EPS:
+        return float('nan')
     return 10.0 * np.log10(r / (1.0 - r))
+
+
+def _warn_if_ill_conditioned(periods_per_window: float) -> None:
+    """
+    Warn when the AC estimator is asked to run outside its valid range.
+
+    See ``AC_MIN_PERIODS_PER_WINDOW`` for why values below 3.0 cannot yield a
+    valid normalized correlation. This is a warning rather than an error only
+    to give existing callers a release to migrate; it will become an error.
+    """
+    if periods_per_window < AC_MIN_PERIODS_PER_WINDOW:
+        warnings.warn(
+            f"periods_per_window={periods_per_window!r} is below "
+            f"{AC_MIN_PERIODS_PER_WINDOW} and the autocorrelation method is "
+            f"ill-conditioned there: the longest lag searched falls where the "
+            f"window's own autocorrelation has decayed to (near) zero, so the "
+            f"normalized correlation is dominated by division by a vanishing "
+            f"denominator and routinely exceeds 1. Frames whose correlation "
+            f"exceeds 1 are reported as nan. Use "
+            f"periods_per_window >= {AC_MIN_PERIODS_PER_WINDOW} (Praat's "
+            f"standard value for this method is 4.5), or the cross-correlation "
+            f"method, whose standard value is 1.0. This will raise an error in "
+            f"a future release.",
+            FutureWarning,
+            stacklevel=3,
+        )
 
 
 def sound_to_harmonicity_ac(
@@ -204,6 +303,8 @@ def sound_to_harmonicity_ac(
     Returns:
         Harmonicity object
     """
+    _warn_if_ill_conditioned(periods_per_window)
+
     # Step 1: Compute pitch using AC method with harmonicity windowing
     # Harmonicity uses periods_per_window (default 4.5) for longer windows
     # and left-aligned frame timing
@@ -230,7 +331,7 @@ def sound_to_harmonicity_ac(
         if frame.voiced:
             hnr = strength_to_hnr(frame.strength)
         else:
-            hnr = -200.0  # Unvoiced value - determine via testing (DP11)
+            hnr = UNDEFINED_HNR  # No periodicity found (DP11)
         hnr_values.append(hnr)
 
     return Harmonicity(
@@ -293,14 +394,11 @@ def sound_to_harmonicity_cc(
 
     for frame in pitch.frames:
         if frame.voiced:
-            # Only use strength if it's a valid correlation (0 < r < 1)
-            strength = frame.strength
-            if 0 < strength < 1:
-                hnr = strength_to_hnr(strength)
-            else:
-                hnr = -200.0
+            # strength_to_hnr applies the shared boundary policy: r <= 0 ->
+            # UNDEFINED_HNR, r >= 1 -> nan.
+            hnr = strength_to_hnr(frame.strength)
         else:
-            hnr = -200.0
+            hnr = UNDEFINED_HNR  # No periodicity found (DP11)
         hnr_values.append(hnr)
 
     return Harmonicity(

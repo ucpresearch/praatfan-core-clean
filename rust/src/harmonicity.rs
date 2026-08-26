@@ -268,19 +268,81 @@ impl Harmonicity {
 /// | 0.99    | 20 dB    | 99% harmonic, 1% noise |
 /// | 0.999   | 30 dB    | 99.9% harmonic, 0.1% noise |
 ///
-/// # Clamping
+/// Value reported for frames in which no periodicity was found.
 ///
-/// The autocorrelation normalization can produce values slightly > 1 or < 0
-/// due to parabolic interpolation and numerical approximations. Values are
-/// clamped to [1e-10, 1-1e-10] to avoid log(0) or log(infinity).
+/// Determined by black-box observation: Praat reports exactly -200 dB for
+/// pure silence and for a constant (DC) signal.
+pub const UNDEFINED_HNR: f64 = -200.0;
+
+/// Smallest `periods_per_window` for which the AC estimator is well posed.
+///
+/// The AC method normalises the signal autocorrelation by the analysis
+/// window's own autocorrelation, `r_norm(tau) = (r_x(tau)/r_x(0)) /
+/// (r_w(tau)/r_w(0))`, and searches lags up to `sample_rate/pitch_floor`. The
+/// window is `periods_per_window/pitch_floor` long, so the longest lag
+/// searched sits at `1/periods_per_window` of the window length. As that
+/// ratio approaches 1 the denominator `r_w(tau)` decays to zero and the
+/// quotient is dominated by division by a vanishing number.
+///
+/// Measured on a Hanning window at 16 kHz, floor 60 Hz — `r_w(tau_max) /
+/// r_w(0)` is 0.472 at 3.0 periods per window, 0.167 at 2.0, and -4.2e-17
+/// (zero to within rounding, and of arbitrary sign) at 1.0. The maximum
+/// correlation observed on conversational speech follows directly: 1.13 at
+/// 3.0 periods per window, 1.76 at 2.0, and 35.9 at 1.0 — the last two being
+/// impossible for a normalised correlation.
+///
+/// Praat imposes the same lower bound, observable from outside as a
+/// user-visible refusal ("Number of periods per window must be at least
+/// 3.0"); note that parselmouth's `Sound.to_harmonicity_ac()` wrapper
+/// defaults to 1.0 and bypasses that check.
+pub const AC_MIN_PERIODS_PER_WINDOW: f64 = 3.0;
+
+/// Whether `periods_per_window` puts the AC estimator outside its valid
+/// range. Callers that can surface a diagnostic (the Python bindings, the
+/// JSON pipe) warn on `true`; this will become a hard error in a future
+/// release.
+#[inline]
+pub fn ac_periods_per_window_is_ill_conditioned(periods_per_window: f64) -> bool {
+    periods_per_window < AC_MIN_PERIODS_PER_WINDOW
+}
+
+/// # Boundary policy (DP10)
+///
+/// `r` is a normalized correlation, so a meaningful HNR exists only for
+/// `0 < r < 1`. The two boundaries mean opposite things and are reported
+/// differently:
+///
+/// * `r <= 0` — no periodic component was found. Reported as
+///   [`UNDEFINED_HNR`] (-200 dB), which is also what Praat reports for
+///   silence and for a DC signal (black-box observation).
+/// * `1 - r <= f64::EPSILON` — the correlation is not resolvable from 1 in
+///   double precision, so `10*log10(r/(1-r))` is determined entirely by
+///   rounding. This includes `r > 1`, which no true correlation can have; it
+///   arises from estimator noise on (near-)perfectly periodic material and
+///   grows without bound once `periods_per_window` drops below
+///   [`AC_MIN_PERIODS_PER_WINDOW`]. Reported as `f64::NAN`: no HNR can be
+///   derived from a correlation that carries no information.
+///
+/// The test is `1 - r <= f64::EPSILON` rather than `r >= 1.0` so that this
+/// and the pure-Python backend agree. When `r` lands on the last
+/// representable double below 1, `r >= 1.0` is false and the formula returns
+/// 156.5356 dB, while a one-ULP-larger `r` returns NaN — the two backends'
+/// correlations differ at exactly that scale, so the strict test made them
+/// disagree on 59 frames of a 30 s excerpt.
+///
+/// Earlier releases clamped `r` to `[1e-10, 1-1e-10]` instead, which
+/// collapsed every such frame onto the single value 99.99999964022885 dB and
+/// made an arithmetic boundary look like a measurement of near-perfect
+/// periodicity.
 #[inline]
 pub fn strength_to_hnr(r: f64) -> f64 {
-    // Clamp r to valid range [epsilon, 1-epsilon]
-    // This prevents:
-    // - log(0) when r = 0
-    // - log(infinity) when r = 1
-    // - log(negative) when r > 1 (can happen with interpolation)
-    let r = r.clamp(1e-10, 1.0 - 1e-10);
+    if !(r > 0.0) {
+        // Also catches NaN.
+        return UNDEFINED_HNR;
+    }
+    if 1.0 - r <= f64::EPSILON {
+        return f64::NAN;
+    }
 
     // Apply the HNR formula: 10 × log₁₀(r / (1-r))
     10.0 * (r / (1.0 - r)).log10()
@@ -408,9 +470,8 @@ fn harmonicity_ac_internal(
                 // Voiced frame: convert correlation strength to HNR
                 strength_to_hnr(frame.strength())
             } else {
-                // Unvoiced frame: use marker value
-                // -200 dB is effectively "undefined" (silence or noise)
-                -200.0
+                // Unvoiced frame: no periodicity found (DP11)
+                UNDEFINED_HNR
             }
         })
         .collect();
@@ -527,16 +588,12 @@ fn harmonicity_cc_internal(
         .iter()
         .map(|frame| {
             if frame.voiced() {
-                // Voiced frame: convert correlation strength to HNR
-                let r = frame.strength();
-                if r > 0.0 && r < 1.0 {
-                    strength_to_hnr(r)
-                } else {
-                    -200.0
-                }
+                // strength_to_hnr applies the shared boundary policy:
+                // r <= 0 -> UNDEFINED_HNR, r >= 1 -> NaN.
+                strength_to_hnr(frame.strength())
             } else {
-                // Unvoiced frame: use marker value
-                -200.0
+                // Unvoiced frame: no periodicity found (DP11)
+                UNDEFINED_HNR
             }
         })
         .collect();
@@ -547,4 +604,82 @@ fn harmonicity_cc_internal(
         pitch.time_step(),
         min_pitch,
     )
+}
+
+#[cfg(test)]
+mod boundary_tests {
+    use super::*;
+
+    /// The value the old `r.clamp(1e-10, 1.0 - 1e-10)` collapsed near-perfect
+    /// correlations onto. See BUG-hnr-ac-saturation.md.
+    const LEGACY_CLIP_CONSTANT: f64 = 99.99999964022885;
+
+    #[test]
+    fn valid_correlations_use_the_documented_formula() {
+        assert!((strength_to_hnr(0.5) - 0.0).abs() < 1e-12);
+        assert!((strength_to_hnr(0.9) - 9.542_425_094_393_249).abs() < 1e-12);
+        assert!((strength_to_hnr(0.99) - 19.956_351_945_975_5).abs() < 1e-9);
+    }
+
+    #[test]
+    fn no_periodicity_reports_undefined() {
+        for r in [0.0, -0.0, -1e-12, -0.5, f64::NAN] {
+            assert_eq!(strength_to_hnr(r), UNDEFINED_HNR, "r = {r}");
+        }
+    }
+
+    #[test]
+    fn invalid_correlations_report_nan() {
+        for r in [1.0, 1.002, 1.13, 15.0, 35.9] {
+            assert!(strength_to_hnr(r).is_nan(), "r = {r}");
+        }
+    }
+
+    #[test]
+    fn boundary_is_ulp_robust() {
+        // The last representable double below 1 must not produce a finite
+        // reading, or this backend and the pure-Python one disagree by
+        // ~156 dB on frames whose correlations differ only in the final bit.
+        assert!(strength_to_hnr(1.0 - f64::EPSILON).is_nan());
+        assert!(strength_to_hnr(f64::from_bits(0x3FEF_FFFF_FFFF_FFFF)).is_nan());
+    }
+
+    #[test]
+    fn the_legacy_clip_constant_is_no_longer_a_plateau() {
+        // The old clamp mapped *every* r >= 1-1e-10 onto one value. The
+        // number itself is still the correct reading for r == 1-1e-10
+        // exactly; what must not survive is the plateau above it.
+        assert!(
+            (strength_to_hnr(1.0 - 1e-10) - LEGACY_CLIP_CONSTANT).abs() < 1e-6,
+            "r = 1-1e-10 should still map to its own correct value"
+        );
+        for r in [1.0 - 1e-11, 1.0 - 1e-12, 1.0 - 1e-13, 1.0 - 1e-14] {
+            let v = strength_to_hnr(r);
+            assert!(
+                v.is_nan() || v > LEGACY_CLIP_CONSTANT + 1.0,
+                "r = {r} collapsed back onto the clamp: {v}"
+            );
+        }
+    }
+
+    #[test]
+    fn finite_readings_are_strictly_increasing_in_r() {
+        let rs = [0.5, 0.9, 0.99, 0.999, 1.0 - 1e-6, 1.0 - 1e-12];
+        let mut prev = f64::NEG_INFINITY;
+        for r in rs {
+            let v = strength_to_hnr(r);
+            assert!(v.is_finite(), "r = {r}");
+            assert!(v > prev, "not increasing at r = {r}");
+            prev = v;
+        }
+    }
+
+    #[test]
+    fn ill_conditioned_bound_matches_the_documented_value() {
+        assert_eq!(AC_MIN_PERIODS_PER_WINDOW, 3.0);
+        assert!(ac_periods_per_window_is_ill_conditioned(1.0));
+        assert!(ac_periods_per_window_is_ill_conditioned(2.999));
+        assert!(!ac_periods_per_window_is_ill_conditioned(3.0));
+        assert!(!ac_periods_per_window_is_ill_conditioned(4.5));
+    }
 }

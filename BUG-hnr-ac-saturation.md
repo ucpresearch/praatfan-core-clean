@@ -1,6 +1,7 @@
 # BUG / update request: AC harmonicity saturates at ~100 dB; low `periods_per_window` produces invalid correlations
 
-Status: OPEN. Filed 2026-08-26 as a clean-room update request.
+Status: **FIXED** 2026-08-26 (see "Resolution" at the end). Filed 2026-08-26
+as a clean-room update request.
 
 ## ⚠️ Clean-room constraints for whoever fixes this
 
@@ -118,3 +119,101 @@ desirable outcome). This refines acceptance criterion 1: the "deliberate
 representation" is NaN, documented in the API docs, applied consistently in
 praatfan and praatfan_rust. Consumers that want to treat perfect periodicity
 as "maximally voiced" must handle NaN explicitly — note it in the CHANGELOG.
+
+---
+
+## Resolution (2026-08-26)
+
+Fixed in `src/praatfan/harmonicity.py` and `rust/src/harmonicity.rs`, with the
+diagnostic plumbed through `rust/src/python.rs` (PyO3) and `rust/src/pipe.rs`
+(JSON pipe). Derived only from this repo's own code, elementary DSP, the
+public Praat manual, and black-box runs; no Praat, praatfan_gpl, or reverted-
+commit source was consulted.
+
+### What was wrong
+
+Two independent defects, one masking the other.
+
+1. **Ill-conditioning below 3 periods per window.** The lag search runs to
+   `sample_rate/pitch_floor` while the window is only
+   `periods_per_window/pitch_floor` long, so the longest lag searched sits at
+   `1/periods_per_window` of the window length. Measured `r_w(tau_max)/r_w(0)`
+   on a Hanning window (16 kHz, floor 60 Hz): **0.472** at ppw 3.0, **0.167**
+   at 2.0, **-4.2e-17** at 1.0 — zero to within rounding, and of arbitrary
+   sign. Max observed correlation on conversational speech follows exactly:
+   **1.13 / 1.76 / 35.9**. Confirmed by locating the argmax: **100 %** of
+   overshooting frames peak in the top quarter of the lag range (median
+   `r_w` ratio there at ppw 1.0 is 0.0001).
+
+2. **The clamp hid it.** `r` was clamped to `[1e-10, 1-1e-10]`, so every
+   invalid correlation collapsed onto 99.99999964022885 dB — an arithmetic
+   boundary wearing the costume of a measurement.
+
+### Black-box findings that shaped the fix
+
+- Real Praat refuses ppw < 3.0: `call(snd, "To Harmonicity (ac)...", ...)`
+  raises *"Number of periods per window must be at least 3.0."* for 0.5, 1.0,
+  2.0 and 2.9, and succeeds at 3.0. parselmouth's `to_harmonicity_ac()`
+  wrapper bypasses that check. Praat does **not** refuse low ppw for the CC
+  method, whose standard value is 1.0 — the AC bound is specific to the
+  method that divides by the window autocorrelation.
+- Praat reports exactly **-200 dB** for pure silence and for a DC signal.
+- Praat has **no** distinctive high-periodicity boundary constant. A pure
+  sine yields 123.23755252 dB, the Buckeye name-masking tone 128.64 /
+  129.04596913 — different numbers, i.e. its own f64 residue, not a clamp.
+- Praat manual, `Sound: To Harmonicity (ac)...`: *"4.5 is best for speech:
+  HNR values up to 37 dB are guaranteed to be detected reliably; 6 periods
+  per window raises this figure to more than 60 dB"* — a documented,
+  ppw-dependent reliability ceiling, consistent with the conditioning above.
+- Our estimator is **not** biased in the useful range. On synthetic
+  sine+noise at known HNR (ppw 4.5) we read 30.27 / 19.99 / 10.13 / 0.65 dB
+  for true 30 / 20 / 10 / 0 — closer to truth than Praat's 30.45 / 20.21 /
+  10.35 / 1.43.
+
+### The fix
+
+- **`periods_per_window < 3.0` (AC only) now raises a `FutureWarning`** and
+  will become an error, per the sequencing note above (formantwise 0.3.1
+  must move off ppw=1.0 first). Same message from pure Python, PyO3, and the
+  unified selector; the pipe writes it to stderr. `AC_MIN_PERIODS_PER_WINDOW`
+  carries the derivation.
+- **The clamp is gone.** `strength_to_hnr` now applies one documented policy,
+  shared by the AC and CC paths:
+  - `r <= 0` → `UNDEFINED_HNR` (-200 dB), matching Praat's black-box value
+    for silence and DC.
+  - `1 - r <= f64 EPS` → **`nan`**. The correlation carries no information
+    about its distance from 1, so no HNR is invented. This covers `r > 1`.
+  - otherwise → `10*log10(r/(1-r))`.
+- The upper test is `1 - r <= EPS`, **not** `r >= 1`: the last representable
+  double below 1 returns 156.5356 dB while a one-ULP-larger `r` returns nan,
+  and the two backends' correlations differ at exactly that scale — the
+  strict form made them disagree on 59 frames of a 30 s excerpt.
+
+### Acceptance criteria
+
+| # | Criterion | Result |
+|---|---|---|
+| 1 | No frame carries the clip constant | **Met.** Zero occurrences on every fixture at every ppw; boundaries documented in `strength_to_hnr` (DP10/DP11) and covered by anti-plateau tests in both languages. |
+| 2 | ppw=4.5 agreement improves over ~0.91 | **Met.** Buckeye s0101a 30 s speech-dense: Pearson **0.9408 → 0.9745**, MAD **12.02 → 0.94 dB**, p95 **60.50 → 4.82 dB**. |
+| 3 | Ill-conditioned ppw handled explicitly | **Met.** Warned now, error later; invalid correlations surface as nan instead of a saturated dB value. Justified from the own-code conditioning measurements above. |
+| 4 | Python/Rust lockstep, other outputs unchanged | **Met.** Max AC difference at ppw>=3 is **5.1e-9 dB** (mostly ~1e-13); CC nan sets now match exactly. Pitch/intensity/formant untouched. |
+| 5 | Downstream formantwise | Untouched, as instructed. The refusal is deliberately still a warning so formantwise 0.3.0 keeps running; its values at ppw=1.0 do change (invalid frames are now nan). |
+
+### Tests
+
+- `tests/test_harmonicity_boundaries.py` — 44 tests: boundary policy, ULP
+  robustness, anti-plateau, warning on/off by ppw and by method, real-audio
+  contours, and recovery of a known synthetic HNR (so the policy cannot be
+  satisfied by returning nan everywhere).
+- `rust/src/harmonicity.rs::boundary_tests` — 7 mirrored unit tests.
+- Full suite: **188 Python passed**, **19 Rust passed**, WASM target builds.
+
+### Known, pre-existing, out of scope
+
+`tests/fixtures/tam-haʃaʁav-haɡadol-mono.wav` (48 kHz) sits at Pearson 0.638
+against parselmouth at ppw=4.5 — **unchanged** by this fix (0.6381 before and
+after) and unrelated to the clamp (it had zero clipped frames either way).
+Median absolute difference is only 0.48 dB, but ~5 % of frames run 10-16 dB
+low in short runs (t≈1.52-1.545, 1.715-1.74 s), pulling Pearson to 0.737 when
+excluded. That is a distinct AC-strength accuracy question deserving its own
+investigation.
