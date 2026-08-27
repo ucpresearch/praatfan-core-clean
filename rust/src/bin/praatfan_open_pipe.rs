@@ -50,7 +50,7 @@ ANALYSES (defaults shown):
 RESPONSE:
     { "ok": true, "version": "...", "duration": ..., "sample_rate": ..., "results": [...] }
     { "ok": false, "version": "...", "error": "..." } on any failure.
-    Non-finite values (absent formants, undefined moments) are JSON null.
+    Non-finite values (absent formants, undefined moments, undefined HNR) are JSON null.
 
 EXAMPLES:
     echo '{"wav_path":"audio.wav","analyses":[{"type":"pitch_ac"}]}' | praatfan-open-pipe

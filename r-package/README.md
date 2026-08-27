@@ -33,7 +33,7 @@ p <- pf_pitch("audio.wav")                    # time, f0 (NA = unvoiced), streng
 f <- pf_formants("audio.wav",                 # time, n_formants, F1..F5, B1..B5
                  max_formant_hz = 5000)
 i <- pf_intensity("audio.wav")                # time, intensity (dB)
-h <- pf_harmonicity("audio.wav")              # time, hnr (dB)
+h <- pf_harmonicity("audio.wav")              # time, hnr (dB; -200 = no periodicity, NA = undefined)
 
 # Praat-parity spectral scalars at chosen times
 m <- pf_spectral_moments("audio.wav", times = c(0.10, 0.15, 0.20))

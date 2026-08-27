@@ -454,7 +454,7 @@ The HNR formula is trivial. 99% of harmonicity bugs are actually Pitch bugs.
 | time_step | 0.01 s | ✅ Documented |
 | min_pitch | 75 Hz | ✅ Documented |
 | silence_threshold | 0.1 | ✅ Documented |
-| periods_per_window | 4.5 (AC), 1.0 (CC) | ✅ Documented |
+| periods_per_window | 4.5 (AC, minimum 3.0), 1.0 (CC) | ✅ Documented |
 
 ---
 

@@ -2,10 +2,10 @@
 
 A clean-room reimplementation of Praat's acoustic analysis algorithms, with a unified API that supports multiple backends.
 
-> **Note:** Latest published release **v0.1.9**; **v0.2.0** is prepared in this
+> **Note:** Latest published release **v0.1.9**; **v0.1.10** is prepared in this
 > tree. The API is stabilizing but may still change.
 >
-> **v0.2.0 changes harmonicity output values — read before upgrading.**
+> **v0.1.10 changes harmonicity output values — read before upgrading.**
 > `To Harmonicity (ac)` / `To Harmonicity (cc)` now report `nan` for frames
 > whose normalized correlation is not resolvable from 1 in double precision.
 > Earlier releases clamped those frames to a fixed ~100 dB (AC) or to -200 dB
@@ -287,7 +287,7 @@ harmonicity = sound.to_harmonicity_cc(
 
 # Results
 harmonicity.xs()      # Time values
-harmonicity.values()  # HNR in dB
+harmonicity.values()  # HNR in dB (-200 = no periodicity, nan = undefined)
 harmonicity.n_frames  # Number of frames
 ```
 

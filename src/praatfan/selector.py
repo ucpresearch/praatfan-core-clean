@@ -371,7 +371,14 @@ class UnifiedHarmonicity:
         raise ValueError(f"Unknown backend: {self._backend}")
 
     def values(self) -> np.ndarray:
-        """HNR values in dB."""
+        """
+        HNR values in dB.
+
+        Two entries are markers, not measurements: -200 where no periodicity
+        was found, and nan where the correlation is not resolvable from 1.
+        The praatfan and praatfan_rust backends produce both; parselmouth and
+        praatfan_gpl follow their own conventions.
+        """
         if self._backend == "parselmouth":
             return self._inner.values[0]  # parselmouth returns 2D
         elif self._backend == "praatfan":
@@ -1365,6 +1372,27 @@ class PraatfanPythonSound(BaseSound):
         return f"Sound<praatfan>({self.n_samples} samples, {self.sampling_frequency} Hz)"
 
 
+def _reattribute_native_ppw_warning(periods_per_window, call_native):
+    """
+    Run a native harmonicity call, moving its ill-conditioning warning onto the
+    user's own frame.
+
+    The PyO3 binding raises the FutureWarning with stacklevel 1, which is right
+    for a direct ``praatfan_rust`` call but lands on this file when the call
+    arrives through the selector. That matters beyond tidiness: the default
+    warning filter dedupes on the attributed (module, lineno), so every
+    ill-conditioned call in a process would collapse into one visible warning.
+    Suppress the native one and re-raise it from here, where
+    ``_warn_if_ill_conditioned`` walks the stack out to the caller.
+    """
+    from .harmonicity import _warn_if_ill_conditioned
+
+    _warn_if_ill_conditioned(periods_per_window)
+    with warnings.catch_warnings():
+        warnings.simplefilter("ignore", FutureWarning)
+        return call_native()
+
+
 class PraatfanRustSound(BaseSound):
     """Adapter for praatfan Rust/PyO3 backend."""
 
@@ -1447,9 +1475,12 @@ class PraatfanRustSound(BaseSound):
                                      silence_threshold=0.1, periods_per_window=4.5,
                                      reference_peak=None) -> UnifiedHarmonicity:
         if hasattr(self._inner, "to_harmonicity_ac_referenced"):
-            result = self._inner.to_harmonicity_ac_referenced(
-                time_step, minimum_pitch, silence_threshold,
-                periods_per_window, reference_peak,
+            result = _reattribute_native_ppw_warning(
+                periods_per_window,
+                lambda: self._inner.to_harmonicity_ac_referenced(
+                    time_step, minimum_pitch, silence_threshold,
+                    periods_per_window, reference_peak,
+                ),
             )
             return UnifiedHarmonicity(result, self.BACKEND)
         _warn_reference_ignored(self.BACKEND, "to_harmonicity_ac_referenced", self._REFERENCE_HINT)
@@ -1493,8 +1524,11 @@ class PraatfanRustSound(BaseSound):
 
     def to_harmonicity_ac(self, time_step=0.01, minimum_pitch=75.0,
                           silence_threshold=0.1, periods_per_window=4.5) -> UnifiedHarmonicity:
-        result = self._inner.to_harmonicity_ac(time_step, minimum_pitch,
-                                               silence_threshold, periods_per_window)
+        result = _reattribute_native_ppw_warning(
+            periods_per_window,
+            lambda: self._inner.to_harmonicity_ac(time_step, minimum_pitch,
+                                                  silence_threshold, periods_per_window),
+        )
         return UnifiedHarmonicity(result, self.BACKEND)
 
     def to_harmonicity_cc(self, time_step=0.01, minimum_pitch=75.0,

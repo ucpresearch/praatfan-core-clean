@@ -93,9 +93,15 @@ pf_engine <- function(engine = NULL) {
   json_out <- system2(bin, input = json_in, stdout = TRUE, stderr = err_file)
 
   status <- attr(json_out, "status")
+  err_msg <- paste(readLines(err_file, warn = FALSE), collapse = "\n")
   if (!is.null(status) && status != 0L) {
-    err_msg <- paste(readLines(err_file, warn = FALSE), collapse = "\n")
     stop(eng$bin, " failed (exit ", status, "):\n", err_msg, call. = FALSE)
+  }
+  # The binary also writes diagnostics to stderr on a successful run (for
+  # example the ill-conditioned periods_per_window warning). Without this an R
+  # caller receives a column of NAs with no explanation at all.
+  if (nzchar(err_msg)) {
+    warning(eng$bin, ": ", err_msg, call. = FALSE)
   }
 
   resp <- jsonlite::fromJSON(paste(json_out, collapse = "\n"),

@@ -157,8 +157,16 @@ impl Harmonicity {
     ///
     /// HNR in dB, or None if outside range.
     ///
-    /// Note: Unvoiced frames return -200 dB (not None), which propagates
-    /// through interpolation. This matches Praat's behavior.
+    /// # Undefined frames
+    ///
+    /// A contour carries two markers that are not measurements —
+    /// [`UNDEFINED_HNR`] (-200 dB, no periodicity) and `NaN` (correlation not
+    /// resolvable from 1). Both are excluded from the interpolation stencil
+    /// rather than mixed into it: a single `NaN` frame would otherwise poison
+    /// every query within the stencil, and a -200 frame would drag its
+    /// neighbours 200 dB downward. If every frame in the stencil is a marker,
+    /// that marker is returned verbatim; `Nearest` always returns the raw
+    /// frame value.
     pub fn get_value_at_time(
         &self,
         time: f64,
@@ -199,8 +207,9 @@ impl Harmonicity {
 
                 let frac = idx_float - idx as f64;
 
-                // Linear interpolation: v = v0 × (1-t) + v1 × t
-                Some(self.values[idx] * (1.0 - frac) + self.values[idx + 1] * frac)
+                // Linear interpolation: v = v0 × (1-t) + v1 × t, unless a
+                // frame carries no measurement.
+                Some(self.linear_skipping_markers(idx, idx + 1, frac))
             }
             HarmonicityInterpolation::Cubic => {
                 // Cubic (Catmull-Rom) interpolation using 4 surrounding points
@@ -219,6 +228,14 @@ impl Harmonicity {
                 let y2 = self.values[i2];
                 let y3 = self.values[i3];
 
+                if [y0, y1, y2, y3].iter().any(|&v| is_marker(v)) {
+                    // Catmull-Rom weights are negative at the outer taps, so
+                    // dropping frames and renormalising the survivors lets the
+                    // remaining weights cancel to nearly zero and the quotient
+                    // explode. Degrade to the two central frames instead.
+                    return Some(self.linear_skipping_markers(i1, i2, frac));
+                }
+
                 // Catmull-Rom spline formula
                 let t = frac;
                 let t2 = t * t;
@@ -233,41 +250,27 @@ impl Harmonicity {
             }
         }
     }
+
+    /// Blend two frames linearly, unless either carries no measurement.
+    ///
+    /// Interpolating across a marker would let it leak into a real reading, so
+    /// when one is present the nearest frame is returned verbatim instead.
+    fn linear_skipping_markers(&self, i_lo: usize, i_hi: usize, frac: f64) -> f64 {
+        let v_lo = self.values[i_lo];
+        let v_hi = self.values[i_hi];
+        if !is_marker(v_lo) && !is_marker(v_hi) {
+            return v_lo * (1.0 - frac) + v_hi * frac;
+        }
+        // A marker is present, so there is nothing to interpolate along. Fall
+        // back to the frame the query actually sits nearest: that returns the
+        // real reading when the query leans towards it, and returns the marker
+        // when it leans towards the marker — rather than silently borrowing a
+        // neighbour's value for a frame that holds no measurement.
+        let nearest = if frac < 0.5 { i_lo } else { i_hi };
+        self.values[nearest]
+    }
 }
 
-/// Convert pitch strength (correlation) to HNR in dB.
-///
-/// # Formula (from Praat manual, Harmonicity.html)
-///
-/// ```text
-/// HNR = 10 × log₁₀(r / (1 - r))
-/// ```
-///
-/// # Physical Interpretation
-///
-/// - r is the normalized autocorrelation at the pitch period
-/// - r represents the fraction of energy in periodic components
-/// - (1-r) represents the fraction of energy in noise
-/// - The ratio r/(1-r) is the harmonic-to-noise power ratio
-/// - Converting to dB: 10 × log₁₀ of the power ratio
-///
-/// # Arguments
-///
-/// * `r` - Pitch strength (normalized autocorrelation, typically 0-1)
-///
-/// # Returns
-///
-/// HNR in dB
-///
-/// # Examples
-///
-/// | r value | HNR (dB) | Meaning |
-/// |---------|----------|---------|
-/// | 0.5     | 0 dB     | Equal harmonic and noise energy |
-/// | 0.9     | 9.5 dB   | 90% harmonic, 10% noise |
-/// | 0.99    | 20 dB    | 99% harmonic, 1% noise |
-/// | 0.999   | 30 dB    | 99.9% harmonic, 0.1% noise |
-///
 /// Value reported for frames in which no periodicity was found.
 ///
 /// Determined by black-box observation: Praat reports exactly -200 dB for
@@ -297,6 +300,12 @@ pub const UNDEFINED_HNR: f64 = -200.0;
 /// defaults to 1.0 and bypasses that check.
 pub const AC_MIN_PERIODS_PER_WINDOW: f64 = 3.0;
 
+/// Whether a contour entry is a marker rather than a measurement.
+#[inline]
+fn is_marker(value: f64) -> bool {
+    value.is_nan() || value == UNDEFINED_HNR
+}
+
 /// Whether `periods_per_window` puts the AC estimator outside its valid
 /// range. Callers that can surface a diagnostic (the Python bindings, the
 /// JSON pipe) warn on `true`; this will become a hard error in a future
@@ -306,6 +315,42 @@ pub fn ac_periods_per_window_is_ill_conditioned(periods_per_window: f64) -> bool
     periods_per_window < AC_MIN_PERIODS_PER_WINDOW
 }
 
+/// Convert pitch strength (correlation) to HNR in dB.
+///
+/// # Formula (from Praat manual, Harmonicity.html)
+///
+/// ```text
+/// HNR = 10 × log₁₀(r / (1 - r))
+/// ```
+///
+/// # Physical Interpretation
+///
+/// - r is the normalized autocorrelation at the pitch period
+/// - r represents the fraction of energy in periodic components
+/// - (1-r) represents the fraction of energy in noise
+/// - The ratio r/(1-r) is the harmonic-to-noise power ratio
+/// - Converting to dB: 10 × log₁₀ of the power ratio
+///
+/// # Arguments
+///
+/// * `r` - Normalized autocorrelation at the pitch period. Values outside
+///   `0 < r < 1` are not tolerated but represented — see the boundary policy.
+///
+/// # Returns
+///
+/// HNR in dB for `0 < r < 1`; [`UNDEFINED_HNR`] (-200 dB) when there is no
+/// periodicity to measure; `f64::NAN` when the correlation is not resolvable
+/// from 1.
+///
+/// # Examples
+///
+/// | r value | HNR (dB) | Meaning |
+/// |---------|----------|---------|
+/// | 0.5     | 0 dB     | Equal harmonic and noise energy |
+/// | 0.9     | 9.5 dB   | 90% harmonic, 10% noise |
+/// | 0.99    | 20 dB    | 99% harmonic, 1% noise |
+/// | 0.999   | 30 dB    | 99.9% harmonic, 0.1% noise |
+///
 /// # Boundary policy (DP10)
 ///
 /// `r` is a normalized correlation, so a meaningful HNR exists only for
@@ -324,11 +369,11 @@ pub fn ac_periods_per_window_is_ill_conditioned(periods_per_window: f64) -> bool
 ///   derived from a correlation that carries no information.
 ///
 /// The test is `1 - r <= f64::EPSILON` rather than `r >= 1.0` so that this
-/// and the pure-Python backend agree. When `r` lands on the last
-/// representable double below 1, `r >= 1.0` is false and the formula returns
-/// 156.5356 dB, while a one-ULP-larger `r` returns NaN — the two backends'
-/// correlations differ at exactly that scale, so the strict test made them
-/// disagree on 59 frames of a 30 s excerpt.
+/// and the pure-Python backend agree. Under the strict test the last
+/// representable double below 1 still returns a finite 159.5459 dB, and
+/// `1 - EPSILON` (two ulps below 1) returns 156.5356 dB, while a one-ULP-larger
+/// `r` returns NaN — the two backends' correlations differ at exactly that
+/// scale, so the strict test made them disagree on 59 frames of a 30 s excerpt.
 ///
 /// Earlier releases clamped `r` to `[1e-10, 1-1e-10]` instead, which
 /// collapsed every such frame onto the single value 99.99999964022885 dB and
@@ -681,5 +726,94 @@ mod boundary_tests {
         assert!(ac_periods_per_window_is_ill_conditioned(2.999));
         assert!(!ac_periods_per_window_is_ill_conditioned(3.0));
         assert!(!ac_periods_per_window_is_ill_conditioned(4.5));
+    }
+}
+
+#[cfg(test)]
+mod interpolation_tests {
+    use super::*;
+    use ndarray::Array1;
+
+    fn contour(values: &[f64]) -> Harmonicity {
+        let times: Vec<f64> = (0..values.len()).map(|i| i as f64 * 0.01).collect();
+        Harmonicity::new(Array1::from_vec(times), Array1::from_vec(values.to_vec()), 0.01, 75.0)
+    }
+
+    /// A marker frame must not leak into its neighbours' readings. Before this
+    /// was fixed a single NaN poisoned every query in the stencil, and the two
+    /// backends disagreed on how far the damage spread.
+    #[test]
+    fn markers_do_not_poison_neighbours() {
+        let h = contour(&[16.57, 16.53, 14.61, f64::NAN, f64::NAN, 10.97, 11.10, 9.45]);
+        for interp in [
+            HarmonicityInterpolation::Cubic,
+            HarmonicityInterpolation::Linear,
+        ] {
+            assert!((h.get_value_at_time(0.02, interp).unwrap() - 14.61).abs() < 1e-9);
+            assert!((h.get_value_at_time(0.05, interp).unwrap() - 10.97).abs() < 1e-9);
+        }
+
+        let h = contour(&[16.57, 16.53, 14.61, UNDEFINED_HNR, 10.97, 11.10]);
+        for interp in [
+            HarmonicityInterpolation::Cubic,
+            HarmonicityInterpolation::Linear,
+        ] {
+            assert!((h.get_value_at_time(0.02, interp).unwrap() - 14.61).abs() < 1e-9);
+            assert!((h.get_value_at_time(0.04, interp).unwrap() - 10.97).abs() < 1e-9);
+        }
+    }
+
+    #[test]
+    fn querying_a_marker_frame_returns_the_marker() {
+        let h = contour(&[16.57, 16.53, f64::NAN, 10.97, 11.10]);
+        assert!(h
+            .get_value_at_time(0.02, HarmonicityInterpolation::Cubic)
+            .unwrap()
+            .is_nan());
+        let h = contour(&[16.57, 16.53, UNDEFINED_HNR, 10.97, 11.10]);
+        assert_eq!(
+            h.get_value_at_time(0.02, HarmonicityInterpolation::Cubic)
+                .unwrap(),
+            UNDEFINED_HNR
+        );
+    }
+
+    #[test]
+    fn all_marker_contour_returns_the_marker() {
+        let h = contour(&[f64::NAN, f64::NAN, f64::NAN, f64::NAN]);
+        assert!(h
+            .get_value_at_time(0.01, HarmonicityInterpolation::Cubic)
+            .unwrap()
+            .is_nan());
+    }
+
+    /// Catmull-Rom weights sum to 1, so a marker-free stencil must reproduce
+    /// the direct form exactly.
+    #[test]
+    fn defined_contour_is_unchanged_by_the_exclusion() {
+        let values = [3.0, 7.0, 11.0, 5.0, 9.0, 2.0];
+        let h = contour(&values);
+        let n = values.len() as isize;
+        let mut t: f64 = 0.0;
+        while t < 0.05 {
+            let idx_float = t / 0.01;
+            let idx = idx_float.floor() as isize;
+            let frac = idx_float - idx as f64;
+            let y0 = values[0.max(idx - 1) as usize];
+            let y1 = values[0.max(idx).min(n - 1) as usize];
+            let y2 = values[0.max(idx + 1).min(n - 1) as usize];
+            let y3 = values[(idx + 2).min(n - 1) as usize];
+            let (t2, t3) = (frac * frac, frac * frac * frac);
+            let expected = 0.5
+                * ((2.0 * y1)
+                    + (-y0 + y2) * frac
+                    + (2.0 * y0 - 5.0 * y1 + 4.0 * y2 - y3) * t2
+                    + (-y0 + 3.0 * y1 - 3.0 * y2 + y3) * t3);
+            let got = h
+                .get_value_at_time(t, HarmonicityInterpolation::Cubic)
+                .unwrap();
+            assert!((got - expected).abs() < 1e-9, "t={t}: {got} vs {expected}");
+            t += 0.003;
+        }
     }
 }

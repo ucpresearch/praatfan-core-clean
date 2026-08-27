@@ -402,7 +402,10 @@ class Sound:
             periods_per_window: Number of periods per window
 
         Returns:
-            Harmonicity object
+            Harmonicity object. Values are dB; -200 marks frames with no
+            periodicity, nan marks frames whose correlation is not resolvable
+            from 1. The AC methods warn (FutureWarning) below
+            periods_per_window=3.0.
         """
         from .harmonicity import sound_to_harmonicity_ac
         return sound_to_harmonicity_ac(
@@ -427,7 +430,10 @@ class Sound:
             periods_per_window: Number of periods per window
 
         Returns:
-            Harmonicity object
+            Harmonicity object. Values are dB; -200 marks frames with no
+            periodicity, nan marks frames whose correlation is not resolvable
+            from 1. The AC methods warn (FutureWarning) below
+            periods_per_window=3.0.
         """
         from .harmonicity import sound_to_harmonicity_cc
         return sound_to_harmonicity_cc(

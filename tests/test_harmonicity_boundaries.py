@@ -17,6 +17,7 @@ from praatfan.harmonicity import (
     AC_MIN_PERIODS_PER_WINDOW,
     EPS,
     UNDEFINED_HNR,
+    Harmonicity,
     sound_to_harmonicity_ac,
     sound_to_harmonicity_cc,
     strength_to_hnr,
@@ -91,7 +92,7 @@ class TestStrengthToHnr:
 
 
 class TestIllConditionedPeriodsPerWindow:
-    """``periods_per_window`` below 3.0 (DP30)."""
+    """``periods_per_window`` below 3.0 (DP34)."""
 
     @pytest.mark.parametrize("ppw", [0.5, 1.0, 2.0, 2.999])
     def test_ac_warns_below_the_minimum(self, ppw):
@@ -171,3 +172,156 @@ class TestKnownHnrRecovery:
         voiced = values[np.isfinite(values) & (values > UNDEFINED_HNR)]
         assert len(voiced) > 20
         assert np.median(voiced) == pytest.approx(true_hnr, abs=1.0)
+
+
+class TestUndefinedFramesDoNotPropagate:
+    """
+    Regression: a marker frame must not leak into interpolated queries.
+
+    Both markers are excluded from the interpolation stencil. Before this was
+    fixed, a single nan frame poisoned every query within +/-2 frames (cubic)
+    or +/-1 frame (linear), so the two backends disagreed on the damage radius,
+    and -200 frames dragged their neighbours 200 dB downward.
+    """
+
+    @staticmethod
+    def _contour(values):
+        values = np.asarray(values, dtype=np.float64)
+        return Harmonicity(np.arange(len(values)) * 0.01, values, 0.01, 75.0)
+
+    @pytest.mark.parametrize("interpolation", ["cubic", "linear"])
+    def test_nan_frame_does_not_poison_its_neighbours(self, interpolation):
+        h = self._contour([16.57, 16.53, 14.61, np.nan, np.nan, 10.97, 11.10, 9.45])
+        # Frames either side of the nan gap must read back as themselves.
+        assert h.get_value_at_time(0.02, interpolation) == pytest.approx(14.61)
+        assert h.get_value_at_time(0.05, interpolation) == pytest.approx(10.97)
+
+    @pytest.mark.parametrize("interpolation", ["cubic", "linear"])
+    def test_undefined_marker_does_not_drag_neighbours(self, interpolation):
+        h = self._contour([16.57, 16.53, 14.61, UNDEFINED_HNR, 10.97, 11.10])
+        # Without exclusion the -200 neighbour pulls this hundreds of dB down.
+        assert h.get_value_at_time(0.02, interpolation) == pytest.approx(14.61)
+        assert h.get_value_at_time(0.04, interpolation) == pytest.approx(10.97)
+
+    @pytest.mark.parametrize("interpolation", ["cubic", "linear"])
+    def test_querying_a_marker_frame_returns_the_marker(self, interpolation):
+        h = self._contour([16.57, 16.53, np.nan, 10.97, 11.10])
+        assert np.isnan(h.get_value_at_time(0.02, interpolation))
+        h2 = self._contour([16.57, 16.53, UNDEFINED_HNR, 10.97, 11.10])
+        assert h2.get_value_at_time(0.02, interpolation) == UNDEFINED_HNR
+
+    def test_all_marker_contour_returns_the_marker(self):
+        h = self._contour([np.nan] * 4)
+        assert np.isnan(h.get_value_at_time(0.01))
+
+    def test_nearest_reads_frames_verbatim(self):
+        h = self._contour([16.57, np.nan, 10.97])
+        assert np.isnan(h.get_value_at_time(0.01, "nearest"))
+
+    def test_defined_contour_is_unchanged_by_the_exclusion(self):
+        """Catmull-Rom weights sum to 1, so a marker-free stencil is identical."""
+        values = np.array([3.0, 7.0, 11.0, 5.0, 9.0, 2.0])
+        h = self._contour(values)
+        for t in np.arange(0.0, 0.05, 0.003):
+            idx = t / 0.01
+            i = int(np.floor(idx))
+            frac = idx - i
+            i0, i1 = max(0, i - 1), min(5, i)
+            i2, i3 = min(5, i + 1), min(5, i + 2)
+            y0, y1, y2, y3 = values[i0], values[i1], values[i2], values[i3]
+            t2, t3 = frac * frac, frac ** 3
+            expected = 0.5 * ((2 * y1) + (-y0 + y2) * frac
+                              + (2 * y0 - 5 * y1 + 4 * y2 - y3) * t2
+                              + (-y0 + 3 * y1 - 3 * y2 + y3) * t3)
+            assert h.get_value_at_time(float(t), "cubic") == pytest.approx(expected)
+
+    def test_call_layer_treats_nan_as_undefined(self):
+        """`_is_undefined` gates the call() interpolation path."""
+        from praatfan.praat import _is_undefined
+        assert _is_undefined(float("nan"), UNDEFINED_HNR) is True
+        assert _is_undefined(UNDEFINED_HNR, UNDEFINED_HNR) is True
+        assert _is_undefined(12.3, UNDEFINED_HNR) is False
+
+
+class TestWarningReachesTheCaller:
+    """
+    The ill-conditioning warning must be attributed to the user's frame.
+
+    Not cosmetic: the default warning filter dedupes on the attributed
+    (module, lineno), so a warning blamed on a praatfan file collapses every
+    ill-conditioned call in a process into one visible warning — useless for a
+    deprecation whose job is to drive callers off ppw < 3.
+    """
+
+    def test_module_function_attributes_to_caller(self):
+        sound = Sound.from_file(FIXTURES[0])
+        with pytest.warns(FutureWarning) as rec:
+            sound_to_harmonicity_ac(sound, time_step=0.01, min_pitch=75.0,
+                                    periods_per_window=1.0)
+        assert rec[0].filename == __file__
+
+    def test_sound_method_attributes_to_caller(self):
+        sound = Sound.from_file(FIXTURES[0])
+        with pytest.warns(FutureWarning) as rec:
+            sound.to_harmonicity_ac(time_step=0.01, min_pitch=75.0,
+                                    periods_per_window=1.0)
+        assert rec[0].filename == __file__
+
+    def test_call_layer_attributes_to_caller(self):
+        from praatfan.praat import call
+        sound = Sound.from_file(FIXTURES[0])
+        with pytest.warns(FutureWarning) as rec:
+            call(sound, "To Harmonicity (ac)", 0.01, 75, 0.1, 1.0)
+        assert rec[0].filename == __file__
+
+
+class TestDegenerateSignalsAreUndefined:
+    """
+    Deliberate divergence from Praat, recorded so it is not mistaken for a bug.
+
+    A noiseless periodic signal has a normalized correlation of exactly 1, so
+    HNR is 10*log10(1/0) — genuinely undefined. praatfan reports nan for both
+    DC and a pure tone. Praat reports -200 for DC and a large finite value for
+    a pure tone (its own correlation lands just short of 1). Any noise at all
+    puts the correlation back in range: 1% noise gives r = 0.9998.
+    """
+
+    @staticmethod
+    def _sound(x, sr=16000):
+        return Sound(np.asarray(x, dtype=np.float64), sr)
+
+    def test_dc_is_undefined(self):
+        v = sound_to_harmonicity_cc(self._sound(np.ones(16000) * 0.5),
+                                    time_step=0.01, min_pitch=75.0,
+                                    periods_per_window=1.0).values
+        assert np.all(np.isnan(v))
+
+    def test_noiseless_tone_carries_no_trustworthy_reading(self):
+        """
+        Every frame is either nan or a value far above what the method can
+        resolve. Which of the two depends on rounding: a float64 tone leaves
+        the correlation a few ulps short of 1, giving readings in a narrow
+        ~150-155 dB band that is f64 quantization rather than measurement,
+        while the same tone written through 16-bit PCM lands on exactly 1 and
+        reads nan. Praat's manual puts the reliable ceiling at 37 dB for 4.5
+        periods per window, so nothing in that band is a measurement either
+        way -- this test pins that no frame masquerades as an ordinary HNR.
+        """
+        t = np.arange(16000) / 16000
+        v = sound_to_harmonicity_cc(self._sound(np.sin(2 * np.pi * 200 * t) * 0.5),
+                                    time_step=0.01, min_pitch=75.0,
+                                    periods_per_window=1.0).values
+        assert len(v) > 50
+        assert np.all(np.isnan(v) | (v > 100.0))
+        # And none of them is the constant the old clamp manufactured.
+        assert not np.any(v == LEGACY_CLIP_CONSTANT)
+
+    def test_a_trace_of_noise_makes_it_measurable_again(self):
+        t = np.arange(16000) / 16000
+        x = np.sin(2 * np.pi * 200 * t) * 0.5
+        x = x + np.random.RandomState(0).randn(16000) * 0.005
+        v = sound_to_harmonicity_cc(self._sound(x), time_step=0.01,
+                                    min_pitch=75.0, periods_per_window=1.0).values
+        finite = v[np.isfinite(v)]
+        assert len(finite) > 50
+        assert np.all(finite > 20.0)

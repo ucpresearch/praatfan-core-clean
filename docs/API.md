@@ -152,7 +152,8 @@ pub struct Harmonicity {
 
 impl Harmonicity {
     /// Get HNR value at specific time in dB
-    /// Returns very negative value (e.g., -200) for unvoiced
+    /// Returns UNDEFINED_HNR (-200) for unvoiced/no-periodicity frames,
+/// NaN where the correlation is unresolvable from 1
     pub fn get_value_at_time(&self, time: f64, interpolation: Interpolation) -> Option<f64>;
 
     /// Time bounds
@@ -276,7 +277,7 @@ pub enum WindowShape {
 | time_step | 0.01 s | Frame interval |
 | min_pitch | 75.0 Hz | Determines window |
 | silence_threshold | 0.1 | Relative to global max |
-| periods_per_window | 4.5 | 6.0 for high precision |
+| periods_per_window | 4.5 | AC minimum 3.0; 6.0 for high precision |
 
 ### Spectrogram
 

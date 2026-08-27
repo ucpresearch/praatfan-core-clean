@@ -266,6 +266,9 @@ Formant (independent, but complex)
 1. Validate Pitch first (same method: AC→AC, CC→CC)
 2. HNR is computed from pitch strength r: `10 × log₁₀(r / (1-r))` (Praat manual, Harmonicity.html)
 3. If Pitch strengths match, HNR will match automatically
+4. Boundary policy: `r <= 0` → -200 dB (no periodicity); `1 - r <= f64 EPS`
+   → `nan` (correlation unresolvable from 1, so no HNR is derived). AC
+   requires `periods_per_window >= 3.0`. See `src/praatfan/harmonicity.py`.
 
 **Spectrum** (test in this order):
 1. Number of bins and frequency resolution (dx)
@@ -334,7 +337,7 @@ These can follow from:
 | Intensity | Within 0.001 dB |
 | Spectrum | Relative error < 1e-10 |
 | Spectral moments | Exact match |
-| HNR | Within 0.01 dB |
+| HNR | Within 0.01 dB for the strength→dB conversion given identical r; ~1 dB end-to-end vs parselmouth on speech |
 
 ---
 
@@ -726,13 +729,14 @@ This is an optional dependency enabled automatically by the `wasm` feature flag.
 
 ### Release Status
 
-**Version in this tree:** 0.2.0 (prepared, **not yet released**).
+**Version in this tree:** 0.1.10 (prepared, **not yet released**).
 **Latest published release:** v0.1.9 (2026-06-28).
 
 Verify with `gh release list` / `git tag -l | sort -V | tail` rather than
 trusting this section — it goes stale.
 
-v0.2.0 (unreleased) is a minor bump because harmonicity output values change:
+v0.1.10 (unreleased) is a patch bump. It is not purely additive — harmonicity
+output values change, so read this before upgrading:
 
 - `to_harmonicity_ac` / `to_harmonicity_cc` report `nan` where the normalized
   correlation is not resolvable from 1 (previously clamped to ~100 dB on AC and
@@ -758,7 +762,7 @@ statically-linked desphere crate (praatfan_rust native + WASM). See
 ### Historical: changes that rolled into v0.1.6–v0.1.8 (all shipped)
 
 > **Note:** The items below were "pending" notes written between v0.1.5 and the
-> v0.1.6 bump. They have all **shipped** (the repo is now at **0.2.0** — see
+> v0.1.6 bump. They have all **shipped** (the repo is now at **0.1.10** — see
 > Release Status above). Kept for the development record; no longer pending.
 
 After v0.1.5 shipped, `praatfan-gpl==0.1.5` published to PyPI with three

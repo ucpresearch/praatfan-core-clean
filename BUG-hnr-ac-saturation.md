@@ -184,8 +184,10 @@ Two independent defects, one masking the other.
   - `1 - r <= f64 EPS` → **`nan`**. The correlation carries no information
     about its distance from 1, so no HNR is invented. This covers `r > 1`.
   - otherwise → `10*log10(r/(1-r))`.
-- The upper test is `1 - r <= EPS`, **not** `r >= 1`: the last representable
-  double below 1 returns 156.5356 dB while a one-ULP-larger `r` returns nan,
+- The upper test is `1 - r <= EPS`, **not** `r >= 1`: under the strict test
+  the last representable double below 1 still returns a finite 159.5459 dB
+  (and `1 - EPS`, two ulps below 1, returns 156.5356 dB) while a one-ULP-larger
+  `r` returns nan,
   and the two backends' correlations differ at exactly that scale — the
   strict form made them disagree on 59 frames of a 30 s excerpt.
 

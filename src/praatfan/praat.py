@@ -408,9 +408,23 @@ def _convert_pitch_unit(value: float, unit: str) -> float:
 
 
 def _is_undefined(value, undefined_value) -> bool:
-    """Check if a value matches the undefined sentinel, handling NaN correctly."""
+    """
+    Check whether a value carries no measurement.
+
+    NaN always counts as undefined, whatever the sentinel is. Harmonicity uses
+    two markers for two different reasons — -200 dB for "no periodicity" and
+    NaN for "correlation not resolvable from 1" (see
+    praatfan.harmonicity.strength_to_hnr) — and both must be skipped when
+    interpolating, or a NaN neighbour propagates into every query within the
+    interpolation stencil.
+    """
+    try:
+        if np.isnan(value):
+            return True
+    except TypeError:
+        pass
     if isinstance(undefined_value, float) and np.isnan(undefined_value):
-        return np.isnan(value)
+        return False  # already handled above
     return value == undefined_value
 
 

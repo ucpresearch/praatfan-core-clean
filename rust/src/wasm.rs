@@ -621,7 +621,11 @@ impl Harmonicity {
         self.inner.time_step()
     }
 
-    /// Get HNR values for all frames in dB. Returns -200 for silent/unvoiced frames.
+    /// Get HNR values for all frames in dB.
+    ///
+    /// Two markers are not measurements: -200 for frames with no periodicity
+    /// (silence, DC, unvoiced), and NaN where the correlation is not
+    /// resolvable from 1. Filter with `Number.isFinite(v) && v > -200`.
     pub fn values(&self) -> Vec<f64> {
         self.inner.values().to_vec()
     }

@@ -260,7 +260,7 @@ harmonicity = sound.to_harmonicity_ac(
     time_step=0.01,           # Time step in seconds
     minimum_pitch=75.0,       # Minimum pitch in Hz
     silence_threshold=0.1,    # Silence threshold (0-1)
-    periods_per_window=4.5    # Periods per analysis window
+    periods_per_window=4.5    # Periods per analysis window (AC minimum: 3.0)
 )
 
 # Cross-correlation method
@@ -282,7 +282,7 @@ harmonicity.n_frames              # Number of frames
 harmonicity.time_step             # Time step
 
 times = harmonicity.xs()          # Time points
-values = harmonicity.values()     # HNR in dB (-200 for silent/unvoiced)
+values = harmonicity.values()     # HNR in dB (-200 = no periodicity; nan = correlation unresolvable from 1)
 values = harmonicity.to_array()   # Same as values()
 
 hnr = harmonicity.get_value_at_time(0.5)
@@ -500,7 +500,7 @@ harmonicity.n_frames()        // Number of frames
 harmonicity.time_step()       // Time step
 
 const times = harmonicity.times();   // Float64Array
-const values = harmonicity.values(); // Float64Array (dB, -200 for silent)
+const values = harmonicity.values(); // Float64Array (dB; -200 = no periodicity, NaN = undefined)
 
 const time = harmonicity.get_time_from_frame(10);
 const hnr = harmonicity.get_value_in_frame(10);
@@ -673,13 +673,16 @@ console.log(`Mean F0 (voiced): ${(sum/voicedCount).toFixed(1)} Hz`);
 | Formant | `max_number_of_formants` | 5 | Standard for vowel analysis |
 | Formant | `window_length` | 0.025 s | 25 ms is typical |
 | Intensity | `minimum_pitch` | 100 Hz | Determines window size |
-| Harmonicity | `periods_per_window` | 4.5 (AC), 1.0 (CC) | Trade-off: precision vs time resolution |
+| Harmonicity | `periods_per_window` | 4.5 (AC), 1.0 (CC) | **AC requires >= 3.0** (FutureWarning below it, error in a future release); 1.0 is the CC value, not an AC value |
 
 ---
 
 ## Notes
 
 - **Mono audio only**: praatfan only supports mono audio. Use `from_file_channel()` or `from_wav_channel()` for stereo files.
-- **NaN values**: Unvoiced frames return `NaN` for pitch and `-200` for harmonicity.
+- **Undefined values**: Unvoiced frames return `NaN` for pitch. Harmonicity uses
+  two distinct markers: `-200` dB where no periodicity was found (unvoiced,
+  silence, DC), and `NaN` where the correlation is not resolvable from 1 and no
+  HNR can be derived. Filter with `np.isfinite(v) & (v > -200)`.
 - **Time step = 0**: When `time_step` is 0, an automatic value is computed based on the analysis type.
 - **Parselmouth compatibility**: The Python API is designed to be compatible with parselmouth's API, making migration straightforward.

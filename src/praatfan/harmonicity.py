@@ -25,10 +25,12 @@ Decision points:
   strength_to_hnr: r <= 0 -> UNDEFINED_HNR (-200 dB), r >= 1 -> nan.
 - DP11: Value for unvoiced frames — RESOLVED: UNDEFINED_HNR (-200 dB),
   confirmed black-box (Praat reports exactly -200 for silence and for DC).
-- DP30: Minimum periods_per_window for the AC method — RESOLVED, see
+- DP34: Minimum periods_per_window for the AC method — RESOLVED, see
   AC_MIN_PERIODS_PER_WINDOW (3.0).
 """
 
+import inspect
+import os
 import warnings
 
 import numpy as np
@@ -73,6 +75,11 @@ EPS = float(np.finfo(np.float64).eps)
 AC_MIN_PERIODS_PER_WINDOW = 3.0
 
 
+def _is_marker(value: float) -> bool:
+    """Whether a contour entry is a marker rather than a measurement."""
+    return bool(np.isnan(value)) or value == UNDEFINED_HNR
+
+
 class Harmonicity:
     """
     Harmonicity (HNR) contour.
@@ -82,7 +89,8 @@ class Harmonicity:
 
     Attributes:
         times: Time points in seconds
-        values: HNR values in dB (None or very negative for unvoiced)
+        values: HNR values in dB; -200 where no periodicity was found,
+            nan where the correlation is unresolvable from 1
         time_step: Time step between frames
     """
 
@@ -136,7 +144,18 @@ class Harmonicity:
             interpolation: Interpolation method ("cubic", "linear", "nearest")
 
         Returns:
-            HNR in dB, or None if outside range
+            HNR in dB, or None if outside range.
+
+        Undefined frames:
+            A contour carries two markers that are not measurements --
+            ``UNDEFINED_HNR`` (-200 dB, no periodicity) and ``nan``
+            (correlation not resolvable from 1). Both are excluded from the
+            interpolation stencil rather than mixed into it: a single nan
+            frame would otherwise poison every query within +/-2 frames, and a
+            -200 frame would drag its neighbours 200 dB downward. If every
+            frame in the stencil is a marker, that marker is returned
+            verbatim; ``interpolation="nearest"`` always returns the raw frame
+            value.
         """
         if self.n_frames == 0:
             return None
@@ -160,7 +179,7 @@ class Harmonicity:
             if idx >= self.n_frames - 1:
                 return float(self._values[-1])
             frac = idx_float - idx
-            return float(self._values[idx] * (1 - frac) + self._values[idx + 1] * frac)
+            return self._linear_skipping_markers(idx, idx + 1, frac)
 
         elif interpolation == "cubic":
             idx = int(np.floor(idx_float))
@@ -172,7 +191,17 @@ class Harmonicity:
             i2 = max(0, min(self.n_frames - 1, idx + 1))
             i3 = min(self.n_frames - 1, idx + 2)
 
-            y0, y1, y2, y3 = self._values[i0], self._values[i1], self._values[i2], self._values[i3]
+            y0, y1, y2, y3 = (self._values[i0], self._values[i1],
+                              self._values[i2], self._values[i3])
+
+            if any(_is_marker(y) for y in (y0, y1, y2, y3)):
+                # Catmull-Rom weights are negative at the outer taps, so
+                # dropping frames and renormalising the survivors lets the
+                # remaining weights cancel to nearly zero and the quotient
+                # explode. Degrade to the two central frames instead: their
+                # weights are non-negative and sum to 1, so the result stays
+                # bounded and predictable.
+                return self._linear_skipping_markers(i1, i2, frac)
 
             # Cubic interpolation (Catmull-Rom spline)
             t = frac
@@ -189,6 +218,26 @@ class Harmonicity:
 
         else:
             raise ValueError(f"Unknown interpolation method: {interpolation}")
+
+    def _linear_skipping_markers(self, i_lo: int, i_hi: int,
+                                 frac: float) -> float:
+        """
+        Blend two frames linearly, unless either carries no measurement.
+
+        Interpolating across a marker would let it leak into a real reading,
+        so when one is present the nearest frame is returned verbatim instead.
+        """
+        v_lo = self._values[i_lo]
+        v_hi = self._values[i_hi]
+        if not _is_marker(v_lo) and not _is_marker(v_hi):
+            return float(v_lo * (1.0 - frac) + v_hi * frac)
+        # A marker is present, so there is nothing to interpolate along. Fall
+        # back to the frame the query actually sits nearest: that returns the
+        # real reading when the query leans towards it, and returns the marker
+        # when it leans towards the marker -- rather than silently borrowing a
+        # neighbour's value for a frame that holds no measurement.
+        nearest = i_lo if frac < 0.5 else i_hi
+        return float(self._values[nearest])
 
 
 def strength_to_hnr(r: float) -> float:
@@ -223,11 +272,11 @@ def strength_to_hnr(r: float) -> float:
           is invented.
 
         The test is ``1 - r <= EPS`` rather than ``r >= 1`` so that the two
-        backends agree. When ``r`` lands on the last representable double
-        below 1, ``r >= 1`` is false and the formula returns 156.5356 dB,
-        while a one-ULP-larger ``r`` returns nan -- the pure-Python and Rust
-        correlations differ at exactly that scale, so the strict test made
-        them disagree on 59 frames of a 30 s excerpt.
+        backends agree. Under the strict test the last representable double
+        below 1 still returns a finite 159.5459 dB, and ``1 - EPS`` (two ulps
+        below 1) returns 156.5356 dB, while a one-ULP-larger ``r`` returns nan
+        -- the pure-Python and Rust correlations differ at exactly that scale,
+        so the strict test made them disagree on 59 frames of a 30 s excerpt.
 
         Earlier releases clamped ``r`` to ``[1e-10, 1-1e-10]`` instead, which
         collapsed every such frame onto the single value 99.99999964022885 dB
@@ -245,6 +294,31 @@ def strength_to_hnr(r: float) -> float:
     if 1.0 - r <= EPS:
         return float('nan')
     return 10.0 * np.log10(r / (1.0 - r))
+
+
+def _caller_stacklevel() -> int:
+    """
+    Stack depth of the first frame outside this package.
+
+    A fixed ``stacklevel`` cannot be right for every entry point: the same
+    warning is reachable from the module function, ``Sound.to_harmonicity_ac``,
+    the ``call()`` compatibility layer and the backend selector, each at a
+    different depth. Attributing the warning to a praatfan file rather than the
+    user's has a functional cost, not just a cosmetic one — the default warning
+    filter dedupes on the attributed (module, lineno), so every ill-conditioned
+    call in a process would collapse into one visible warning however many
+    distinct call sites triggered it.
+    """
+    package_dir = os.path.dirname(os.path.abspath(__file__))
+    frame = inspect.currentframe()
+    level = 0
+    while frame is not None:
+        filename = os.path.abspath(frame.f_code.co_filename)
+        if level > 0 and os.path.dirname(filename) != package_dir:
+            return level
+        frame = frame.f_back
+        level += 1
+    return 2
 
 
 def _warn_if_ill_conditioned(periods_per_window: float) -> None:
@@ -269,7 +343,7 @@ def _warn_if_ill_conditioned(periods_per_window: float) -> None:
             f"method, whose standard value is 1.0. This will raise an error in "
             f"a future release.",
             FutureWarning,
-            stacklevel=3,
+            stacklevel=_caller_stacklevel(),
         )
 
 
@@ -301,7 +375,16 @@ def sound_to_harmonicity_ac(
             the robust speech-referenced default.
 
     Returns:
-        Harmonicity object
+        Harmonicity object. Values are dB; ``-200`` marks frames with no
+        periodicity and ``nan`` marks frames whose correlation is not
+        resolvable from 1 (see ``strength_to_hnr``).. Values are dB; ``-200`` marks frames with no
+        periodicity and ``nan`` marks frames whose correlation is not
+        resolvable from 1 (see ``strength_to_hnr``).
+
+    Warns:
+        FutureWarning: if ``periods_per_window`` is below
+            ``AC_MIN_PERIODS_PER_WINDOW`` (3.0), where the AC estimator is
+            ill-conditioned. This will become an error in a future release.
     """
     _warn_if_ill_conditioned(periods_per_window)
 

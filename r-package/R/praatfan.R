@@ -182,9 +182,17 @@ pf_intensity <- function(wav, min_pitch = 100, time_step = 0,
 #' @param silence_threshold  Silence threshold, 0-1 (default 0.1).
 #' @param periods_per_window Periods per analysis window.  \code{NULL}
 #'   (default) uses Praat's default for the method: 4.5 for ac, 1.0 for cc.
+#'   For \code{method = "ac"} this must be at least 3.0; below that the
+#'   estimator is ill-conditioned and frames come back as \code{NA}.  1.0 is
+#'   the cc default, not an ac value.
 #' @param channel            0-based channel for multi-channel files.
 #' @return A data.frame with columns \code{file}, \code{time}, \code{hnr}
-#'   (dB).
+#'   (dB).  Two kinds of "no reading" are distinguished and neither is a dB
+#'   value: \code{-200} means no periodicity was found (silence, DC,
+#'   unvoiced), while \code{NA} (JSON \code{null}) means the correlation was
+#'   not resolvable from 1 so no HNR could be derived.  Averaging the column
+#'   directly will fold \code{-200} into the mean; drop both first, e.g.
+#'   \code{subset(h, !is.na(hnr) & hnr > -200)}.
 #' @export
 pf_harmonicity <- function(wav, method = c("ac", "cc"), time_step = 0.01,
                            min_pitch = 75, silence_threshold = 0.1,
