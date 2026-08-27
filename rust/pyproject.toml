@@ -9,14 +9,14 @@ name = "praatfan_rust"
 # rust/Cargo.toml, which led to a 0.1.5 → 0.1.6 drift in v0.1.6 builds.)
 dynamic = ["version"]
 description = "Clean-room reimplementation of Praat's acoustic analysis algorithms"
-license = { text = "MIT OR Apache-2.0" }
+readme = "README.md"
+license = { text = "MIT" }
 requires-python = ">=3.9"
 keywords = ["audio", "speech", "acoustics", "formant", "pitch", "praat"]
 classifiers = [
     "Development Status :: 4 - Beta",
     "Intended Audience :: Science/Research",
     "License :: OSI Approved :: MIT License",
-    "License :: OSI Approved :: Apache Software License",
     "Programming Language :: Python :: 3",
     "Programming Language :: Python :: 3.9",
     "Programming Language :: Python :: 3.10",

@@ -1,0 +1,8 @@
+# The sdist already ships tests/*.py; without the fixtures those tests error
+# on missing audio the moment anyone runs them from a source install. Ship the
+# audio too (~1.3 MB) so the suite is runnable from the sdist — this is a
+# validation-heavy project and its tests are the evidence the implementation
+# matches its reference.
+include LICENSE
+include README.md USAGE.md
+recursive-include tests/fixtures *.wav *.flac

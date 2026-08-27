@@ -301,6 +301,52 @@ jobs:
           name: sdist
           path: dist/*.tar.gz
 
+  # Source distribution for praatfan_rust. Without it, `pip install
+  # praatfan-rust` hard-fails on any platform outside the wheel matrix
+  # (musl/Alpine, FreeBSD, a Python newer than the abi3 floor) instead of
+  # compiling locally. Building from it needs a Rust toolchain on the user's
+  # machine, so it is a fallback rather than a guarantee.
+  build-rust-sdist:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v6
+
+      - name: Set up Python
+        uses: actions/setup-python@v6
+        with:
+          python-version: "3.12"
+
+      - name: Build sdist
+        uses: PyO3/maturin-action@v1
+        with:
+          command: sdist
+          args: --out dist
+          working-directory: rust
+
+      - name: Upload sdist
+        uses: actions/upload-artifact@v7
+        with:
+          name: rust-sdist
+          path: rust/dist/*.tar.gz
+
+  upload-rust-sdist:
+    needs: [build-rust-sdist]
+    runs-on: ubuntu-latest
+    if: github.event_name == 'release'
+    steps:
+      - name: Download sdist
+        uses: actions/download-artifact@v8
+        with:
+          name: rust-sdist
+          path: dist
+
+      - name: Upload to GitHub Release
+        uses: softprops/action-gh-release@v3
+        with:
+          files: dist/*.tar.gz
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+
   upload-sdist:
     needs: [build-sdist]
     runs-on: ubuntu-latest
