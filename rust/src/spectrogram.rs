@@ -46,6 +46,7 @@
 use ndarray::Array2;
 use rustfft::{num_complex::Complex, FftPlanner};
 
+use crate::parallel::map_frames;
 use crate::sound::Sound;
 
 /// Window shape for spectrogram analysis.
@@ -436,14 +437,23 @@ pub fn sound_to_spectrogram_with_shape(
     let mut planner = FftPlanner::new();
     let fft = planner.plan_fft_forward(fft_size);
 
-    // Initialize output array: (n_freq_bins rows, n_frames columns)
-    let mut values = Array2::<f64>::zeros((n_freq_bins, n_frames));
-
     let n_samples = samples.len();
     let samples_slice = samples.as_slice().unwrap();
+    let fft = &*fft;
+    let fft_scratch_len = fft.get_inplace_scratch_len();
 
-    // Process each frame
-    for i in 0..n_frames {
+    // Process each frame. Frames are independent, so they run in parallel
+    // (order-preserving; bit-identical to a serial loop). Per-worker scratch
+    // is fully overwritten for every frame.
+    let init_scratch = || {
+        (
+            vec![0.0; window_samples],
+            vec![Complex::new(0.0, 0.0); fft_size],
+            vec![Complex::new(0.0, 0.0); fft_scratch_len],
+        )
+    };
+    let columns = map_frames(n_frames, init_scratch, |scratch, i| {
+        let (frame, buffer, fft_scratch) = scratch;
         let t = t1 + i as f64 * time_step;
 
         // Extract frame centered at time t
@@ -452,7 +462,7 @@ pub fn sound_to_spectrogram_with_shape(
         let end = start + window_samples as isize;
 
         // Handle boundaries with zero-padding
-        let mut frame = vec![0.0; window_samples];
+        frame.fill(0.0);
         if start < 0 || end > n_samples as isize {
             // Partial overlap with signal boundaries
             let src_start = 0.max(start) as usize;
@@ -467,34 +477,33 @@ pub fn sound_to_spectrogram_with_shape(
             frame.copy_from_slice(&samples_slice[start..end]);
         }
 
-        // Apply window function
-        // This reduces spectral leakage from edge discontinuities
-        let windowed: Vec<f64> = frame
-            .iter()
-            .zip(window.iter())
-            .map(|(&s, &w)| s * w)
-            .collect();
-
-        // Zero-pad to FFT size
-        // Zero-padding provides frequency domain interpolation
-        let mut buffer: Vec<Complex<f64>> = vec![Complex::new(0.0, 0.0); fft_size];
-        for (j, &s) in windowed.iter().enumerate() {
-            buffer[j] = Complex::new(s, 0.0);
+        // Apply window function (reduces spectral leakage from edge
+        // discontinuities) and zero-pad to FFT size (frequency-domain
+        // interpolation)
+        for j in 0..fft_size {
+            buffer[j] = if j < window_samples {
+                Complex::new(frame[j] * window[j], 0.0)
+            } else {
+                Complex::new(0.0, 0.0)
+            };
         }
 
         // Compute FFT: X[k] = Σ x[n] × e^(-2πikn/N)
-        fft.process(&mut buffer);
+        fft.process_with_scratch(buffer, fft_scratch);
 
-        // Compute power spectrum: |X(f)|² = Re² + Im²
-        // Only need positive frequencies (0 to Nyquist)
-        let power: Vec<f64> = buffer[..fft_size / 2 + 1]
+        // Power spectrum |X(f)|² = Re² + Im², stored at FFT bin resolution
+        // (positive frequencies only)
+        buffer[..n_freq_bins.min(fft_size / 2 + 1)]
             .iter()
-            .map(|c| c.norm_sqr())  // |c|² = Re² + Im²
-            .collect();
+            .map(|c| c.norm_sqr())
+            .collect::<Vec<f64>>()
+    });
 
-        // Store power directly at FFT bin resolution
-        for j in 0..n_freq_bins.min(power.len()) {
-            values[[j, i]] = power[j];
+    // Output array: (n_freq_bins rows, n_frames columns)
+    let mut values = Array2::<f64>::zeros((n_freq_bins, n_frames));
+    for (i, column) in columns.iter().enumerate() {
+        for (j, &p) in column.iter().enumerate() {
+            values[[j, i]] = p;
         }
     }
 

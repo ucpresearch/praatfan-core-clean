@@ -200,9 +200,9 @@ impl PySound {
     /// Uses FFT-based sinc interpolation (Praat's Sound_resample algorithm).
     /// If `sample_rate` is greater than or equal to the current rate, returns
     /// a copy without upsampling (matches Praat's short-circuit).
-    fn resample(&self, sample_rate: f64) -> PySound {
+    fn resample(&self, py: Python<'_>, sample_rate: f64) -> PySound {
         PySound {
-            inner: self.inner.resample(sample_rate),
+            inner: py.allow_threads(|| self.inner.resample(sample_rate)),
         }
     }
 
@@ -542,6 +542,7 @@ impl PySound {
     #[pyo3(signature = (time_step=0.0, max_number_of_formants=5, maximum_formant=5500.0, window_length=0.025, pre_emphasis_from=50.0))]
     fn to_formant_burg(
         &self,
+        py: Python<'_>,
         time_step: f64,
         max_number_of_formants: usize,
         maximum_formant: f64,
@@ -549,13 +550,13 @@ impl PySound {
         pre_emphasis_from: f64,
     ) -> PyFormant {
         PyFormant {
-            inner: self.inner.to_formant_burg(
+            inner: py.allow_threads(|| self.inner.to_formant_burg(
                 time_step,
                 max_number_of_formants,
                 maximum_formant,
                 window_length,
                 pre_emphasis_from,
-            ),
+            )),
         }
     }
 
@@ -787,18 +788,19 @@ impl PySound {
     #[pyo3(signature = (window_length=0.005, maximum_frequency=5000.0, time_step=0.002, frequency_step=20.0))]
     fn to_spectrogram(
         &self,
+        py: Python<'_>,
         window_length: f64,
         maximum_frequency: f64,
         time_step: f64,
         frequency_step: f64,
     ) -> PySpectrogram {
         PySpectrogram {
-            inner: self.inner.to_spectrogram(
+            inner: py.allow_threads(|| self.inner.to_spectrogram(
                 window_length,
                 maximum_frequency,
                 time_step,
                 frequency_step,
-            ),
+            )),
         }
     }
 

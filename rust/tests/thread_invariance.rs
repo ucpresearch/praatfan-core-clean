@@ -6,7 +6,7 @@ use praatfan_rust::formant::sound_to_formant_burg_multi;
 use praatfan_rust::pitch::{sound_to_pitch_internal, FrameTiming, PitchMethod};
 use praatfan_rust::{
     sound_to_harmonicity_ac, sound_to_harmonicity_cc,
-    sound_to_intensity, sound_to_pitch_ac, sound_to_pitch_cc, Sound,
+    sound_to_intensity, sound_to_pitch_ac, sound_to_pitch_cc, sound_to_spectrogram, Sound,
 };
 
 fn analyse(sound: &Sound) -> Vec<u64> {
@@ -42,8 +42,13 @@ fn analyse(sound: &Sound) -> Vec<u64> {
     for f in sound_to_formant_burg_multi(sound, 0.0, 5, &[4500.0, 5000.0, 5500.0], 0.025, 50.0) {
         for n in 1..=3 {
             push(&f.formant_values(n).to_vec());
+            push(&f.bandwidth_values(n).to_vec());
         }
     }
+    // Resampler stage 2 runs in parallel chunks
+    push(&sound.resample(7350.0).samples().to_vec());
+    let sg = sound_to_spectrogram(sound, 0.005, 5000.0, 0.002, 20.0);
+    push(&sg.values().iter().copied().collect::<Vec<f64>>());
     bits
 }
 

@@ -61,10 +61,8 @@ use crate::sound::Sound;
 // gives sample-level error `O((1/OVERSAMPLE)² · max|k''|)` ≈ 2.5e-6 worst
 // case at OVERSAMPLE=2048 — well above f64 noise. Cubic gives
 // `O((1/OVERSAMPLE)⁴ · max|k''''|)` ≈ 1e-13, in the f64 rounding-noise
-// floor. Worth ~4× more arithmetic per tap, but the four reads are
-// adjacent f64s — they fit in a single cache line, which the linear-interp
-// 2-entry stencil only sometimes does. So compute goes up but cache use
-// goes down; net effect on wall-time is empirical.
+// floor. The cubic's coefficients are precomputed per table index and laid
+// out so one output sample's taps are adjacent in memory (`ResampleTable`).
 //
 // Table padding: 1 prefix entry (zero) so `kernel[ti-1]` is in-bounds when
 // `ti=1`; 2 suffix entries (zero) so `kernel[ti+2]` is in-bounds at the
@@ -107,8 +105,55 @@ fn build_resample_kernel(precision: usize, oversample: usize) -> Vec<f64> {
     kernel
 }
 
-static RESAMPLE_KERNEL: LazyLock<Vec<f64>> =
-    LazyLock::new(|| build_resample_kernel(RESAMPLE_PRECISION, RESAMPLE_OVERSAMPLE));
+/// The stage-2 kernel re-laid-out for the inner loop.
+///
+/// For each table index `ti`, the inner loop needs the Catmull-Rom
+/// coefficients built from `kernel[ti-1..=ti+2]`. The taps of one output
+/// sample step `ti` by `OVERSAMPLE`, so in the flat table they are 16 KB
+/// apart and every tap is a cache miss (measured ~9 ns/tap on a 10-minute
+/// file). Here the coefficients are precomputed once per `ti`, with the same
+/// arithmetic as before, and stored at row `ti % OVERSAMPLE`, column
+/// `ti / OVERSAMPLE`: one output's taps are then adjacent in memory. The
+/// values read and the per-tap arithmetic are unchanged, so the resampled
+/// signal is bit-identical to the flat-table form.
+struct ResampleTable {
+    /// `[k0, a, b, c]` per `ti` (see the Horner form in `resample_two_stage`).
+    coeffs: Vec<[f64; 4]>,
+    n_cols: usize,
+}
+
+impl ResampleTable {
+    fn new(precision: usize) -> Self {
+        let kernel = build_resample_kernel(precision, RESAMPLE_OVERSAMPLE);
+        let n_cols = kernel.len() / RESAMPLE_OVERSAMPLE + 1;
+        let mut coeffs = vec![[0.0f64; 4]; RESAMPLE_OVERSAMPLE * n_cols];
+        // Valid ti: km1 = kernel[ti-1] and k2 = kernel[ti+2] must be in range.
+        for ti in 1..kernel.len() - 2 {
+            let km1 = kernel[ti - 1];
+            let k0 = kernel[ti];
+            let k1 = kernel[ti + 1];
+            let k2 = kernel[ti + 2];
+            let a = k1 - km1;
+            let b = 2.0 * km1 - 5.0 * k0 + 4.0 * k1 - k2;
+            let c = 3.0 * k0 - 3.0 * k1 + k2 - km1;
+            coeffs[Self::slot(ti, n_cols)] = [k0, a, b, c];
+        }
+        Self { coeffs, n_cols }
+    }
+
+    #[inline(always)]
+    fn slot(ti: usize, n_cols: usize) -> usize {
+        (ti % RESAMPLE_OVERSAMPLE) * n_cols + ti / RESAMPLE_OVERSAMPLE
+    }
+
+    #[inline(always)]
+    fn at(&self, ti: usize) -> &[f64; 4] {
+        &self.coeffs[Self::slot(ti, self.n_cols)]
+    }
+}
+
+static RESAMPLE_TABLE: LazyLock<ResampleTable> =
+    LazyLock::new(|| ResampleTable::new(RESAMPLE_PRECISION));
 
 // =============================================================================
 // Data Structures
@@ -1070,17 +1115,17 @@ fn resample_two_stage(
     // Use the process-wide kernel for the common (precision, oversample)
     // pair; build once per call only for nonstandard precisions (none of the
     // current callers hit this path, but keep it for API completeness).
-    let owned_kernel: Option<Vec<f64>>;
-    let kernel: &[f64] = if precision == RESAMPLE_PRECISION {
-        &RESAMPLE_KERNEL
+    let owned_table: Option<ResampleTable>;
+    let table: &ResampleTable = if precision == RESAMPLE_PRECISION {
+        &RESAMPLE_TABLE
     } else {
-        owned_kernel = Some(build_resample_kernel(precision, RESAMPLE_OVERSAMPLE));
-        owned_kernel.as_deref().unwrap()
+        owned_table = Some(ResampleTable::new(precision));
+        owned_table.as_ref().unwrap()
     };
     let os_f = RESAMPLE_OVERSAMPLE as f64;
-    let mut out = vec![0.0f64; n_out];
-
-    for m in 0..n_out {
+    // Each output sample depends only on `filtered` and the table, so outputs
+    // are computed in parallel chunks (order-preserving; bit-identical).
+    let sample_at = |m: usize| -> f64 {
         let x = (m as f64 + 0.5) * ratio - 0.5;
         let lo_f = (x - n_half).ceil();
         let hi_f = (x + n_half).floor();
@@ -1093,7 +1138,7 @@ fn resample_two_stage(
             hi = (n_in as isize) - 1;
         }
         if hi < lo {
-            continue;
+            return 0.0;
         }
         // Per-output: t(k) = (k - x + n_half) * OVERSAMPLE + PREFIX
         // = t0 + k * OVERSAMPLE. Precompute t0 and step the integer offset
@@ -1112,20 +1157,20 @@ fn resample_two_stage(
             // where  a = k1 - km1
             //        b = 2·km1 - 5·k0 + 4·k1 - k2
             //        c = 3·k0 - 3·k1 + k2 - km1
-            let km1 = kernel[ti - 1];
-            let k0 = kernel[ti];
-            let k1 = kernel[ti + 1];
-            let k2 = kernel[ti + 2];
-            let a = k1 - km1;
-            let b = 2.0 * km1 - 5.0 * k0 + 4.0 * k1 - k2;
-            let c = 3.0 * k0 - 3.0 * k1 + k2 - km1;
+            // (precomputed per ti in `ResampleTable`)
+            let &[k0, a, b, c] = table.at(ti);
             let kern_val = 0.5 * (2.0 * k0 + frac * (a + frac * (b + frac * c)));
             acc += filtered[k as usize] * kern_val;
             t += os_f;
         }
-        out[m] = acc;
-    }
-    out
+        acc
+    };
+    const CHUNK: usize = 16384;
+    let n_chunks = n_out.div_ceil(CHUNK);
+    let chunks = crate::parallel::map_frames(n_chunks, || (), |_, c| {
+        (c * CHUNK..((c + 1) * CHUNK).min(n_out)).map(sample_at).collect::<Vec<f64>>()
+    });
+    chunks.concat()
 }
 
 // =============================================================================
@@ -1254,9 +1299,9 @@ pub fn sound_to_formant_burg(
     // =========================================================================
     // Step 5: Process each frame
     // =========================================================================
-    let mut frames = Vec::with_capacity(n_frames);
-
-    for i in 0..n_frames {
+    // Frames are independent given the pre-emphasized signal and window, so
+    // they run in parallel (order-preserving; bit-identical to a serial loop).
+    let frames = crate::parallel::map_frames(n_frames, || (), |_, i| {
         // Frame center time
         let t = t1 + i as f64 * time_step;
 
@@ -1320,8 +1365,8 @@ pub fn sound_to_formant_burg(
             pts
         };
 
-        frames.push(FormantFrame::new(t, formant_points));
-    }
+        FormantFrame::new(t, formant_points)
+    });
 
     Formant::new(frames, time_step, max_formant_hz, max_num_formants)
 }
