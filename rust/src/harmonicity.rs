@@ -656,7 +656,7 @@ mod boundary_tests {
     use super::*;
 
     /// The value the old `r.clamp(1e-10, 1.0 - 1e-10)` collapsed near-perfect
-    /// correlations onto. See BUG-hnr-ac-saturation.md.
+    /// correlations onto (fixed in v0.1.10; see the release notes).
     const LEGACY_CLIP_CONSTANT: f64 = 99.99999964022885;
 
     #[test]

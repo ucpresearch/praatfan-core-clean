@@ -47,6 +47,16 @@ formant = sound.to_formant_burg(time_step=0.0, max_number_of_formants=5,
 harmonicity = sound.to_harmonicity_ac(0.01, 75.0, 0.1, 4.5)
 ```
 
+## Threading
+
+Per-frame analysis (pitch, harmonicity, intensity, formants, spectrogram) and
+the resampler run on all CPU cores, with results bit-identical to a
+single-threaded run. Set `RAYON_NUM_THREADS` before the first analysis to
+limit the thread count, e.g. `1` when you already parallelise across
+processes. The GIL is released during analyses, and the library is safe to
+use in `multiprocessing` children started with `fork`. The WebAssembly build
+is single-threaded.
+
 ## Reading harmonicity values
 
 Two entries in an HNR contour are markers rather than measurements:

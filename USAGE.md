@@ -582,6 +582,24 @@ const power = spectrogram.get_value_at(10, 50);  // time_frame, freq_bin
 
 ---
 
+## Performance and threading
+
+The Rust backend (`praatfan_rust`) spreads the per-frame work of pitch,
+harmonicity, intensity, formant and spectrogram analysis, and the resampler
+behind formant analysis, across all CPU cores. Results are bit-identical to a
+single-threaded run at any thread count.
+
+- **Thread count:** set the `RAYON_NUM_THREADS` environment variable before the
+  first analysis in a process (e.g. `RAYON_NUM_THREADS=4`). If you already
+  parallelise across files (`multiprocessing`, joblib, several R sessions),
+  set it to `1`, or to cores ÷ workers, so the two levels don't oversubscribe
+  the CPU.
+- **Python threads:** the GIL is released while an analysis runs, so calls
+  from several Python threads run concurrently.
+- **`multiprocessing`:** safe with the `fork` start method, including after
+  the parent process has already run analyses.
+- **WebAssembly** builds are single-threaded.
+
 ## Common Workflows
 
 ### Extract F1/F2 vowel formants

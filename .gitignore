@@ -14,3 +14,7 @@ REBUILD.md
 docs/RESAMPLER_INVESTIGATION.md
 0001-Add-batch-formant-candidate-scoring-Python-Rust.patch
 BACKUP_*.md
+
+# Internal bug reports (kept locally, not published)
+BUG-hnr-ac-backend-disagreement.md
+BUG-hnr-ac-saturation.md

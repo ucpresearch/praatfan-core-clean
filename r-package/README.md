@@ -88,4 +88,8 @@ which subprocess runs; this package itself remains MIT either way.
 - For generic spectra/spectrograms, R is already well served (seewave,
   phonTools, wrassp); this package deliberately carries only the
   Praat-parity values those tools can't replicate.
+- The `"open"` engine's binary uses all CPU cores for each file. When you
+  run analyses in parallel yourself (`parallel::mclapply`, `future`, ...),
+  limit its threads with `Sys.setenv(RAYON_NUM_THREADS = 1)` (or cores ÷
+  workers) before the first call. Results are identical at any thread count.
 - `pf_uninstall()` removes the installed binary and cached sources.

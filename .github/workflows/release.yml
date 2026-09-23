@@ -239,9 +239,17 @@ jobs:
             target: x86_64-pc-windows-msvc
             asset: praatfan-open-pipe-windows-x86_64.exe
             bin: praatfan-open-pipe.exe
+          # Native build on the ARM64 runner (the wheel job uses it too).
+          - os: windows-11-arm
+            target: aarch64-pc-windows-msvc
+            asset: praatfan-open-pipe-windows-aarch64.exe
+            bin: praatfan-open-pipe.exe
     steps:
       - uses: actions/checkout@v6
-      - run: rustup target add ${{ matrix.target }}
+      # Installs rustup where the runner image lacks it (windows-11-arm).
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          targets: ${{ matrix.target }}
       - name: Build praatfan-open-pipe
         run: cargo build --release --features pipe --bin praatfan-open-pipe --target ${{ matrix.target }}
         working-directory: rust

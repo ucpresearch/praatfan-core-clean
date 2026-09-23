@@ -177,15 +177,35 @@ pf_uninstall <- function(sources = TRUE) {
     "linux-aarch64"
   } else if (os == "linux") {
     "linux-x86_64"
+  } else if (os == "windows" && .pf_windows_is_arm64(arch)) {
+    # Native ARM64 first; the x86_64 build runs under Windows' x64 emulation
+    # if an engine release carries no ARM64 asset.
+    c("windows-aarch64.exe", "windows-x86_64.exe")
   } else if (os == "windows") {
     "windows-x86_64.exe"
   } else {
     stop("Unsupported platform: ", os, " ", arch, call. = FALSE)
   }
 
+  assets <- paste0(eng$bin, "-", suffix)
   list(os = os, arch = arch,
-       asset = paste0(eng$bin, "-", suffix),
+       asset = assets[[1]],
+       assets = assets,
        exe = if (os == "windows") paste0(eng$bin, ".exe") else eng$bin)
+}
+
+#' Whether this Windows machine has an ARM64 CPU.
+#'
+#' Checks the OS-reported machine, R's own build architecture, and the
+#' processor variables Windows sets (an emulated x64 R still sees ARM64 in
+#' one of them).
+#'
+#' @keywords internal
+.pf_windows_is_arm64 <- function(machine) {
+  candidates <- c(machine, R.version$arch,
+                  Sys.getenv("PROCESSOR_ARCHITECTURE"),
+                  Sys.getenv("PROCESSOR_ARCHITEW6432"))
+  any(tolower(candidates) %in% c("arm64", "aarch64"))
 }
 
 
@@ -370,45 +390,55 @@ pf_uninstall <- function(sources = TRUE) {
 #' @keywords internal
 .pf_download_binary <- function(eng, ref = NULL) {
   plat <- .pf_platform(eng)
-  name <- plat$asset
-
-  url <- if (is.null(ref)) {
-    paste0("https://github.com/", eng$repo,
-           "/releases/latest/download/", name)
-  } else {
-    paste0("https://github.com/", eng$repo,
-           "/releases/download/", ref, "/", name)
-  }
 
   message("Downloading ", eng$bin, " for ", plat$os, "/", plat$arch,
           if (is.null(ref)) "" else paste0(" (", ref, ")"), "...")
 
   tmp <- tempfile()
   on.exit(unlink(tmp, recursive = TRUE), add = TRUE)
-  src <- tmp
-  got <- tryCatch({
-    suppressWarnings(
-      utils::download.file(url, tmp, mode = "wb", quiet = TRUE))
-    file.exists(tmp) && file.size(tmp) > 0L
-  }, error = function(e) FALSE)
 
-  # A private repository serves 404 to an unauthenticated download; gh carries
-  # the user's token, so retry through it when it is available.
-  if (!got && Sys.which("gh") != "") {
-    message("  Direct download failed; retrying via gh.")
-    unlink(tmp)
-    dir.create(tmp, showWarnings = FALSE, recursive = TRUE)
-    status <- system2("gh",
-                      c("release", "download", ref, "--repo", eng$repo,
-                        "--pattern", shQuote(name), "--dir", shQuote(tmp),
-                        "--clobber"),
-                      stdout = "", stderr = "")
-    src <- file.path(tmp, name)
-    got <- status == 0L && file.exists(src)
+  # Candidate assets in order of preference (e.g. native ARM64, then x86_64).
+  for (name in plat$assets) {
+    url <- if (is.null(ref)) {
+      paste0("https://github.com/", eng$repo,
+             "/releases/latest/download/", name)
+    } else {
+      paste0("https://github.com/", eng$repo,
+             "/releases/download/", ref, "/", name)
+    }
+
+    unlink(tmp, recursive = TRUE)
+    src <- tmp
+    got <- tryCatch({
+      suppressWarnings(
+        utils::download.file(url, tmp, mode = "wb", quiet = TRUE))
+      file.exists(tmp) && file.size(tmp) > 0L
+    }, error = function(e) FALSE)
+
+    # A private repository serves 404 to an unauthenticated download; gh
+    # carries the user's token, so retry through it when it is available.
+    if (!got && Sys.which("gh") != "") {
+      message("  Direct download of ", name, " failed; retrying via gh.")
+      unlink(tmp, recursive = TRUE)
+      dir.create(tmp, showWarnings = FALSE, recursive = TRUE)
+      status <- system2("gh",
+                        c("release", "download", ref, "--repo", eng$repo,
+                          "--pattern", shQuote(name), "--dir", shQuote(tmp),
+                          "--clobber"),
+                        stdout = "", stderr = "")
+      src <- file.path(tmp, name)
+      got <- status == 0L && file.exists(src)
+    }
+
+    if (got) break
+    if (name != plat$assets[[length(plat$assets)]]) {
+      message("  ", name, " not available; trying the next build.")
+    }
   }
 
   if (!got) {
-    stop("could not download ", name, " from ", url,
+    stop("could not download ", paste(plat$assets, collapse = " or "),
+         " from ", eng$repo,
          " (a private repository needs an authenticated `gh`, or use ",
          "method = \"git\")", call. = FALSE)
   }

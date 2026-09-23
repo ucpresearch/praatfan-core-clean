@@ -2,10 +2,16 @@
 
 A clean-room reimplementation of Praat's acoustic analysis algorithms, with a unified API that supports multiple backends.
 
-> **Note:** Latest published release **v0.1.9**; **v0.1.10** is prepared in this
+> **Note:** Latest published release **v0.1.10**; **v0.1.11** is prepared in this
 > tree. The API is stabilizing but may still change.
 >
-> **v0.1.10 changes harmonicity output values — read before upgrading.**
+> **v0.1.11** runs the Rust backend's analyses on all CPU cores. Results are
+> bit-identical to v0.1.10; see [Performance and threading](#performance-and-threading)
+> for how to limit the thread count. It also adds a native Windows ARM64
+> build of `praatfan-open-pipe`.
+>
+> **v0.1.10 changed harmonicity output values — read before upgrading from
+> v0.1.9 or earlier.**
 > `To Harmonicity (ac)` / `To Harmonicity (cc)` now report `nan` for frames
 > whose normalized correlation is not resolvable from 1 in double precision.
 > Earlier releases clamped those frames to a fixed ~100 dB (AC) or to -200 dB
@@ -18,7 +24,7 @@ A clean-room reimplementation of Praat's acoustic analysis algorithms, with a un
 > become an error in a later release. Praat's standard value for this method is
 > 4.5; use the cross-correlation method if you need 1.0.
 >
-> Also new since v0.1.9: the `praatfan-open-pipe` JSON binary and the R package
+> Also new in v0.1.10: the `praatfan-open-pipe` JSON binary and the R package
 > that wraps it. The v0.1.9 NIST SPHERE support is unchanged.
 
 ## Installation
@@ -426,6 +432,24 @@ f1_values = formant.formant_values(1)  # All F1 values as numpy array
 | call() function | `parselmouth.praat.call` | `praatfan.call` |
 | Frame indexing in call() | 1-based | 1-based |
 | Backend switching | No | Yes (`set_backend()`) |
+
+## Performance and threading
+
+The Rust backend (`praatfan_rust`) spreads the per-frame work of pitch,
+harmonicity, intensity, formant and spectrogram analysis, and the resampler
+behind formant analysis, across all CPU cores. Results are bit-identical to a
+single-threaded run at any thread count.
+
+- **Thread count:** set the `RAYON_NUM_THREADS` environment variable before the
+  first analysis in a process (e.g. `RAYON_NUM_THREADS=4`). If you already
+  parallelise across files (`multiprocessing`, joblib, several R sessions),
+  set it to `1`, or to cores ÷ workers, so the two levels don't oversubscribe
+  the CPU.
+- **Python threads:** the GIL is released while an analysis runs, so calls
+  from several Python threads run concurrently.
+- **`multiprocessing`:** safe with the `fork` start method, including after
+  the parent process has already run analyses.
+- **WebAssembly** builds are single-threaded.
 
 ## Why Multiple Backends?
 

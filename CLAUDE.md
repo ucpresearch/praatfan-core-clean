@@ -498,6 +498,7 @@ praatfan-core-clean/
     │   ├── harmonicity.rs # HNR analysis
     │   ├── formant.rs     # Formant analysis (Burg LPC)
     │   ├── spectrogram.rs # STFT spectrogram
+    │   ├── parallel.rs    # Order-preserving parallel frame map (fork-safe pool)
     │   ├── error.rs       # Error types
     │   ├── pipe.rs        # JSON pipe interface (feature "pipe")
     │   ├── bin/praatfan_open_pipe.rs  # JSON stdin/stdout binary
@@ -729,13 +730,50 @@ This is an optional dependency enabled automatically by the `wasm` feature flag.
 
 ### Release Status
 
-**Version in this tree:** 0.1.10 (prepared, **not yet released**).
-**Latest published release:** v0.1.9 (2026-06-28).
+**Version in this tree:** 0.1.11 (prepared, **not yet released**).
+**Latest published release:** v0.1.10 (2026-08-27).
 
 Verify with `gh release list` / `git tag -l | sort -V | tail` rather than
 trusting this section — it goes stale.
 
-v0.1.10 (unreleased) is a patch bump. It is not purely additive — harmonicity
+**v0.1.11 (unreleased) — parallel frame loops (output unchanged).** Commits
+`05d8357` and `33d60a2`. Every result is bit-identical to v0.1.10; only speed
+and threading behaviour change. Also adds a Windows ARM64
+`praatfan-open-pipe` release asset (`praatfan-open-pipe-windows-aarch64.exe`,
+built natively on `windows-11-arm`); the R package tries it first on ARM64
+Windows and falls back to the x86_64 build (runs under emulation) when an
+engine release lacks it.
+
+- `rust/src/parallel.rs::map_frames` is an order-preserving parallel map
+  (rayon `map_init` + `collect`). It is used by the frame loops of pitch
+  (therefore both harmonicity methods), intensity, formant and spectrogram,
+  by resampler stage 2 (chunks of 16384 output samples), and by
+  `sound_to_formant_burg_multi`. Global quantities (peaks, windows, FFT plans,
+  stage-1 FFT) are still computed serially first; Viterbi stays serial.
+  Scratch from `init` must be fully overwritten per item: rayon creates one
+  per split job, and wasm32 reuses one for everything.
+- **Fork safety:** the crate uses its own pool keyed on `std::process::id()`
+  and rebuilds it in a forked child, because rayon's global pool deadlocks
+  after `fork()` (Python `multiprocessing` default on Linux). Inside a caller's
+  rayon pool, that pool is used. Thread count: `RAYON_NUM_THREADS`.
+- rayon stays gated on `cfg(not(target_arch = "wasm32"))`; wasm runs the same
+  closures serially.
+- All PyO3 analysis bindings release the GIL (`py.allow_threads`).
+- `ResampleTable` (formant.rs) stores precomputed Catmull-Rom coefficients
+  at `[ti % OVERSAMPLE][ti / OVERSAMPLE]`, so one output's taps are adjacent
+  in memory (was one cache miss per tap). Same values, same arithmetic.
+- Verification: `rust/examples/frame_bitdump.rs` dumps exact f64 bits for
+  every analysis; compare dumps across builds / `RAYON_NUM_THREADS`.
+  `rust/tests/thread_invariance.rs` asserts equal bits at 1/2/3/8 threads.
+  Checked against v0.1.10 at 1/2/7/20 threads on the fixtures plus a 623 s
+  Buckeye file, including 44.1/48 kHz → 24 kHz resampling, and wasm32 against
+  a v0.1.10 wasm build.
+- Timings (623 s, 16 kHz, 20 threads, v0.1.10 → now): pitch AC 1.15 → 0.20 s,
+  HNR CC 0.66 → 0.15 s, formant 5500 9.9 → 1.9 s, formant ×3 ceilings
+  29.2 → 3.8 s, resample → 11 kHz 7.7 → 1.5 s (floor: the serial stage-1 FFT,
+  ~1.45 s). Wasm formant 18.0 → 12.4 s.
+
+v0.1.10 is a patch bump. It is not purely additive — harmonicity
 output values change, so read this before upgrading:
 
 - `to_harmonicity_ac` / `to_harmonicity_cc` report `nan` where the normalized
@@ -762,7 +800,7 @@ statically-linked desphere crate (praatfan_rust native + WASM). See
 ### Historical: changes that rolled into v0.1.6–v0.1.8 (all shipped)
 
 > **Note:** The items below were "pending" notes written between v0.1.5 and the
-> v0.1.6 bump. They have all **shipped** (the repo is now at **0.1.10** — see
+> v0.1.6 bump. They have all **shipped** (see
 > Release Status above). Kept for the development record; no longer pending.
 
 After v0.1.5 shipped, `praatfan-gpl==0.1.5` published to PyPI with three
@@ -842,7 +880,7 @@ far below the 1 Hz Burg tolerance. Linear-interp error bound is
 `O((1/OVERSAMPLE)² · max|k''|)` ≈ 2.5e-6 sample-level worst case (analytic).
 Stage 1 (FFT brick-wall LPF, smallft) unchanged. Python `_resample`
 unchanged (rare path). Rust lib tests, full Python suite (112), and both
-WASM targets pass. Implementation: `rust/src/formant.rs:974-1054`.
+WASM targets pass. Implementation: `rust/src/formant.rs::resample_two_stage`.
 
 The pre-two-stage rustfft path is preserved for reference at
 `BACKUP_resampler_two_stage_2026-04-28.md` (gitignored), in case we ever
@@ -873,6 +911,11 @@ batch-formant workload it ran *slower* than linear interp. We accepted the
 slowdown for the bit-parity gain — the Python and Rust resampler outputs
 now agree to f64 noise floor across the full sample stream, which makes
 cross-backend regression tests and the Burg-parity audit simpler.
+
+**Superseded perf note (v0.1.11):** the "4 adjacent reads in one cache line"
+reasoning above no longer applies. `ResampleTable` precomputes the cubic's
+coefficients per table index in a tap-contiguous layout, which removed the
+per-tap cache miss (resample 2× faster single-threaded, output bit-identical).
 
 If perf becomes the priority and Python-Rust bit-parity is dispensable,
 revert to the linear interp form (commit ec9ea94 / `4f52e01`) — it's

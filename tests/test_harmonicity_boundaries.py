@@ -1,7 +1,7 @@
 """
 Regression tests for the AC harmonicity boundary policy.
 
-Filed as BUG-hnr-ac-saturation.md / BUG-hnr-ac-backend-disagreement.md:
+Fixed in v0.1.10 (see the release notes). Before that,
 ``to_harmonicity_ac`` emitted the constant 99.99999964022885 dB (the old
 ``r <= 1-1e-10`` clamp) on large fractions of frames, and at
 ``periods_per_window`` below 3.0 the underlying correlation reached values as
