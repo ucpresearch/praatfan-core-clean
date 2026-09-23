@@ -2,8 +2,8 @@
 
 A clean-room reimplementation of Praat's acoustic analysis algorithms, with a unified API that supports multiple backends.
 
-> **Note:** Latest published release **v0.1.10**; **v0.1.11** is prepared in this
-> tree. The API is stabilizing but may still change.
+> **Note:** Latest published release **v0.1.11**. The API is stabilizing but may
+> still change.
 >
 > **v0.1.11** runs the Rust backend's analyses on all CPU cores. Results are
 > bit-identical to v0.1.10; see [Performance and threading](#performance-and-threading)

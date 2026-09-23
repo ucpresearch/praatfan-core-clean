@@ -730,13 +730,14 @@ This is an optional dependency enabled automatically by the `wasm` feature flag.
 
 ### Release Status
 
-**Version in this tree:** 0.1.11 (prepared, **not yet released**).
-**Latest published release:** v0.1.10 (2026-08-27).
+**Version in this tree:** 0.1.11.
+**Latest published release:** v0.1.11 (2026-09-23; GitHub release + PyPI
+`praatfan` and `praatfan-rust`).
 
 Verify with `gh release list` / `git tag -l | sort -V | tail` rather than
 trusting this section — it goes stale.
 
-**v0.1.11 (unreleased) — parallel frame loops (output unchanged).** Commits
+**v0.1.11 — parallel frame loops (output unchanged).** Commits
 `05d8357` and `33d60a2`. Every result is bit-identical to v0.1.10; only speed
 and threading behaviour change. Also adds a Windows ARM64
 `praatfan-open-pipe` release asset (`praatfan-open-pipe-windows-aarch64.exe`,
