@@ -65,6 +65,7 @@ pub mod error;
 pub mod formant;
 pub mod harmonicity;
 pub mod intensity;
+mod parallel;
 pub mod pitch;
 pub mod smallft;
 pub mod sound;

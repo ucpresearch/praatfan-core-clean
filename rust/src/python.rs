@@ -258,6 +258,7 @@ impl PySound {
     ))]
     fn to_pitch_ac(
         &self,
+        py: Python<'_>,
         time_step: f64,
         pitch_floor: f64,
         pitch_ceiling: f64,
@@ -268,7 +269,7 @@ impl PySound {
         voiced_unvoiced_cost: f64,
     ) -> PyPitch {
         PyPitch {
-            inner: sound_to_pitch_internal(
+            inner: py.allow_threads(|| sound_to_pitch_internal(
                 &self.inner,
                 time_step,
                 pitch_floor,
@@ -284,7 +285,7 @@ impl PySound {
                 true,
                 true,
                 None,
-            ),
+            )),
         }
     }
 
@@ -326,6 +327,7 @@ impl PySound {
     ))]
     fn to_pitch_cc(
         &self,
+        py: Python<'_>,
         time_step: f64,
         pitch_floor: f64,
         pitch_ceiling: f64,
@@ -336,7 +338,7 @@ impl PySound {
         voiced_unvoiced_cost: f64,
     ) -> PyPitch {
         PyPitch {
-            inner: sound_to_pitch_internal(
+            inner: py.allow_threads(|| sound_to_pitch_internal(
                 &self.inner,
                 time_step,
                 pitch_floor,
@@ -352,7 +354,7 @@ impl PySound {
                 true,
                 true,
                 None,
-            ),
+            )),
         }
     }
 
@@ -389,6 +391,7 @@ impl PySound {
     ))]
     fn to_pitch_ac_referenced(
         &self,
+        py: Python<'_>,
         time_step: f64,
         pitch_floor: f64,
         pitch_ceiling: f64,
@@ -406,7 +409,7 @@ impl PySound {
         )
         .map_err(|e| PyValueError::new_err(e.to_string()))?;
         Ok(PyPitch {
-            inner: sound_to_pitch_internal(
+            inner: py.allow_threads(|| sound_to_pitch_internal(
                 &self.inner,
                 time_step,
                 pitch_floor,
@@ -422,7 +425,7 @@ impl PySound {
                 true,
                 true,
                 resolved,
-            ),
+            )),
         })
     }
 
@@ -443,6 +446,7 @@ impl PySound {
     ))]
     fn to_pitch_cc_referenced(
         &self,
+        py: Python<'_>,
         time_step: f64,
         pitch_floor: f64,
         pitch_ceiling: f64,
@@ -460,7 +464,7 @@ impl PySound {
         )
         .map_err(|e| PyValueError::new_err(e.to_string()))?;
         Ok(PyPitch {
-            inner: sound_to_pitch_internal(
+            inner: py.allow_threads(|| sound_to_pitch_internal(
                 &self.inner,
                 time_step,
                 pitch_floor,
@@ -476,7 +480,7 @@ impl PySound {
                 true,
                 true,
                 resolved,
-            ),
+            )),
         })
     }
 
@@ -494,6 +498,7 @@ impl PySound {
     ))]
     fn to_pitch(
         &self,
+        py: Python<'_>,
         time_step: f64,
         pitch_floor: f64,
         pitch_ceiling: f64,
@@ -504,6 +509,7 @@ impl PySound {
         voiced_unvoiced_cost: f64,
     ) -> PyPitch {
         self.to_pitch_ac(
+            py,
             time_step,
             pitch_floor,
             pitch_ceiling,
@@ -615,9 +621,9 @@ impl PySound {
     /// -------
     /// Intensity
     #[pyo3(signature = (minimum_pitch=100.0, time_step=0.0))]
-    fn to_intensity(&self, minimum_pitch: f64, time_step: f64) -> PyIntensity {
+    fn to_intensity(&self, py: Python<'_>, minimum_pitch: f64, time_step: f64) -> PyIntensity {
         PyIntensity {
-            inner: self.inner.to_intensity(minimum_pitch, time_step),
+            inner: py.allow_threads(|| self.inner.to_intensity(minimum_pitch, time_step)),
         }
     }
 
@@ -648,12 +654,12 @@ impl PySound {
     ) -> PyResult<PyHarmonicity> {
         warn_if_ill_conditioned(py, periods_per_window)?;
         Ok(PyHarmonicity {
-            inner: self.inner.to_harmonicity_ac(
+            inner: py.allow_threads(|| self.inner.to_harmonicity_ac(
                 time_step,
                 minimum_pitch,
                 silence_threshold,
                 periods_per_window,
-            ),
+            )),
         })
     }
 
@@ -661,18 +667,19 @@ impl PySound {
     #[pyo3(signature = (time_step=0.01, minimum_pitch=75.0, silence_threshold=0.1, periods_per_window=1.0))]
     fn to_harmonicity_cc(
         &self,
+        py: Python<'_>,
         time_step: f64,
         minimum_pitch: f64,
         silence_threshold: f64,
         periods_per_window: f64,
     ) -> PyHarmonicity {
         PyHarmonicity {
-            inner: self.inner.to_harmonicity_cc(
+            inner: py.allow_threads(|| self.inner.to_harmonicity_cc(
                 time_step,
                 minimum_pitch,
                 silence_threshold,
                 periods_per_window,
-            ),
+            )),
         }
     }
 
@@ -692,7 +699,7 @@ impl PySound {
         reference_peak: Option<f64>,
     ) -> PyResult<PyHarmonicity> {
         warn_if_ill_conditioned(py, periods_per_window)?;
-        let inner = self
+        let inner = py.allow_threads(|| self
             .inner
             .to_harmonicity_ac_referenced(
                 time_step,
@@ -700,7 +707,7 @@ impl PySound {
                 silence_threshold,
                 periods_per_window,
                 reference_peak,
-            )
+            ))
             .map_err(|e| PyValueError::new_err(e.to_string()))?;
         Ok(PyHarmonicity { inner })
     }
@@ -711,13 +718,14 @@ impl PySound {
     #[pyo3(signature = (time_step=0.01, minimum_pitch=75.0, silence_threshold=0.1, periods_per_window=1.0, reference_peak=None))]
     fn to_harmonicity_cc_referenced(
         &self,
+        py: Python<'_>,
         time_step: f64,
         minimum_pitch: f64,
         silence_threshold: f64,
         periods_per_window: f64,
         reference_peak: Option<f64>,
     ) -> PyResult<PyHarmonicity> {
-        let inner = self
+        let inner = py.allow_threads(|| self
             .inner
             .to_harmonicity_cc_referenced(
                 time_step,
@@ -725,7 +733,7 @@ impl PySound {
                 silence_threshold,
                 periods_per_window,
                 reference_peak,
-            )
+            ))
             .map_err(|e| PyValueError::new_err(e.to_string()))?;
         Ok(PyHarmonicity { inner })
     }

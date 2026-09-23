@@ -1340,37 +1340,14 @@ pub fn sound_to_formant_burg_multi(
     window_length: f64,
     pre_emphasis_from: f64,
 ) -> Vec<Formant> {
-    #[cfg(not(target_arch = "wasm32"))]
-    {
-        use rayon::prelude::*;
-        maximum_formants
-            .par_iter()
-            .map(|&hz| {
-                sound_to_formant_burg(
-                    sound,
-                    time_step,
-                    max_num_formants,
-                    hz,
-                    window_length,
-                    pre_emphasis_from,
-                )
-            })
-            .collect()
-    }
-    #[cfg(target_arch = "wasm32")]
-    {
-        maximum_formants
-            .iter()
-            .map(|&hz| {
-                sound_to_formant_burg(
-                    sound,
-                    time_step,
-                    max_num_formants,
-                    hz,
-                    window_length,
-                    pre_emphasis_from,
-                )
-            })
-            .collect()
-    }
+    crate::parallel::map_frames(maximum_formants.len(), || (), |_, k| {
+        sound_to_formant_burg(
+            sound,
+            time_step,
+            max_num_formants,
+            maximum_formants[k],
+            window_length,
+            pre_emphasis_from,
+        )
+    })
 }

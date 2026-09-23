@@ -43,6 +43,7 @@
 use ndarray::Array1;
 use rustfft::{num_complex::Complex, FftPlanner};
 
+use crate::parallel::map_frames;
 use crate::sound::Sound;
 
 /// A pitch candidate for a frame.
@@ -462,6 +463,7 @@ fn compute_autocorrelation_fft(
     fft: &dyn rustfft::Fft<f64>,
     ifft: &dyn rustfft::Fft<f64>,
     fft_size: usize,
+    fft_scratch: &mut [Complex<f64>],
 ) -> Vec<f64> {
     let n = samples.len();
 
@@ -475,7 +477,7 @@ fn compute_autocorrelation_fft(
     }
 
     // Forward FFT
-    fft.process(buffer);
+    fft.process_with_scratch(buffer, fft_scratch);
 
     // Power spectrum: |X[k]|²
     for x in buffer.iter_mut() {
@@ -483,7 +485,7 @@ fn compute_autocorrelation_fft(
     }
 
     // Inverse FFT
-    ifft.process(buffer);
+    ifft.process_with_scratch(buffer, fft_scratch);
 
     // Extract and normalize by fft_size
     // (rustfft uses unnormalized transforms, so IFFT(|FFT(x)|²)[τ] = fft_size × r(τ))
@@ -529,6 +531,7 @@ fn compute_cross_correlation_fft(
     fft: &dyn rustfft::Fft<f64>,
     ifft: &dyn rustfft::Fft<f64>,
     fft_size: usize,
+    fft_scratch: &mut [Complex<f64>],
 ) -> Vec<f64> {
     let n = samples.len();
     let mut r = vec![0.0; max_lag + 1];
@@ -541,11 +544,11 @@ fn compute_cross_correlation_fft(
             Complex::new(0.0, 0.0)
         };
     }
-    fft.process(buffer);
+    fft.process_with_scratch(buffer, fft_scratch);
     for x in buffer.iter_mut() {
         *x = Complex::new(x.norm_sqr(), 0.0);
     }
-    ifft.process(buffer);
+    ifft.process_with_scratch(buffer, fft_scratch);
     let scale = 1.0 / fft_size as f64;
 
     // Compute cumulative sum of squares for energy normalization
@@ -1135,6 +1138,11 @@ pub fn sound_to_pitch_internal(
     let fft_forward = planner.plan_fft_forward(fft_size);
     let fft_inverse = planner.plan_fft_inverse(fft_size);
     let mut fft_buffer = vec![Complex::new(0.0, 0.0); fft_size];
+    // rustfft's process() allocates this on every call; keep one per worker
+    let fft_scratch_len = fft_forward
+        .get_inplace_scratch_len()
+        .max(fft_inverse.get_inplace_scratch_len());
+    let mut fft_scratch = vec![Complex::new(0.0, 0.0); fft_scratch_len];
 
     // For AC method: generate window and compute its autocorrelation via FFT
     // The window autocorrelation is used for normalization (Eq. 9)
@@ -1143,7 +1151,7 @@ pub fn sound_to_pitch_internal(
             let w = hanning_window(window_samples);
             let rw = compute_autocorrelation_fft(
                 &w, max_lag, &mut fft_buffer,
-                &*fft_forward, &*fft_inverse, fft_size,
+                &*fft_forward, &*fft_inverse, fft_size, &mut fft_scratch,
             );
             (Some(w), Some(rw))
         }
@@ -1197,15 +1205,28 @@ pub fn sound_to_pitch_internal(
         }
     };
 
-    // Process each frame
-    let mut frames = Vec::with_capacity(n_frames);
+    // Process each frame. Frames are independent given the globals above, so
+    // they run in parallel (order-preserving, bit-identical to a serial loop);
+    // the Viterbi pass below stays serial.
     let n_samples = samples.len();
+    let samples = samples.as_slice().unwrap();
+    let window = window.as_deref();
+    let r_w = r_w.as_deref();
+    let fft_forward = &*fft_forward;
+    let fft_inverse = &*fft_inverse;
 
-    // Pre-allocate buffers reused across frames
-    let mut frame_samples = vec![0.0; window_samples];
-    let mut windowed = vec![0.0; window_samples];
+    // Per-worker scratch buffers, fully overwritten for every frame
+    let init_scratch = || {
+        (
+            vec![0.0; window_samples],
+            vec![0.0; window_samples],
+            vec![Complex::new(0.0, 0.0); fft_size],
+            vec![Complex::new(0.0, 0.0); fft_scratch_len],
+        )
+    };
 
-    for i in 0..n_frames {
+    let mut frames = map_frames(n_frames, init_scratch, |scratch, i| {
+        let (frame_samples, windowed, fft_buffer, fft_scratch) = scratch;
         let t = t1 + i as f64 * time_step;
 
         // Extract frame samples centered at time t
@@ -1225,12 +1246,12 @@ pub fn sound_to_pitch_internal(
             let dst_start = (src_start as isize - start_sample) as usize;
             let dst_end = dst_start + (src_end - src_start);
             frame_samples[dst_start..dst_end]
-                .copy_from_slice(&samples.as_slice().unwrap()[src_start..src_end]);
+                .copy_from_slice(&samples[src_start..src_end]);
         } else {
             // Full overlap - copy all samples
             let start = start_sample as usize;
             let end = end_sample as usize;
-            frame_samples.copy_from_slice(&samples.as_slice().unwrap()[start..end]);
+            frame_samples.copy_from_slice(&samples[start..end]);
         }
 
         // Compute local peak for silence detection
@@ -1241,8 +1262,8 @@ pub fn sound_to_pitch_internal(
         let (peaks, raw_ac_max) = match method {
             PitchMethod::Ac => {
                 // AC method: apply window and compute autocorrelation via FFT
-                let window = window.as_ref().unwrap();
-                let r_w = r_w.as_ref().unwrap();
+                let window = window.unwrap();
+                let r_w = r_w.unwrap();
 
                 // Apply window to samples (in-place in pre-allocated buffer)
                 for j in 0..window_samples {
@@ -1251,8 +1272,8 @@ pub fn sound_to_pitch_internal(
 
                 // Compute autocorrelation via FFT
                 let r = compute_autocorrelation_fft(
-                    &windowed, max_lag, &mut fft_buffer,
-                    &*fft_forward, &*fft_inverse, fft_size,
+                    windowed, max_lag, fft_buffer,
+                    fft_forward, fft_inverse, fft_size, fft_scratch,
                 );
 
                 // Find peaks with window normalization
@@ -1261,8 +1282,8 @@ pub fn sound_to_pitch_internal(
             PitchMethod::Cc => {
                 // CC method: cross-correlation via FFT with energy normalization
                 let r = compute_cross_correlation_fft(
-                    &frame_samples, min_lag, max_lag, &mut fft_buffer,
-                    &*fft_forward, &*fft_inverse, fft_size,
+                    frame_samples, min_lag, max_lag, fft_buffer,
+                    fft_forward, fft_inverse, fft_size, fft_scratch,
                 );
                 find_cc_peaks(&r, min_lag, max_lag, sample_rate, 15)
             }
@@ -1302,8 +1323,8 @@ pub fn sound_to_pitch_internal(
                 .unwrap_or(std::cmp::Ordering::Equal)
         });
 
-        frames.push(PitchFrame::new(t, candidates, local_intensity, raw_ac_max));
-    }
+        PitchFrame::new(t, candidates, local_intensity, raw_ac_max)
+    });
 
     // Apply Viterbi path finding to resolve octave errors and voicing decisions
     viterbi_path(&mut frames, time_step, octave_jump_cost, voiced_unvoiced_cost);

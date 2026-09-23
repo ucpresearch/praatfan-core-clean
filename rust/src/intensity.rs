@@ -34,6 +34,7 @@
 
 use ndarray::Array1;
 
+use crate::parallel::map_frames;
 use crate::sound::Sound;
 
 /// Interpolation method for getting values at specific times.
@@ -369,9 +370,6 @@ pub fn sound_to_intensity(sound: &Sound, min_pitch: f64, time_step: f64) -> Inte
     let n_frames = ((t_max - t1) / time_step + 1e-9).floor() as usize + 1;
     let n_frames = n_frames.max(1);
 
-    let mut times = Vec::with_capacity(n_frames);
-    let mut values = Vec::with_capacity(n_frames);
-
     // Reference pressure squared: (2×10⁻⁵ Pa)² = 4×10⁻¹⁰ Pa²
     // This is the standard reference for sound pressure level (SPL) in air
     // 0 dB SPL corresponds to the threshold of human hearing at 1 kHz
@@ -379,11 +377,14 @@ pub fn sound_to_intensity(sound: &Sound, min_pitch: f64, time_step: f64) -> Inte
 
     let n_samples = samples.len();
 
-    // Process each frame
-    for i in 0..n_frames {
+    // Process each frame (in parallel, order-preserving; bit-identical to a
+    // serial loop since each frame's arithmetic is unchanged)
+    // Weight normalisation, identical for every frame
+    let window_sum: f64 = window.iter().sum();
+
+    let frames: Vec<(f64, f64)> = map_frames(n_frames, || vec![0.0; window_samples], |frame_samples, i| {
         // Frame center time
         let t = t1 + i as f64 * time_step;
-        times.push(t);
 
         // Find center sample index
         let center_sample = (t * sample_rate).round() as isize;
@@ -393,13 +394,14 @@ pub fn sound_to_intensity(sound: &Sound, min_pitch: f64, time_step: f64) -> Inte
 
         // Extract frame samples with boundary handling
         // Samples outside the signal range are treated as zero
-        let mut frame_samples = vec![0.0; window_samples];
+        // (scratch is reused, so every element is written)
         for j in 0..window_samples {
             let src_idx = start_sample + j as isize;
-            if src_idx >= 0 && (src_idx as usize) < n_samples {
-                frame_samples[j] = samples[src_idx as usize];
-            }
-            // Samples outside bounds remain 0 (zero-padding at edges)
+            frame_samples[j] = if src_idx >= 0 && (src_idx as usize) < n_samples {
+                samples[src_idx as usize]
+            } else {
+                0.0 // zero-padding at edges
+            };
         }
 
         // DC removal: subtract mean from samples
@@ -413,7 +415,6 @@ pub fn sound_to_intensity(sound: &Sound, min_pitch: f64, time_step: f64) -> Inte
         // Compute weighted mean square
         // This is the windowed RMS² value:
         // mean_square = Σ(s² × w) / Σw
-        let window_sum: f64 = window.iter().sum();
         let mean_square: f64 = frame_samples
             .iter()
             .zip(window.iter())
@@ -429,8 +430,9 @@ pub fn sound_to_intensity(sound: &Sound, min_pitch: f64, time_step: f64) -> Inte
             10.0 * (mean_square / p_ref).log10()
         };
 
-        values.push(intensity_db);
-    }
+        (t, intensity_db)
+    });
+    let (times, values): (Vec<f64>, Vec<f64>) = frames.into_iter().unzip();
 
     Intensity::new(
         Array1::from_vec(times),
