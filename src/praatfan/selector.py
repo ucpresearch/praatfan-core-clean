@@ -121,6 +121,13 @@ def _warn_reference_ignored(backend: str, method: str, hint: str) -> None:
 _PY_RESULT_BACKENDS = ("praatfan", "praatfan_wasm")
 
 
+def _unvoiced_to_nan(values) -> np.ndarray:
+    """F0 array with unvoiced frames (marked 0) as nan."""
+    values = np.array(values, dtype=np.float64)
+    values[values == 0] = np.nan
+    return values
+
+
 class UnifiedPitch:
     """Unified Pitch result - same API regardless of backend."""
 
@@ -141,11 +148,15 @@ class UnifiedPitch:
         raise ValueError(f"Unknown backend: {self._backend}")
 
     def values(self) -> np.ndarray:
-        """F0 values (Hz) for each frame. NaN for unvoiced."""
+        """F0 values (Hz) for each frame. NaN for unvoiced, on every backend.
+
+        parselmouth and the pure-Python result classes mark unvoiced frames
+        with 0; they are converted here so that all backends agree.
+        """
         if self._backend == "parselmouth":
-            return self._inner.selected_array['frequency']
+            return _unvoiced_to_nan(self._inner.selected_array['frequency'])
         elif self._backend in _PY_RESULT_BACKENDS:
-            return self._inner.values()
+            return _unvoiced_to_nan(self._inner.values())
         elif self._backend == "praatfan_rust":
             return np.array(self._inner.values())
         elif self._backend == "praatfan_gpl":

@@ -96,10 +96,6 @@ def test_matches_reference_backend(restore_backend, reference):
     ref = _analyses(Sound(TEST_WAV))
     for k in got:
         a, b = np.asarray(got[k], float), np.asarray(ref[k], float)
-        if reference == "praatfan_rust" and k in ("f0", "f0_cc"):
-            # praatfan_rust reports unvoiced as nan, the pure-Python result
-            # classes (which this backend uses) as 0
-            b = np.nan_to_num(b, nan=0.0)
         assert a.shape == b.shape, k
         assert np.array_equal(np.isnan(a), np.isnan(b)), k
         # Same Rust code as praatfan_rust: differences are libm rounding only.
@@ -155,6 +151,18 @@ def test_fork_after_parent_used_v8():
     with mp.get_context("fork").Pool(2) as pool:
         result = pool.map_async(_pool_work, range(4))
         assert result.get(timeout=120) == [expected] * 4
+
+
+@pytest.mark.parametrize("backend", ["praatfan_rust", "praatfan", "praatfan_wasm"])
+def test_unvoiced_f0_is_nan(restore_backend, backend):
+    """Every backend reports unvoiced F0 as nan, in values() and in call()."""
+    if backend not in get_available_backends():
+        pytest.skip(f"{backend} unavailable")
+    set_backend(backend)
+    pitch = Sound(TEST_WAV).to_pitch_ac()
+    f0 = pitch.values()
+    assert np.isnan(f0[0]) and not np.any(f0 == 0)
+    assert np.isnan(call(pitch, "Get value in frame", 1, "Hertz"))
 
 
 @needs_wasm

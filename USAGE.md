@@ -623,8 +623,8 @@ energy at times — in WebAssembly, with the same numbers as `praatfan_rust` to
 floating-point rounding. Everything else (`to_spectrum`, `to_spectrogram`,
 the `*_referenced` analyses, `extract_part`, `resample`) is served by the
 pure-Python implementation, and `Pitch.raw_ac_strengths()` raises
-`NotImplementedError`. Its results are the pure-Python result classes, so
-unvoiced F0 is `0` as in the `praatfan` backend. Each process gets its own
+`NotImplementedError`. Unvoiced F0 is `NaN`, as on every backend. Each
+process gets its own
 engine; `multiprocessing` works with every start method (a process forked
 after its parent has used the engine routes its calls to a helper process,
 since V8 itself does not survive `fork`).

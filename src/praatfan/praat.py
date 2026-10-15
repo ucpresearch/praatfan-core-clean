@@ -508,9 +508,9 @@ def _call_pitch(obj: Any, command: str, args: tuple) -> Any:
         values = _get_pitch_values(obj)
         value = values[frame_idx]
 
-        # 0 means unvoiced
-        if value == 0:
-            return None
+        # unvoiced: undefined, as in Praat (backends mark it 0 or nan)
+        if value == 0 or np.isnan(value):
+            return np.nan
 
         return _convert_pitch_unit(float(value), unit)
 
