@@ -107,7 +107,7 @@ pitch = call(snd, "To Pitch (ac)", 0, 75, 600)
 Also supports backend switching:
 ```python
 from praatfan import set_backend
-set_backend("parselmouth")  # or "praatfan", "praatfan_rust", "praatfan_gpl"
+set_backend("parselmouth")  # or "praatfan", "praatfan_rust", "praatfan_gpl", "praatfan_wasm"
 ```
 
 ### Clean API
@@ -157,7 +157,7 @@ from praatfan import Sound, call
 
 ### Available Backends
 
-praatfan supports four backends:
+praatfan supports five backends:
 
 | Backend | Package | License | Description |
 |---------|---------|---------|-------------|
@@ -165,11 +165,13 @@ praatfan supports four backends:
 | `praatfan_rust` | `praatfan_rust` (built with maturin) | MIT | Rust implementation with PyO3 bindings |
 | `parselmouth` | `praat-parselmouth` | GPL | Python bindings to Praat |
 | `praatfan_gpl` | `praatfan_gpl` | MIT | Separate Rust implementation (formerly praatfan-core) |
+| `praatfan_wasm` | Built-in bundle + `mini-racer` (`praatfan[wasm]`) | MIT | praatfan_rust compiled to wasm32, run in embedded V8; pipe analyses only, rest falls back to pure Python |
 
 **Selection priority** (first available wins):
 1. `PRAATFAN_BACKEND` environment variable
 2. Config file (`./praatfan.toml` or `~/.praatfan/config.toml`)
-3. Auto-detect: praatfan_gpl → praatfan_rust → praatfan → parselmouth
+3. Auto-detect: praatfan_rust → praatfan_gpl → praatfan_wasm → praatfan
+   (parselmouth only when requested by name — never auto-selected)
 
 **Note:** The Rust wheel (`praatfan_rust`) is a separate package from the Python implementation (`praatfan`). Both can be installed simultaneously.
 
@@ -722,6 +724,33 @@ either; both can coexist. Binary
 override: `PRAATFAN_PIPE` env var (always wins). Install:
 `remotes::install_github("ucpresearch/praatfan-core-clean", subdir = "r-package")`.
 Release assets expected as `praatfan-open-pipe-<os>-<arch>[.exe]`.
+
+### Embedded-V8 WASM backend (Python `praatfan_wasm`, R engine `"wasm"`)
+
+The same crate built `--target no-modules` (`rust/wasm-v8/build.sh`; `--vendor`
+copies it into `src/praatfan/wasm/` and `r-package/inst/wasm/`, refusing a
+build of uncommitted Rust sources). Hosts drive it through the JSON pipe
+protocol: `pipe_request_bytes(file bytes, json)` (R; decoded in-engine by the
+same symphonia/desphere path as `Sound::from_file`, via `Sound::from_bytes`)
+and `pipe_request_samples(Float64Array, sr, json)` (Python). `rust/wasm-v8/
+shim.js` supplies TextEncoder/TextDecoder/base64/console, which an embedded V8
+lacks. Rules learned the hard way:
+- Samples cross as raw little-endian f64 bytes (base64 chunks in Python, a raw
+  vector → Uint8Array in R), never as JSON numbers.
+- mini-racer is initialised with **no** V8 flags (its default is
+  `--single-threaded`, which disables V8's background compile threads).
+  Measured no difference for praatfan (60 s formant 2.02 vs 2.05 s); kept as
+  a precaution.
+- Close contexts in `atexit` (exit hang otherwise). V8 does not survive
+  `fork()`: a child of a V8-using parent routes calls to a helper process
+  (`_wasm.HelperEngine`), and inherited contexts must never be closed or
+  garbage-collected in the child (their `__del__` hangs).
+- Paths are remapped (`--remap-path-prefix`) so no builder path ships in the
+  `.wasm`; the build fails if one survives.
+- **Rebuild + vendor on every version bump** (`tests/test_wasm_backend.py::
+  test_bundle_is_this_version` trips otherwise).
+- Pipe responses carry an additive `"warnings"` array (also printed to stderr
+  by the binary) because wasm32 has no stderr.
 
 **Note:** The WASM build requires `hound` (WAV-only, for in-memory parsing in browsers).
 This is an optional dependency enabled automatically by the `wasm` feature flag.

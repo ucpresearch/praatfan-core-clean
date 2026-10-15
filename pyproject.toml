@@ -37,6 +37,7 @@ dev = [
     "matplotlib",
     "pytest",
     "desphere",
+    "mini-racer>=0.14",
 ]
 # Alternative backends (install separately)
 parselmouth = ["praat-parselmouth"]
@@ -49,6 +50,11 @@ parselmouth = ["praat-parselmouth"]
 # compiled wheel — e.g. unusual platforms) can instead require plain "desphere"
 # in their own dependencies; praatfan uses whichever is installed.
 sphere = ["desphere[fast]"]
+# The praatfan_wasm backend: praatfan_rust compiled to WebAssembly (shipped in
+# this package, src/praatfan/wasm/) and run in an embedded V8. Optional so the
+# pure-Python package installs everywhere; mini-racer ships wheels for Linux
+# (x86_64, aarch64), macOS (x86_64, arm64) and Windows (amd64, arm64).
+wasm = ["mini-racer>=0.14"]
 
 [project.urls]
 Homepage = "https://github.com/ucpresearch/praatfan-core-clean"
@@ -60,3 +66,5 @@ include = ["praatfan*"]
 
 [tool.setuptools.package-data]
 "*" = ["py.typed"]
+# the praatfan_wasm engine bundle (rust/wasm-v8/build.sh --vendor)
+praatfan = ["wasm/*.js", "wasm/*.wasm", "wasm/LICENSE", "wasm/PROVENANCE.txt"]

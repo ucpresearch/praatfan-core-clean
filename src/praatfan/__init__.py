@@ -20,7 +20,8 @@ Usage:
 Backend selection (in order of preference):
     1. PRAATFAN_BACKEND environment variable
     2. Config file (~/.praatfan/config.toml or ./praatfan.toml)
-    3. First available: praatfan_gpl, praatfan_rust, praatfan, parselmouth
+    3. First available: praatfan_rust, praatfan_gpl, praatfan_wasm, praatfan
+       (parselmouth only when requested by name)
 
 Parselmouth compatibility:
     from praatfan import Sound, call

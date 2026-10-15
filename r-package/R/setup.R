@@ -1,8 +1,9 @@
 #' praatfan — installation of the native backend
 #'
-#' Installs the pipe engine binary that all analysis functions call
-#' (\code{praatfan-open-pipe} by default; see \code{\link{pf_engine}} for
-#' the GPL alternative).  No Python, pip, or conda required.
+#' Installs the native pipe engine binary (\code{praatfan-open-pipe} by
+#' default; see \code{\link{pf_engine}} for the GPL alternative).  Optional
+#' for the open engine: without it, analysis runs in the same engine compiled
+#' to WebAssembly inside R.  No Python, pip, or conda required.
 #'
 #' @name setup
 #' @keywords internal
@@ -53,7 +54,8 @@ NULL
 #'
 #' @param engine  Which engine to install: \code{"open"} (default) or
 #'   \code{"gpl"}.  See \code{\link{pf_engine}}.  Both can be installed
-#'   side by side.
+#'   side by side.  (\code{"wasm"} ships with the package: nothing to
+#'   install.)
 #' @param source  Path to a source tree — either a repository root
 #'   (containing \code{rust/Cargo.toml}) or the crate directory itself.
 #'   If given, it is built directly and the other routes are skipped.  If
@@ -73,7 +75,14 @@ pf_setup <- function(engine = NULL, source = NULL, repo = NULL, ref = NULL,
                      method = c("auto", "binary", "git", "source"),
                      force = FALSE) {
   method <- match.arg(method)
-  eng <- .pf_engine_of(engine)
+  # the auto engine may be "wasm" exactly because nothing is installed yet:
+  # with no explicit request, install the open binary
+  eng <- .pf_engine_of(engine %||% .pf_engine_requested() %||% "open")
+  if (eng$name == "wasm") {
+    message("The WASM engine ships with the package; nothing to install. ",
+            "pf_setup(engine = \"open\") installs the faster native binary.")
+    return(invisible(TRUE))
+  }
 
   if (!force && .pf_is_ready(eng)) {
     bin <- tryCatch(.pf_pipe_bin(eng), error = function(e) "")
@@ -448,6 +457,7 @@ pf_uninstall <- function(sources = TRUE) {
 
 
 .pf_is_ready <- function(eng = .pf_engine_of()) {
+  if (eng$name == "wasm") return(is.null(.pf_wasm_unavailable()))
   env <- Sys.getenv("PRAATFAN_PIPE", "")
   if (nzchar(env) && file.exists(env)) return(TRUE)
   candidate <- file.path(.pf_bin_dir, eng$bin)

@@ -24,7 +24,8 @@ praatfan provides acoustic analysis functions equivalent to Praat:
 ```bash
 # From PyPI (recommended)
 pip install praatfan              # Pure Python (works everywhere)
-pip install praatfan-rust         # Rust backend (optional, faster)
+pip install "praatfan[wasm]"      # + the Rust engine as WebAssembly (no compiled wheel needed)
+pip install praatfan-rust         # Rust backend (optional, fastest)
 pip install "praatfan[sphere]"    # + NIST SPHERE (TIMIT/WSJ/Switchboard) support
 ```
 
@@ -81,8 +82,9 @@ praatfan = { path = "../praatfan-core-clean/rust" }
 ```r
 remotes::install_github("ucpresearch/praatfan-core-clean", subdir = "r-package")
 library(praatfan)
-# The praatfan-open-pipe binary is fetched automatically on first use;
-# call pf_setup() to control when/how (or set PRAATFAN_PIPE to a binary).
+# Works immediately: the engine ships as WebAssembly and runs via V8.
+# pf_setup() installs the faster native praatfan-open-pipe binary
+# (or set PRAATFAN_PIPE to one); once present it is used automatically.
 ```
 
 Analysis functions return tidy data.frames:
@@ -599,6 +601,33 @@ single-threaded run at any thread count.
 - **`multiprocessing`:** safe with the `fork` start method, including after
   the parent process has already run analyses.
 - **WebAssembly** builds are single-threaded.
+
+### Backends and auto-selection (Python)
+
+With no `set_backend()`, `PRAATFAN_BACKEND` or config file, the first
+available of these is used:
+
+| Backend | Install | Speed |
+|---------|---------|-------|
+| `praatfan_rust` | `pip install praatfan-rust` | fastest (native, all cores) |
+| `praatfan_gpl` | `pip install praatfan-gpl` | native |
+| `praatfan_wasm` | `pip install "praatfan[wasm]"` | the `praatfan_rust` engine compiled to WebAssembly and run in an embedded V8 ([mini-racer](https://pypi.org/project/mini-racer/)); one thread per call, several times faster than pure Python |
+| `praatfan` | always installed | pure-Python reference implementation |
+
+`parselmouth` is never auto-selected; request it by name
+(`set_backend("parselmouth")` or `PRAATFAN_BACKEND=parselmouth`).
+
+`praatfan_wasm` runs the analyses the JSON pipe carries — pitch (AC/CC),
+formant (Burg), intensity, harmonicity (AC/CC), spectral moments and band
+energy at times — in WebAssembly, with the same numbers as `praatfan_rust` to
+floating-point rounding. Everything else (`to_spectrum`, `to_spectrogram`,
+the `*_referenced` analyses, `extract_part`, `resample`) is served by the
+pure-Python implementation, and `Pitch.raw_ac_strengths()` raises
+`NotImplementedError`. Its results are the pure-Python result classes, so
+unvoiced F0 is `0` as in the `praatfan` backend. Each process gets its own
+engine; `multiprocessing` works with every start method (a process forked
+after its parent has used the engine routes its calls to a helper process,
+since V8 itself does not survive `fork`).
 
 ## Common Workflows
 

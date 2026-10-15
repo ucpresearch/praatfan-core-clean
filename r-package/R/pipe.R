@@ -1,12 +1,14 @@
 #' Internal pipe interface to the analysis engine binary
 #'
-#' Sends JSON requests to a pipe engine binary via stdin and parses JSON
-#' responses from stdout.  Two interchangeable engines speak the same
-#' request/response schema:
+#' Sends JSON requests to an engine and parses its JSON responses.  Three
+#' interchangeable engines speak the same request/response schema:
 #'
 #' \describe{
 #'   \item{\code{"open"}}{\code{praatfan-open-pipe} — the clean-room MIT
-#'     engine (default).}
+#'     engine, as a native binary (JSON over stdin/stdout).}
+#'   \item{\code{"wasm"}}{the same open engine compiled to WebAssembly,
+#'     shipped inside this package and run in R through \pkg{V8}.  Nothing
+#'     to install; slower than the binary (one thread per call).}
 #'   \item{\code{"gpl"}}{\code{praatfan-gpl-pipe} — the GPL engine, which
 #'     tracks Praat's values even more closely.  Choosing it means running
 #'     a GPL-licensed binary (as a subprocess; it does not affect this
@@ -35,6 +37,13 @@ NULL
     bin  = "praatfan-gpl-pipe",
     repo = "ucpresearch/praatfan-core-rs",
     src  = "praatfan-core-rs"
+  ),
+  # the open engine as WebAssembly, run in V8 (wasm.R); no binary
+  wasm = list(
+    name = "wasm",
+    bin  = NULL,
+    repo = NULL,
+    src  = NULL
   )
 )
 
@@ -44,28 +53,54 @@ NULL
 #' With an argument, selects the engine for all subsequent analysis calls
 #' in this session (stored in \code{options(praatfan.engine = ...)}).
 #'
-#' The default is \code{"open"}; the \code{PRAATFAN_ENGINE} environment
-#' variable overrides the default, and an explicit \code{pf_engine(...)}
-#' call overrides both.  Independently of the engine choice, the
+#' An explicit \code{pf_engine(...)} call wins, then the
+#' \code{PRAATFAN_ENGINE} environment variable.  With neither, the engine is
+#' \code{"open"} when its native binary is available (installed by
+#' \code{\link{pf_setup}}, on PATH, or named by \code{PRAATFAN_PIPE}), and
+#' otherwise \code{"wasm"} — the same engine running inside R, so analysis
+#' works with nothing installed.  Independently of the engine choice, the
 #' \code{PRAATFAN_PIPE} environment variable — a path to a specific binary
-#' — always wins.
+#' — always wins for the native engines.
 #'
 #' @param engine \code{NULL} to query, or one of \code{"open"},
-#'   \code{"gpl"} to select.
+#'   \code{"wasm"}, \code{"gpl"} to select.
 #' @return The current engine name (invisibly, when setting).
 #' @export
 pf_engine <- function(engine = NULL) {
   if (is.null(engine)) {
-    current <- getOption("praatfan.engine")
-    if (is.null(current)) {
-      env <- Sys.getenv("PRAATFAN_ENGINE", "")
-      current <- if (nzchar(env)) env else "open"
-    }
+    current <- .pf_engine_requested()
+    if (is.null(current)) current <- .pf_auto_engine()
     return(.pf_engine_of(current)$name)
   }
   engine <- .pf_engine_of(engine)$name
   options(praatfan.engine = engine)
   invisible(engine)
+}
+
+#' The engine the user asked for (option, then environment), or NULL.
+#' @keywords internal
+.pf_engine_requested <- function() {
+  current <- getOption("praatfan.engine")
+  if (is.null(current)) {
+    env <- Sys.getenv("PRAATFAN_ENGINE", "")
+    if (nzchar(env)) current <- env
+  }
+  current
+}
+
+#' No engine requested: the open binary when it is available, else WASM
+#' (announced once per session), else "open" (its auto-setup installs it).
+#' @keywords internal
+.pf_auto_engine <- function() {
+  if (.pf_is_ready(.pf_engines$open)) return("open")
+  if (!is.null(.pf_wasm_unavailable())) return("open")
+  if (!isTRUE(.pf_wasm_env$announced)) {
+    .pf_wasm_env$announced <- TRUE
+    message("praatfan: no praatfan-open-pipe binary found, so the engine runs ",
+            "inside R (WASM; same numbers, slower). Run pf_setup() for native ",
+            "speed; pf_engine(\"wasm\") silences this.")
+  }
+  "wasm"
 }
 
 #' Resolve an engine name (or NULL = current) to its registry entry.
@@ -84,6 +119,12 @@ pf_engine <- function(engine = NULL) {
 
 .pf_pipe_call <- function(request, engine = NULL) {
   eng <- .pf_engine_of(engine)
+  if (eng$name == "wasm") {
+    resp <- .pf_parse_response(.pf_wasm_text(request), "praatfan (WASM engine)")
+    # the binary prints these to stderr, which the WASM engine has none of
+    for (w in resp$warnings) warning("praatfan (WASM engine): ", w, call. = FALSE)
+    return(resp)
+  }
   bin <- .pf_pipe_bin(eng)
   json_in <- jsonlite::toJSON(request, auto_unbox = TRUE, digits = NA)
 
@@ -104,11 +145,13 @@ pf_engine <- function(engine = NULL) {
     warning(eng$bin, ": ", err_msg, call. = FALSE)
   }
 
-  resp <- jsonlite::fromJSON(paste(json_out, collapse = "\n"),
-                             simplifyVector = TRUE,
-                             simplifyDataFrame = FALSE)
+  .pf_parse_response(paste(json_out, collapse = "\n"), eng$bin)
+}
+
+.pf_parse_response <- function(txt, who) {
+  resp <- jsonlite::fromJSON(txt, simplifyVector = TRUE, simplifyDataFrame = FALSE)
   if (!isTRUE(resp$ok)) {
-    stop(eng$bin, " error: ", resp$error %||% "unknown error", call. = FALSE)
+    stop(who, " error: ", resp$error %||% "unknown error", call. = FALSE)
   }
   resp
 }

@@ -2,7 +2,8 @@
 Backend selector and unified API for acoustic analysis.
 
 This module provides a unified interface for acoustic analysis that works with
-multiple backends (parselmouth, praatfan, praatfan_rust, praatfan_gpl). The
+multiple backends (praatfan_rust, praatfan_gpl, praatfan_wasm, praatfan,
+parselmouth). The
 key design principle is that user code should work identically regardless of
 which backend is installed or selected.
 
@@ -31,7 +32,8 @@ Backend Selection Priority:
 ---------------------------
 1. PRAATFAN_BACKEND environment variable (if set)
 2. Config file (~/.praatfan/config.toml or ./praatfan.toml)
-3. Auto-detect in order: praatfan_gpl, praatfan_rust, praatfan, parselmouth
+3. Auto-detect in order: praatfan_rust, praatfan_gpl, praatfan_wasm, praatfan.
+   parselmouth is never auto-selected; it runs only when requested by name.
 
 Usage:
 ------
@@ -114,6 +116,11 @@ def _warn_reference_ignored(backend: str, method: str, hint: str) -> None:
 # regardless of which backend produced the result.
 # =============================================================================
 
+#: Backends whose result objects are the pure-Python classes (praatfan_wasm
+#: builds them from the engine's arrays).
+_PY_RESULT_BACKENDS = ("praatfan", "praatfan_wasm")
+
+
 class UnifiedPitch:
     """Unified Pitch result - same API regardless of backend."""
 
@@ -125,7 +132,7 @@ class UnifiedPitch:
         """Time values for each frame."""
         if self._backend == "parselmouth":
             return np.array(self._inner.xs())
-        elif self._backend == "praatfan":
+        elif self._backend in _PY_RESULT_BACKENDS:
             return self._inner.times()
         elif self._backend == "praatfan_rust":
             return np.array(self._inner.xs())
@@ -137,7 +144,7 @@ class UnifiedPitch:
         """F0 values (Hz) for each frame. NaN for unvoiced."""
         if self._backend == "parselmouth":
             return self._inner.selected_array['frequency']
-        elif self._backend == "praatfan":
+        elif self._backend in _PY_RESULT_BACKENDS:
             return self._inner.values()
         elif self._backend == "praatfan_rust":
             return np.array(self._inner.values())
@@ -149,7 +156,7 @@ class UnifiedPitch:
         """Voicing strength for each frame."""
         if self._backend == "parselmouth":
             return self._inner.selected_array['strength']
-        elif self._backend == "praatfan":
+        elif self._backend in _PY_RESULT_BACKENDS:
             return self._inner.strengths()
         elif self._backend == "praatfan_rust":
             return np.array(self._inner.selected_array['strength'])
@@ -169,7 +176,7 @@ class UnifiedPitch:
         in each frame, before any intensity adjustment, octave cost, or Viterbi
         selection. Higher = stronger periodicity. File-length independent.
         """
-        if self._backend == "praatfan":
+        if self._backend in _PY_RESULT_BACKENDS:
             return self._inner.raw_ac_strengths()
         elif self._backend == "praatfan_rust":
             return np.array(self._inner.raw_ac_strengths())
@@ -190,7 +197,7 @@ class UnifiedPitch:
         """Number of frames."""
         if self._backend == "parselmouth":
             return self._inner.n_frames
-        elif self._backend == "praatfan":
+        elif self._backend in _PY_RESULT_BACKENDS:
             return self._inner.n_frames
         elif self._backend == "praatfan_rust":
             return self._inner.n_frames
@@ -203,7 +210,7 @@ class UnifiedPitch:
         """Time step between frames."""
         if self._backend == "parselmouth":
             return self._inner.time_step
-        elif self._backend == "praatfan":
+        elif self._backend in _PY_RESULT_BACKENDS:
             return self._inner.time_step
         elif self._backend == "praatfan_rust":
             return self._inner.time_step
@@ -230,7 +237,7 @@ class UnifiedFormant:
         """Time values for each frame."""
         if self._backend == "parselmouth":
             return np.array(self._inner.xs())
-        elif self._backend == "praatfan":
+        elif self._backend in _PY_RESULT_BACKENDS:
             return self._inner.times()
         elif self._backend == "praatfan_rust":
             return np.array(self._inner.xs())
@@ -250,7 +257,7 @@ class UnifiedFormant:
                 val = call(self._inner, "Get value at time", formant_number, t, "Hertz", "Linear")
                 result[i] = val if val is not None else np.nan
             return result
-        elif self._backend == "praatfan":
+        elif self._backend in _PY_RESULT_BACKENDS:
             return self._inner.formant_values(formant_number)
         elif self._backend == "praatfan_rust":
             return np.array(self._inner.to_array(formant_number))
@@ -269,7 +276,7 @@ class UnifiedFormant:
                 val = call(self._inner, "Get bandwidth at time", formant_number, t, "Hertz", "Linear")
                 result[i] = val if val is not None else np.nan
             return result
-        elif self._backend == "praatfan":
+        elif self._backend in _PY_RESULT_BACKENDS:
             return self._inner.bandwidth_values(formant_number)
         elif self._backend == "praatfan_rust":
             return np.array(self._inner.to_bandwidth_array(formant_number))
@@ -311,7 +318,7 @@ class UnifiedIntensity:
         """Time values for each frame."""
         if self._backend == "parselmouth":
             return np.array(self._inner.xs())
-        elif self._backend == "praatfan":
+        elif self._backend in _PY_RESULT_BACKENDS:
             return self._inner.times
         elif self._backend == "praatfan_rust":
             return np.array(self._inner.xs())
@@ -323,7 +330,7 @@ class UnifiedIntensity:
         """Intensity values in dB."""
         if self._backend == "parselmouth":
             return self._inner.values[0]  # parselmouth returns 2D
-        elif self._backend == "praatfan":
+        elif self._backend in _PY_RESULT_BACKENDS:
             return self._inner.values
         elif self._backend == "praatfan_rust":
             return np.array(self._inner.values())
@@ -362,7 +369,7 @@ class UnifiedHarmonicity:
         """Time values for each frame."""
         if self._backend == "parselmouth":
             return np.array(self._inner.xs())
-        elif self._backend == "praatfan":
+        elif self._backend in _PY_RESULT_BACKENDS:
             return self._inner.times
         elif self._backend == "praatfan_rust":
             return np.array(self._inner.xs())
@@ -381,7 +388,7 @@ class UnifiedHarmonicity:
         """
         if self._backend == "parselmouth":
             return self._inner.values[0]  # parselmouth returns 2D
-        elif self._backend == "praatfan":
+        elif self._backend in _PY_RESULT_BACKENDS:
             return self._inner.values
         elif self._backend == "praatfan_rust":
             return np.array(self._inner.values())
@@ -420,7 +427,7 @@ class UnifiedSpectrum:
         """Frequency values for each bin."""
         if self._backend == "parselmouth":
             return np.array(self._inner.xs())
-        elif self._backend == "praatfan":
+        elif self._backend in _PY_RESULT_BACKENDS:
             # Compute frequencies from df and n_bins
             return np.arange(self._inner.n_bins) * self._inner.df
         elif self._backend == "praatfan_rust":
@@ -434,7 +441,7 @@ class UnifiedSpectrum:
         """Complex spectrum values."""
         if self._backend == "parselmouth":
             return self._inner.values[0]  # parselmouth returns 2D
-        elif self._backend == "praatfan":
+        elif self._backend in _PY_RESULT_BACKENDS:
             return self._inner.real + 1j * self._inner.imag
         elif self._backend == "praatfan_rust":
             return np.array(self._inner.real()) + 1j * np.array(self._inner.imag())
@@ -449,7 +456,7 @@ class UnifiedSpectrum:
         """Spectral centroid."""
         if self._backend == "parselmouth":
             return self._inner.get_centre_of_gravity(power)
-        elif self._backend == "praatfan":
+        elif self._backend in _PY_RESULT_BACKENDS:
             return self._inner.get_center_of_gravity(power)
         elif self._backend == "praatfan_rust":
             return self._inner.get_center_of_gravity(power)
@@ -461,7 +468,7 @@ class UnifiedSpectrum:
         """Spectral standard deviation."""
         if self._backend == "parselmouth":
             return self._inner.get_standard_deviation(power)
-        elif self._backend == "praatfan":
+        elif self._backend in _PY_RESULT_BACKENDS:
             return self._inner.get_standard_deviation(power)
         elif self._backend == "praatfan_rust":
             return self._inner.get_standard_deviation(power)
@@ -473,7 +480,7 @@ class UnifiedSpectrum:
         """Spectral skewness."""
         if self._backend == "parselmouth":
             return self._inner.get_skewness(power)
-        elif self._backend == "praatfan":
+        elif self._backend in _PY_RESULT_BACKENDS:
             return self._inner.get_skewness(power)
         elif self._backend == "praatfan_rust":
             return self._inner.get_skewness(power)
@@ -485,7 +492,7 @@ class UnifiedSpectrum:
         """Spectral kurtosis."""
         if self._backend == "parselmouth":
             return self._inner.get_kurtosis(power)
-        elif self._backend == "praatfan":
+        elif self._backend in _PY_RESULT_BACKENDS:
             return self._inner.get_kurtosis(power)
         elif self._backend == "praatfan_rust":
             return self._inner.get_kurtosis(power)
@@ -497,7 +504,7 @@ class UnifiedSpectrum:
         """Band energy between frequencies."""
         if self._backend == "parselmouth":
             return self._inner.get_band_energy(f_min, f_max)
-        elif self._backend == "praatfan":
+        elif self._backend in _PY_RESULT_BACKENDS:
             return self._inner.get_band_energy(f_min, f_max)
         elif self._backend == "praatfan_rust":
             return self._inner.get_band_energy(f_min, f_max)
@@ -535,7 +542,7 @@ class UnifiedSpectrogram:
         """Time values."""
         if self._backend == "parselmouth":
             return np.array(self._inner.xs())
-        elif self._backend == "praatfan":
+        elif self._backend in _PY_RESULT_BACKENDS:
             return self._inner.times()
         elif self._backend == "praatfan_rust":
             return np.array(self._inner.xs())
@@ -549,7 +556,7 @@ class UnifiedSpectrogram:
         """Frequency values."""
         if self._backend == "parselmouth":
             return np.array(self._inner.ys())
-        elif self._backend == "praatfan":
+        elif self._backend in _PY_RESULT_BACKENDS:
             return self._inner.frequencies()
         elif self._backend == "praatfan_rust":
             return np.array(self._inner.ys())
@@ -563,7 +570,7 @@ class UnifiedSpectrogram:
         """Power values as 2D array (frequency × time)."""
         if self._backend == "parselmouth":
             return np.array(self._inner.values)
-        elif self._backend == "praatfan":
+        elif self._backend in _PY_RESULT_BACKENDS:
             return self._inner.values
         elif self._backend == "praatfan_rust":
             # Reshape from 1D to 2D
@@ -614,6 +621,8 @@ class UnifiedSpectrogram:
 #   - praatfan: Pure Python clean-room implementation (MIT licensed)
 #   - praatfan_rust: Rust implementation with PyO3 bindings (MIT licensed)
 #   - praatfan_gpl: Separate Rust implementation (MIT licensed)
+#   - praatfan_wasm: praatfan_rust compiled to WebAssembly, run in an embedded
+#     V8 (mini-racer); ships inside this package (MIT licensed)
 # =============================================================================
 
 def _try_import_parselmouth() -> bool:
@@ -678,6 +687,15 @@ def _try_import_praatfan_rust() -> bool:
         return False
 
 
+def _try_import_praatfan_wasm() -> bool:
+    """
+    Check if the praatfan_wasm backend can run: mini-racer importable and the
+    engine bundle (``praatfan/wasm/``) present. Does not start V8.
+    """
+    from . import _wasm
+    return _wasm.unavailable_reason() is None
+
+
 def get_available_backends() -> List[str]:
     """
     Return list of available backend names.
@@ -705,6 +723,9 @@ def get_available_backends() -> List[str]:
     if _try_import_praatfan_gpl():
         available.append("praatfan_gpl")
 
+    if _try_import_praatfan_wasm():
+        available.append("praatfan_wasm")
+
     return available
 
 
@@ -719,11 +740,16 @@ def get_available_backends() -> List[str]:
 #   4. Auto-detect: First available in preference order
 #
 # The preference order for auto-detection is:
-#   praatfan_gpl > praatfan_rust > praatfan > parselmouth
+#   praatfan_rust > praatfan_gpl > praatfan_wasm > praatfan
 #
-# This prioritizes MIT-licensed backends and Rust implementations for
-# performance, while still supporting parselmouth as a fallback.
+# Native Rust first, then the same Rust code as WebAssembly (slower, but needs
+# no compiled wheel), then the pure-Python reference, which always works.
+# parselmouth (GPL) is never auto-selected: only set_backend(), the
+# environment variable or a config file can choose it.
 # =============================================================================
+
+#: Auto-detection order. parselmouth is deliberately absent.
+AUTO_PREFERENCE = ("praatfan_rust", "praatfan_gpl", "praatfan_wasm", "praatfan")
 
 # Global state: currently selected backend (None = not yet selected)
 _current_backend: Optional[str] = None
@@ -852,16 +878,16 @@ def _select_backend() -> str:
             "praatfan, praat-parselmouth, praatfan_gpl"
         )
 
-    # Preference order
-    preference = ["praatfan_gpl", "praatfan_rust", "praatfan", "parselmouth"]
-    for backend in preference:
+    for backend in AUTO_PREFERENCE:
         if backend in available:
             _current_backend = backend
             return _current_backend
 
-    # Fallback to first available
-    _current_backend = available[0]
-    return _current_backend
+    raise BackendNotAvailableError(
+        f"No backend can be auto-selected (available: {available}); parselmouth "
+        "runs only when requested by name: set_backend('parselmouth') or "
+        "PRAATFAN_BACKEND=parselmouth."
+    )
 
 
 def get_backend() -> str:
@@ -874,7 +900,8 @@ def set_backend(name: str) -> None:
     Set the backend to use.
 
     Args:
-        name: Backend name ("parselmouth", "praatfan", "praatfan_rust", "praatfan_gpl")
+        name: Backend name ("praatfan_rust", "praatfan_gpl", "praatfan_wasm",
+            "praatfan", "parselmouth")
 
     Raises:
         BackendNotAvailableError: If the backend is not installed
@@ -1351,7 +1378,7 @@ class PraatfanPythonSound(BaseSound):
 
     def extract_part(self, start_time: float, end_time: float) -> "PraatfanPythonSound":
         result = self._inner.extract_part(start_time, end_time)
-        return PraatfanPythonSound(result)
+        return type(self)(result)
 
     def get_spectrum_at_time(self, time: float, window_length: float = 0.025) -> UnifiedSpectrum:
         result = self._inner.get_spectrum_at_time(time, window_length)
@@ -1366,10 +1393,183 @@ class PraatfanPythonSound(BaseSound):
         return self._inner.get_band_energy_at_times(times, f_min, f_max, window_length)
 
     def resample(self, sample_rate: float) -> "PraatfanPythonSound":
-        return PraatfanPythonSound(self._inner.resample(sample_rate))
+        return type(self)(self._inner.resample(sample_rate))
 
     def __repr__(self):
         return f"Sound<praatfan>({self.n_samples} samples, {self.sampling_frequency} Hz)"
+
+
+from .pitch import Pitch as _PyPitch  # noqa: E402 - beside its only user
+
+
+class _EnginePitch(_PyPitch):
+    """A Pitch built from the pipe's arrays. The pipe does not carry the raw
+    autocorrelation strengths, so they are refused rather than faked."""
+
+    def raw_ac_strengths(self) -> np.ndarray:
+        raise NotImplementedError(
+            "raw_ac_strengths() is not available on the praatfan_wasm backend (the "
+            "engine's JSON interface does not carry it); use the praatfan_rust or "
+            "praatfan backend for it.")
+
+
+def _floats(values) -> np.ndarray:
+    """A JSON array (``null`` = undefined) as float64, ``null`` -> nan."""
+    return np.array([np.nan if v is None else v for v in values], dtype=np.float64)
+
+
+class PraatfanWasmSound(PraatfanPythonSound):
+    """Adapter for the praatfan_wasm backend: praatfan_rust compiled to wasm32,
+    run in an embedded V8 (``praatfan._wasm``).
+
+    The engine is driven through the JSON pipe protocol, so the analyses the
+    pipe carries run in WASM: pitch (AC/CC), formant (Burg), intensity,
+    harmonicity (AC/CC), spectral moments and band energy at times. Everything
+    else -- the ``*_referenced`` analyses, Spectrum, Spectrogram, extract_part,
+    resample -- is the inherited pure-Python implementation. Results are the
+    pure-Python result classes, built from the engine's arrays.
+    """
+
+    BACKEND = "praatfan_wasm"
+
+    def _run(self, analyses):
+        from . import _wasm
+        return _wasm.run(self._inner.samples, self._inner.sample_rate, analyses)
+
+    def _pitch(self, method, time_step, pitch_floor, pitch_ceiling, voicing_threshold,
+               silence_threshold, octave_cost, octave_jump_cost, voiced_unvoiced_cost):
+        from .pitch import PitchCandidate, PitchFrame
+        (r,) = self._run([{
+            "type": "pitch_" + method, "time_step": float(time_step),
+            "pitch_floor": float(pitch_floor), "pitch_ceiling": float(pitch_ceiling),
+            "voicing_threshold": float(voicing_threshold),
+            "silence_threshold": float(silence_threshold),
+            "octave_cost": float(octave_cost), "octave_jump_cost": float(octave_jump_cost),
+            "voiced_unvoiced_cost": float(voiced_unvoiced_cost),
+        }])
+        frames = []
+        for t, f, st in zip(r["times"], _floats(r["frequencies"]), _floats(r["strengths"])):
+            frames.append(PitchFrame(time=t, candidates=[PitchCandidate(f, st)],
+                                     intensity=np.nan))
+        if time_step <= 0:
+            time_step = (0.25 if method == "cc" else 0.75) / pitch_floor
+        return UnifiedPitch(_EnginePitch(frames, time_step, pitch_floor, pitch_ceiling),
+                            self.BACKEND)
+
+    def to_pitch_ac(self, time_step=0.0, pitch_floor=75.0, pitch_ceiling=600.0,
+                    voicing_threshold=0.45, silence_threshold=0.03,
+                    octave_cost=0.01, octave_jump_cost=0.35,
+                    voiced_unvoiced_cost=0.14) -> UnifiedPitch:
+        return self._pitch("ac", time_step, pitch_floor, pitch_ceiling, voicing_threshold,
+                           silence_threshold, octave_cost, octave_jump_cost,
+                           voiced_unvoiced_cost)
+
+    def to_pitch_cc(self, time_step=0.0, pitch_floor=75.0, pitch_ceiling=600.0,
+                    voicing_threshold=0.45, silence_threshold=0.03,
+                    octave_cost=0.01, octave_jump_cost=0.35,
+                    voiced_unvoiced_cost=0.14) -> UnifiedPitch:
+        return self._pitch("cc", time_step, pitch_floor, pitch_ceiling, voicing_threshold,
+                           silence_threshold, octave_cost, octave_jump_cost,
+                           voiced_unvoiced_cost)
+
+    @staticmethod
+    def _formant_request(time_step, max_number_of_formants, maximum_formant,
+                         window_length, pre_emphasis_from):
+        return {"type": "formant_burg", "time_step": float(time_step),
+                "max_num_formants": int(max_number_of_formants),
+                "max_formant_hz": float(maximum_formant),
+                "window_length": float(window_length),
+                "pre_emphasis_from": float(pre_emphasis_from)}
+
+    def _formant(self, r, time_step, max_number_of_formants, maximum_formant,
+                 window_length) -> UnifiedFormant:
+        from .formant import Formant, FormantFrame, FormantPoint
+        tracks = {k: _floats(v) for k, v in r.items() if k[:1] in "FB" and k[1:].isdigit()}
+        frames = []
+        for i, (t, n) in enumerate(zip(r["times"], r["n_formants"])):
+            points = [FormantPoint(tracks[f"F{k}"][i], tracks[f"B{k}"][i])
+                      for k in range(1, n + 1)]
+            frames.append(FormantFrame(time=t, formants=points))
+        if time_step <= 0:
+            time_step = window_length / 4.0
+        return UnifiedFormant(Formant(frames, time_step, maximum_formant,
+                                      max_number_of_formants), self.BACKEND)
+
+    def to_formant_burg(self, time_step=0.0, max_number_of_formants=5,
+                        maximum_formant=5500.0, window_length=0.025,
+                        pre_emphasis_from=50.0) -> UnifiedFormant:
+        (r,) = self._run([self._formant_request(time_step, max_number_of_formants,
+                                                maximum_formant, window_length,
+                                                pre_emphasis_from)])
+        return self._formant(r, time_step, max_number_of_formants, maximum_formant,
+                             window_length)
+
+    def to_formant_burg_multi(self, maximum_formants, time_step=0.0,
+                              max_number_of_formants=5, window_length=0.025,
+                              pre_emphasis_from=50.0) -> List[UnifiedFormant]:
+        # one request: the samples cross into the engine once for every ceiling
+        ceilings = [float(hz) for hz in maximum_formants]
+        if not ceilings:
+            return []
+        results = self._run([self._formant_request(time_step, max_number_of_formants, hz,
+                                                   window_length, pre_emphasis_from)
+                             for hz in ceilings])
+        return [self._formant(r, time_step, max_number_of_formants, hz, window_length)
+                for r, hz in zip(results, ceilings)]
+
+    def to_intensity(self, minimum_pitch=100.0, time_step=0.0) -> UnifiedIntensity:
+        from .intensity import Intensity
+        (r,) = self._run([{"type": "intensity", "min_pitch": float(minimum_pitch),
+                           "time_step": float(time_step)}])
+        if time_step <= 0:
+            time_step = 0.8 / minimum_pitch
+        return UnifiedIntensity(Intensity(np.asarray(r["times"], dtype=np.float64),
+                                          _floats(r["values"]), time_step, minimum_pitch),
+                                self.BACKEND)
+
+    def _harmonicity(self, method, time_step, minimum_pitch, silence_threshold,
+                     periods_per_window) -> UnifiedHarmonicity:
+        from .harmonicity import Harmonicity
+        (r,) = self._run([{"type": "harmonicity_" + method, "time_step": float(time_step),
+                           "min_pitch": float(minimum_pitch),
+                           "silence_threshold": float(silence_threshold),
+                           "periods_per_window": float(periods_per_window)}])
+        return UnifiedHarmonicity(Harmonicity(np.asarray(r["times"], dtype=np.float64),
+                                              _floats(r["values"]), time_step, minimum_pitch),
+                                  self.BACKEND)
+
+    def to_harmonicity_ac(self, time_step=0.01, minimum_pitch=75.0,
+                          silence_threshold=0.1, periods_per_window=4.5) -> UnifiedHarmonicity:
+        from .harmonicity import _warn_if_ill_conditioned
+        _warn_if_ill_conditioned(periods_per_window)
+        return self._harmonicity("ac", time_step, minimum_pitch, silence_threshold,
+                                 periods_per_window)
+
+    def to_harmonicity_cc(self, time_step=0.01, minimum_pitch=75.0,
+                          silence_threshold=0.1, periods_per_window=1.0) -> UnifiedHarmonicity:
+        return self._harmonicity("cc", time_step, minimum_pitch, silence_threshold,
+                                 periods_per_window)
+
+    def get_spectral_moments_at_times(self, times: np.ndarray, window_length: float = 0.025,
+                                      power: float = 2.0) -> dict:
+        times = np.asarray(times, dtype=np.float64)
+        (r,) = self._run([{"type": "spectral_moments", "times": times.tolist(),
+                           "window_length": float(window_length), "power": float(power)}])
+        out = {"times": times}
+        for k in ("center_of_gravity", "standard_deviation", "skewness", "kurtosis"):
+            out[k] = _floats(r[k])
+        return out
+
+    def get_band_energy_at_times(self, times: np.ndarray, f_min: float, f_max: float,
+                                 window_length: float = 0.025) -> np.ndarray:
+        times = np.asarray(times, dtype=np.float64)
+        (r,) = self._run([{"type": "band_energy", "times": times.tolist(),
+                           "window_length": float(window_length),
+                           "f_min": float(f_min), "f_max": float(f_max)}])
+        return _floats(r["values"])
+
+    def __repr__(self):
+        return f"Sound<praatfan_wasm>({self.n_samples} samples, {self.sampling_frequency} Hz)"
 
 
 def _reattribute_native_ppw_warning(periods_per_window, call_native):
@@ -1847,7 +2047,8 @@ class Sound:
         1. set_backend() if called programmatically
         2. PRAATFAN_BACKEND environment variable
         3. Config file (~/.praatfan/config.toml or ./praatfan.toml)
-        4. Auto-detect: praatfan_gpl > praatfan_rust > praatfan > parselmouth
+        4. Auto-detect: praatfan_rust > praatfan_gpl > praatfan_wasm > praatfan
+           (parselmouth only when requested by name)
 
     Example:
         # Load from file
@@ -1894,6 +2095,8 @@ class Sound:
             return PraatfanRustSound.from_file(path)
         elif backend == "praatfan_gpl":
             return PraatfanCoreSound.from_file(path)
+        elif backend == "praatfan_wasm":
+            return PraatfanWasmSound.from_file(path)
         else:
             raise BackendNotAvailableError(f"Unknown backend: {backend}")
 
@@ -1907,6 +2110,8 @@ class Sound:
             return PraatfanRustSound.from_samples(samples, sampling_frequency)
         elif backend == "praatfan_gpl":
             return PraatfanCoreSound.from_samples(samples, sampling_frequency)
+        elif backend == "praatfan_wasm":
+            return PraatfanWasmSound.from_samples(samples, sampling_frequency)
         else:
             raise BackendNotAvailableError(f"Unknown backend: {backend}")
 

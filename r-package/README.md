@@ -2,9 +2,11 @@
 
 Praat-compatible acoustic analysis in R: pitch (F0), formants (Burg LPC),
 intensity, harmonicity (HNR), spectral moments, and band energy, with values
-validated frame-by-frame against Praat. All analysis runs in a small native
-Rust binary (`praatfan-open-pipe`, JSON stdin/stdout) — no Python, pip, or
-conda required.
+validated frame-by-frame against Praat. The Rust engine ships inside the
+package compiled to WebAssembly and runs in R through the `V8` package, so it
+works as soon as the package is installed; the native binary
+(`praatfan-open-pipe`, JSON stdin/stdout) is an optional speed-up with the
+same numbers. No Python, pip, or conda required.
 
 ## Install
 
@@ -13,10 +15,11 @@ conda required.
 remotes::install_github("ucpresearch/praatfan-core-clean", subdir = "r-package")
 ```
 
-That's it — the native engine binary is fetched automatically on first use
-(disable with `options(praatfan.auto_setup = FALSE)`). To fetch it
-explicitly — e.g. to pre-provision a cluster node, pin a version with
-`ref =`, or install the GPL engine — call `pf_setup()`.
+That's it — with no native binary installed, analysis runs in the WASM
+engine inside R (a message says so once per session). For native speed —
+several threads per file — install the binary with `pf_setup()`; once it is
+present it is used automatically. `pf_setup()` also pre-provisions cluster
+nodes, pins a version with `ref =`, and installs the GPL engine.
 
 `pf_setup()` tries, in order: a pre-built binary from GitHub Releases, a git
 clone built with cargo, and a local source tree. Point the package at an
@@ -60,13 +63,17 @@ arrays.)
 
 ## Engines
 
-Two interchangeable native engines speak the same JSON schema; every
-analysis function works identically with either:
+Three interchangeable engines speak the same JSON schema; every analysis
+function works identically with any of them:
 
-| Engine | Binary | License | Notes |
-|--------|--------|---------|-------|
-| `"open"` (default) | `praatfan-open-pipe` | MIT | Clean-room implementation, validated frame-by-frame against Praat |
-| `"gpl"` | `praatfan-gpl-pipe` | GPL | Tracks Praat's values even more closely |
+| Engine | Runs as | License | Notes |
+|--------|---------|---------|-------|
+| `"open"` | `praatfan-open-pipe` binary | MIT | Clean-room implementation, validated frame-by-frame against Praat |
+| `"wasm"` | the open engine as WebAssembly, in `V8` | MIT | Ships with the package; same numbers as `"open"` (to floating-point rounding), one thread per call |
+| `"gpl"` | `praatfan-gpl-pipe` binary | GPL | Tracks Praat's values even more closely |
+
+With no engine chosen, `"open"` is used when its binary is available and
+`"wasm"` otherwise.
 
 ```r
 pf_setup(engine = "gpl")     # install alongside the default engine
@@ -78,9 +85,10 @@ a <- pf_analyze("audio.wav", list(list(type = "formant_burg")), engine = "open")
 b <- pf_analyze("audio.wav", list(list(type = "formant_burg")), engine = "gpl")
 ```
 
-Selection precedence: `PRAATFAN_PIPE` (explicit binary path, always wins) >
-`pf_engine(...)` / `pf_analyze(engine = ...)` > `PRAATFAN_ENGINE`
-environment variable > default `"open"`. The engine choice affects only
+Selection precedence: `pf_engine(...)` / `pf_analyze(engine = ...)` >
+`PRAATFAN_ENGINE` environment variable > `"open"` if its binary is available,
+else `"wasm"`. `PRAATFAN_PIPE` (an explicit binary path) always wins for the
+native engines and makes the open binary available. The engine choice affects only
 which subprocess runs; this package itself remains MIT either way.
 
 ## Notes
@@ -92,4 +100,7 @@ which subprocess runs; this package itself remains MIT either way.
   run analyses in parallel yourself (`parallel::mclapply`, `future`, ...),
   limit its threads with `Sys.setenv(RAYON_NUM_THREADS = 1)` (or cores ÷
   workers) before the first call. Results are identical at any thread count.
+- The `"wasm"` engine runs one thread per call; to use more cores, analyse
+  several files at once in separate R processes (PSOCK clusters,
+  `future::plan(multisession)`). Each process builds its own engine.
 - `pf_uninstall()` removes the installed binary and cached sources.

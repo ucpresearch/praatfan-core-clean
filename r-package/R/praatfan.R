@@ -2,12 +2,14 @@
 #'
 #' R wrapper around the praatfan Rust engine, a clean-room reimplementation
 #' of Praat's core acoustic analysis algorithms validated frame-by-frame
-#' against Praat.  All analysis runs in the \code{praatfan-open-pipe} binary
-#' (JSON stdin/stdout); no Python required.
+#' against Praat.  Analysis runs in the \code{praatfan-open-pipe} binary
+#' (JSON stdin/stdout) when it is installed, and otherwise in the same engine
+#' compiled to WebAssembly and run inside R (see \code{\link{pf_engine}});
+#' no Python required.
 #'
 #' Quick start:
 #'   library(praatfan)
-#'   pf_setup()                          # one-time install
+#'   pf_setup()                          # optional: native binary, faster
 #'   f0  <- pf_pitch("audio.wav")
 #'   fmt <- pf_formants("audio.wav")
 #'
@@ -39,7 +41,8 @@
 #'   \code{I()} so length-1 vectors stay JSON arrays.
 #' @param channel  0-based channel to read from a multi-channel file.
 #'   Default \code{NULL} (file must be mono).
-#' @param engine   Engine for this call: \code{"open"} or \code{"gpl"}.
+#' @param engine   Engine for this call: \code{"open"}, \code{"wasm"} or
+#'   \code{"gpl"}.
 #'   Default \code{NULL} = the session engine (see \code{\link{pf_engine}}).
 #'   Both engines speak the same schema, so this is handy for side-by-side
 #'   comparisons.
@@ -48,13 +51,14 @@
 #'   analysis, in request order, each a list of parallel vectors.
 #' @export
 pf_analyze <- function(wav, analyses, channel = NULL, engine = NULL) {
-  .pf_ensure_ready(.pf_engine_of(engine))
+  eng <- .pf_engine_of(engine)
+  if (eng$name != "wasm") .pf_ensure_ready(eng)
   req <- list(
     wav_path = normalizePath(wav, mustWork = TRUE),
     analyses = analyses
   )
   if (!is.null(channel)) req$channel <- channel
-  .pf_pipe_call(req, engine)
+  .pf_pipe_call(req, eng$name)
 }
 
 # ---------------------------------------------------------------------------
