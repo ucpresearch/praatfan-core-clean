@@ -62,6 +62,39 @@ pub fn init() {
 }
 
 // ============================================================================
+// Pipe protocol - one JSON request in, one JSON response out
+// ============================================================================
+//
+// The JSON pipe protocol of `praatfan-open-pipe` (`crate::pipe`), for hosts
+// that embed a bare JS engine (R's V8 package, Python's mini-racer) and talk
+// to the engine in JSON rather than through the typed classes below. Only the
+// audio transport differs from the binary's: the host hands over the file's
+// bytes or decoded samples instead of a `wav_path` to open.
+
+/// The crate version (the pipe response's `"version"`).
+#[wasm_bindgen]
+pub fn version() -> String {
+    env!("CARGO_PKG_VERSION").to_string()
+}
+
+/// One pipe request against an audio file's bytes (Uint8Array).
+///
+/// Decoded exactly as the binary decodes the file from disk (every format it
+/// reads, SPHERE included). `wav_path`, if present in the request, only names
+/// the file: its extension is the format hint, its name appears in errors.
+#[wasm_bindgen]
+pub fn pipe_request_bytes(bytes: Vec<u8>, request_json: &str) -> String {
+    crate::pipe::handle_request_bytes(bytes, request_json)
+}
+
+/// One pipe request against decoded mono samples (Float64Array) at
+/// `sample_rate` Hz. The request must not carry `wav_path` or `channel`.
+#[wasm_bindgen]
+pub fn pipe_request_samples(samples: Vec<f64>, sample_rate: f64, request_json: &str) -> String {
+    crate::pipe::handle_request_samples(samples, sample_rate, request_json)
+}
+
+// ============================================================================
 // Sound - Main audio type for WASM
 // ============================================================================
 

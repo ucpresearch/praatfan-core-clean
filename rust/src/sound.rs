@@ -19,6 +19,7 @@
 //! the range [-1.0, 1.0] for integer formats. This provides maximum precision
 //! for acoustic analysis algorithms.
 
+#[cfg(not(target_arch = "wasm32"))]
 use std::fs::File;
 use std::path::Path;
 
@@ -79,6 +80,7 @@ pub struct Sound {
 /// primary error path, so ordinary WAV/FLAC/MP3/… files are unaffected. If the
 /// fallback also fails, the *original* symphonia error is surfaced (a SPHERE
 /// decode error only reaches the caller when the bytes actually were SPHERE).
+#[cfg(not(target_arch = "wasm32"))]
 fn decode_audio_file(path: &Path, channel: Option<usize>) -> Result<(Vec<f64>, f64, usize)> {
     // Use file extension as a hint for format detection
     let mut hint = Hint::new();
@@ -94,36 +96,60 @@ fn decode_audio_file(path: &Path, channel: Option<usize>) -> Result<(Vec<f64>, f
 
     match decode_audio_source(mss, hint, channel) {
         Ok(result) => Ok(result),
-        Err(primary_err) => decode_via_desphere(path, channel).unwrap_or(Err(primary_err)),
+        Err(primary_err) => match std::fs::read(path) {
+            Ok(bytes) => decode_via_desphere(&bytes, channel).unwrap_or(Err(primary_err)),
+            Err(_) => Err(primary_err),
+        },
+    }
+}
+
+/// wasm32 has no filesystem: `Sound::from_bytes` is the way in there.
+#[cfg(target_arch = "wasm32")]
+fn decode_audio_file(_path: &Path, _channel: Option<usize>) -> Result<(Vec<f64>, f64, usize)> {
+    Err(Error::AudioDecodeError(
+        "no filesystem on wasm32; load audio with Sound::from_bytes".to_string(),
+    ))
+}
+
+/// Decode in-memory audio file bytes, exactly as `decode_audio_file` decodes
+/// the same bytes from disk: symphonia first (`ext` is the format hint a path's
+/// extension would give), then the desphere fallback.
+fn decode_audio_bytes(
+    bytes: Vec<u8>,
+    ext: Option<&str>,
+    channel: Option<usize>,
+) -> Result<(Vec<f64>, f64, usize)> {
+    let mut hint = Hint::new();
+    if let Some(ext) = ext {
+        hint.with_extension(ext);
+    }
+    // Shared, not cloned: the fallback needs the bytes again only on error.
+    let bytes: std::sync::Arc<[u8]> = bytes.into();
+    let mss = MediaSourceStream::new(
+        Box::new(std::io::Cursor::new(bytes.clone())),
+        Default::default(),
+    );
+    match decode_audio_source(mss, hint, channel) {
+        Ok(result) => Ok(result),
+        Err(primary_err) => decode_via_desphere(&bytes, channel).unwrap_or(Err(primary_err)),
     }
 }
 
 /// Fallback decode for formats symphonia rejects: transcode SPHERE → WAV with
 /// `desphere`, then decode the resulting WAV bytes with symphonia.
 ///
-/// Returns `None` when the fallback is not applicable (file unreadable, or not a
-/// SPHERE file desphere can handle), so the caller can surface the original
-/// error. Native-only; the wasm build does not load audio from a file path.
-#[cfg(not(target_arch = "wasm32"))]
+/// Returns `None` when the bytes are not a SPHERE file desphere can handle, so
+/// the caller can surface the original error.
 fn decode_via_desphere(
-    path: &Path,
+    bytes: &[u8],
     channel: Option<usize>,
 ) -> Option<Result<(Vec<f64>, f64, usize)>> {
-    let bytes = std::fs::read(path).ok()?;
-    let wav = desphere::transcode(&bytes).ok()?;
+    let wav = desphere::transcode(bytes).ok()?;
 
     let mss = MediaSourceStream::new(Box::new(std::io::Cursor::new(wav)), Default::default());
     let mut hint = Hint::new();
     hint.with_extension("wav");
     Some(decode_audio_source(mss, hint, channel))
-}
-
-#[cfg(target_arch = "wasm32")]
-fn decode_via_desphere(
-    _path: &Path,
-    _channel: Option<usize>,
-) -> Option<Result<(Vec<f64>, f64, usize)>> {
-    None
 }
 
 /// Decode audio from a prepared media source stream using symphonia.
@@ -473,6 +499,31 @@ impl Sound {
             )));
         }
 
+        Ok(Self {
+            samples: Array1::from_vec(samples),
+            sample_rate,
+        })
+    }
+
+    /// Load audio from in-memory file bytes (any format `from_file` reads).
+    ///
+    /// Decodes exactly as `from_file` / `from_file_channel` decode the same
+    /// bytes from disk. `ext` is the format hint a path's extension would give
+    /// (e.g. `Some("wav")`); `None` lets symphonia probe the bytes. `channel`
+    /// `None` requires a mono file, as `from_file` does. This is the loader on
+    /// wasm32, which has no filesystem.
+    pub fn from_bytes(bytes: Vec<u8>, ext: Option<&str>, channel: Option<usize>) -> Result<Self> {
+        let (samples, sample_rate, n_channels) = decode_audio_bytes(bytes, ext, channel)?;
+        match channel {
+            None if n_channels != 1 => return Err(Error::NotMono(n_channels as u16)),
+            Some(ch) if ch >= n_channels => {
+                return Err(Error::InvalidParameter(format!(
+                    "Channel {} does not exist. File has {} channels.",
+                    ch, n_channels
+                )))
+            }
+            _ => {}
+        }
         Ok(Self {
             samples: Array1::from_vec(samples),
             sample_rate,

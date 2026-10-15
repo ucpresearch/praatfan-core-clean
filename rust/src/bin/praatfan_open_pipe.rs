@@ -48,7 +48,8 @@ ANALYSES (defaults shown):
         → times[], values[] (Pa²·s, as Praat's "Get band energy")
 
 RESPONSE:
-    { "ok": true, "version": "...", "duration": ..., "sample_rate": ..., "results": [...] }
+    { "ok": true, "version": "...", "duration": ..., "sample_rate": ..., "results": [...],
+      "warnings": [...] }               // only when there are any; also printed to stderr
     { "ok": false, "version": "...", "error": "..." } on any failure.
     Non-finite values (absent formants, undefined moments, undefined HNR) are JSON null.
 

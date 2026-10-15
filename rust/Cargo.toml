@@ -12,7 +12,7 @@ crate-type = ["cdylib", "rlib"]
 
 [features]
 default = []
-wasm = ["wasm-bindgen", "js-sys", "serde", "serde-wasm-bindgen", "console_error_panic_hook", "hound"]
+wasm = ["wasm-bindgen", "js-sys", "serde", "serde_json", "serde-wasm-bindgen", "console_error_panic_hook", "hound"]
 python = ["pyo3", "numpy"]
 pipe = ["serde", "serde_json"]
 

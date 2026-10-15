@@ -24,6 +24,16 @@
 //!
 //! Unknown analysis types and unknown parameter keys are hard errors — a
 //! typo'd knob must not silently run with defaults.
+//!
+//! Transports. The request is the same JSON on each; only where the audio
+//! comes from differs:
+//!
+//! - `handle_request` — the binary: `wav_path` is read from disk (required).
+//! - `handle_request_bytes` — the file's bytes are handed in (wasm32, which has
+//!   no filesystem). They are decoded exactly as from disk; `wav_path`, when
+//!   given, only names the file (format hint from its extension, error text).
+//! - `handle_request_samples` — decoded mono samples and their rate are handed
+//!   in. `wav_path` and `channel` describe a file and are refused.
 
 use std::collections::BTreeMap;
 
@@ -38,7 +48,9 @@ use crate::spectrum::Spectrum;
 #[derive(Deserialize)]
 #[serde(deny_unknown_fields)]
 pub struct PipeRequest {
-    pub wav_path: String,
+    /// Required by the file transport; see the module docs for the others.
+    #[serde(default)]
+    pub wav_path: Option<String>,
     /// Channel to read from a multi-channel file (0-based). Omit for mono.
     #[serde(default)]
     pub channel: Option<usize>,
@@ -164,6 +176,11 @@ pub struct PipeResponse {
     pub sample_rate: Option<f64>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub results: Option<Vec<serde_json::Value>>,
+    /// Diagnostics about the request (e.g. an ill-conditioned parameter).
+    /// The binary also prints them to stderr; hosts without a stderr (wasm)
+    /// read them here.
+    #[serde(skip_serializing_if = "Vec::is_empty")]
+    pub warnings: Vec<String>,
 }
 
 #[derive(Serialize)]
@@ -205,8 +222,30 @@ struct SpectralMomentsResult {
 
 // ── Handler ──────────────────────────────────────────────────────────
 
+/// Where a request's audio comes from (see the module docs, "Transports").
+enum Audio {
+    File,
+    Bytes(Vec<u8>),
+    Samples(Vec<f64>, f64),
+}
+
+/// The file transport: `wav_path` is read from disk.
 pub fn handle_request(input: &str) -> String {
-    let outcome = std::panic::catch_unwind(|| handle_inner(input));
+    respond(input, Audio::File)
+}
+
+/// The bytes transport: `bytes` is the audio file's contents.
+pub fn handle_request_bytes(bytes: Vec<u8>, input: &str) -> String {
+    respond(input, Audio::Bytes(bytes))
+}
+
+/// The samples transport: mono `samples` at `sample_rate` Hz.
+pub fn handle_request_samples(samples: Vec<f64>, sample_rate: f64, input: &str) -> String {
+    respond(input, Audio::Samples(samples, sample_rate))
+}
+
+fn respond(input: &str, audio: Audio) -> String {
+    let outcome = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| handle_inner(input, audio)));
     let result = match outcome {
         Ok(r) => r,
         Err(panic) => {
@@ -228,6 +267,7 @@ pub fn handle_request(input: &str) -> String {
                 duration: None,
                 sample_rate: None,
                 results: None,
+                warnings: Vec::new(),
             };
             serde_json::to_string(&resp)
                 .unwrap_or_else(|_| r#"{"ok":false,"error":"serialization failed"}"#.to_string())
@@ -235,19 +275,50 @@ pub fn handle_request(input: &str) -> String {
     }
 }
 
-fn handle_inner(input: &str) -> Result<String, String> {
+fn load_sound(req: &PipeRequest, audio: Audio) -> Result<Sound, String> {
+    match audio {
+        Audio::File => {
+            let path = req.wav_path.as_deref().ok_or("wav_path required")?;
+            match req.channel {
+                Some(ch) => Sound::from_file_channel(path, ch),
+                None => Sound::from_file(path),
+            }
+            .map_err(|e| format!("failed to load {}: {}", path, e))
+        }
+        Audio::Bytes(bytes) => {
+            let name = req.wav_path.as_deref().unwrap_or("audio bytes");
+            let ext = req
+                .wav_path
+                .as_deref()
+                .and_then(|p| std::path::Path::new(p).extension())
+                .and_then(|e| e.to_str());
+            Sound::from_bytes(bytes, ext, req.channel)
+                .map_err(|e| format!("failed to load {}: {}", name, e))
+        }
+        Audio::Samples(samples, sample_rate) => {
+            if req.wav_path.is_some() || req.channel.is_some() {
+                return Err("wav_path and channel describe a file; the samples transport \
+                            takes decoded mono samples and refuses them"
+                    .to_string());
+            }
+            if !(sample_rate.is_finite() && sample_rate > 0.0) {
+                return Err(format!("sample_rate must be positive, not {}", sample_rate));
+            }
+            Ok(Sound::new(ndarray::Array1::from_vec(samples), sample_rate))
+        }
+    }
+}
+
+fn handle_inner(input: &str, audio: Audio) -> Result<String, String> {
     let req: PipeRequest =
         serde_json::from_str(input).map_err(|e| format!("invalid JSON request: {}", e))?;
 
-    let sound = match req.channel {
-        Some(ch) => Sound::from_file_channel(&req.wav_path, ch),
-        None => Sound::from_file(&req.wav_path),
-    }
-    .map_err(|e| format!("failed to load {}: {}", req.wav_path, e))?;
+    let sound = load_sound(&req, audio)?;
 
     let mut results = Vec::with_capacity(req.analyses.len());
+    let mut warnings = Vec::new();
     for (i, spec) in req.analyses.iter().enumerate() {
-        results.push(run_analysis(&sound, spec, i)?);
+        results.push(run_analysis(&sound, spec, i, &mut warnings)?);
     }
 
     let resp = PipeResponse {
@@ -257,6 +328,7 @@ fn handle_inner(input: &str) -> Result<String, String> {
         duration: Some(sound.duration()),
         sample_rate: Some(sound.sample_rate()),
         results: Some(results),
+        warnings,
     };
     serde_json::to_string(&resp).map_err(|e| format!("serialization failed: {}", e))
 }
@@ -265,6 +337,7 @@ fn run_analysis(
     sound: &Sound,
     spec: &serde_json::Value,
     index: usize,
+    warnings: &mut Vec<String>,
 ) -> Result<serde_json::Value, String> {
     let obj = spec
         .as_object()
@@ -285,8 +358,14 @@ fn run_analysis(
         "pitch_cc" => pitch_analysis(sound, params, PitchMethod::Cc, "pitch_cc"),
         "formant_burg" => formant_analysis(sound, params),
         "intensity" => intensity_analysis(sound, params),
-        "harmonicity_ac" => harmonicity_analysis(sound, params, true),
-        "harmonicity_cc" => harmonicity_analysis(sound, params, false),
+        "harmonicity_ac" | "harmonicity_cc" => {
+            harmonicity_analysis(sound, params, atype == "harmonicity_ac").map(|(r, w)| {
+                if let Some(w) = w {
+                    warnings.push(format!("analyses[{}] ({}): {}", index, atype, w));
+                }
+                r
+            })
+        }
         "spectral_moments" => spectral_moments_analysis(sound, params),
         "band_energy" => band_energy_analysis(sound, params),
         other => Err(format!(
@@ -397,7 +476,7 @@ fn harmonicity_analysis(
     sound: &Sound,
     params: serde_json::Value,
     ac: bool,
-) -> Result<serde_json::Value, String> {
+) -> Result<(serde_json::Value, Option<String>), String> {
     let p: HarmonicityParams = parse(params)?;
     if p.min_pitch <= 0.0 || p.time_step <= 0.0 {
         return Err(format!(
@@ -406,12 +485,12 @@ fn harmonicity_analysis(
         ));
     }
     let periods = p.periods_per_window.unwrap_or(if ac { 4.5 } else { 1.0 });
+    let mut warning = None;
     if ac && crate::harmonicity::ac_periods_per_window_is_ill_conditioned(periods) {
-        // Diagnostic only — stdout carries the JSON response, so this goes to
-        // stderr. See harmonicity::AC_MIN_PERIODS_PER_WINDOW; this will become
-        // a hard error in a future release.
-        eprintln!(
-            "warning: periods_per_window={:.1} is below {:.1} and the autocorrelation \
+        // Diagnostic only. See harmonicity::AC_MIN_PERIODS_PER_WINDOW; this
+        // will become a hard error in a future release.
+        let w = format!(
+            "periods_per_window={:.1} is below {:.1} and the autocorrelation \
              method is ill-conditioned there; frames whose correlation exceeds 1 \
              are reported as null. Use periods_per_window >= {:.1} (standard value \
              4.5), or harmonicity_cc (standard value 1.0). This will become an \
@@ -420,17 +499,22 @@ fn harmonicity_analysis(
             crate::harmonicity::AC_MIN_PERIODS_PER_WINDOW,
             crate::harmonicity::AC_MIN_PERIODS_PER_WINDOW,
         );
+        // stdout carries the JSON response, so the binary's copy goes to stderr
+        #[cfg(not(target_arch = "wasm32"))]
+        eprintln!("warning: {}", w);
+        warning = Some(w);
     }
     let harmonicity = if ac {
         sound.to_harmonicity_ac(p.time_step, p.min_pitch, p.silence_threshold, periods)
     } else {
         sound.to_harmonicity_cc(p.time_step, p.min_pitch, p.silence_threshold, periods)
     };
-    to_value(&ContourResult {
+    let result = to_value(&ContourResult {
         r#type: if ac { "harmonicity_ac" } else { "harmonicity_cc" },
         times: harmonicity.times().to_vec(),
         values: harmonicity.values().to_vec(),
-    })
+    })?;
+    Ok((result, warning))
 }
 
 /// Window a slice of the sound centered at `t` and transform it — the same
@@ -615,5 +699,57 @@ mod tests {
         let resp = request(r#"[{"type": "spectral_moments", "times": [0.0, 0.001]}]"#);
         assert_eq!(resp["ok"], true, "{}", resp);
         assert_eq!(arr_len(&resp["results"][0], "center_of_gravity"), 2);
+    }
+
+    const ALL_ANALYSES: &str = r#"[
+        {"type": "pitch_ac"}, {"type": "pitch_cc"}, {"type": "formant_burg"},
+        {"type": "intensity"}, {"type": "harmonicity_ac"}, {"type": "harmonicity_cc"},
+        {"type": "spectral_moments", "times": [0.2, 0.5]},
+        {"type": "band_energy", "times": [0.2, 0.5], "f_max": 1000}]"#;
+
+    #[test]
+    fn bytes_and_samples_transports_match_file_transport() {
+        let with_path = format!(r#"{{"wav_path": {:?}, "analyses": {}}}"#, FIXTURE, ALL_ANALYSES);
+        let without = format!(r#"{{"analyses": {}}}"#, ALL_ANALYSES);
+        let from_file = handle_request(&with_path);
+        assert!(from_file.starts_with(r#"{"ok":true"#), "{}", from_file);
+
+        let bytes = std::fs::read(FIXTURE).unwrap();
+        assert_eq!(handle_request_bytes(bytes.clone(), &with_path), from_file);
+        assert_eq!(handle_request_bytes(bytes, &without), from_file);
+
+        let sound = Sound::from_file(FIXTURE).unwrap();
+        let samples = sound.samples().to_vec();
+        assert_eq!(handle_request_samples(samples, sound.sample_rate(), &without), from_file);
+    }
+
+    #[test]
+    fn samples_transport_refuses_file_fields() {
+        let input = format!(r#"{{"wav_path": {:?}, "analyses": []}}"#, FIXTURE);
+        let resp: serde_json::Value =
+            serde_json::from_str(&handle_request_samples(vec![0.0; 100], 16000.0, &input)).unwrap();
+        assert_eq!(resp["ok"], false);
+        let resp: serde_json::Value =
+            serde_json::from_str(&handle_request_samples(vec![0.0; 100], 0.0, r#"{"analyses": []}"#)).unwrap();
+        assert_eq!(resp["ok"], false);
+    }
+
+    #[test]
+    fn file_transport_requires_wav_path() {
+        let resp: serde_json::Value =
+            serde_json::from_str(&handle_request(r#"{"analyses": []}"#)).unwrap();
+        assert_eq!(resp["ok"], false);
+        assert!(resp["error"].as_str().unwrap().contains("wav_path required"));
+    }
+
+    #[test]
+    fn ill_conditioned_ppw_is_reported_in_the_response() {
+        let resp = request(r#"[{"type": "harmonicity_ac", "periods_per_window": 2.0},
+                              {"type": "harmonicity_ac"}]"#);
+        assert_eq!(resp["ok"], true, "{}", resp);
+        let w = resp["warnings"].as_array().unwrap();
+        assert_eq!(w.len(), 1);
+        assert!(w[0].as_str().unwrap().starts_with("analyses[0] (harmonicity_ac): periods_per_window=2.0"));
+        assert!(request(r#"[{"type": "harmonicity_ac"}]"#).get("warnings").is_none());
     }
 }

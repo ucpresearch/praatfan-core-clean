@@ -73,8 +73,9 @@ pub mod spectrogram;
 pub mod spectrum;
 pub mod speech_reference;
 
-// JSON pipe interface (enabled with "pipe" feature; used by the praatfan-open-pipe binary)
-#[cfg(feature = "pipe")]
+// JSON pipe interface: the praatfan-open-pipe binary ("pipe" feature) and the
+// wasm `pipe_request_*` entry points ("wasm" feature)
+#[cfg(any(feature = "pipe", feature = "wasm"))]
 pub mod pipe;
 
 // WASM bindings (enabled with "wasm" feature)
