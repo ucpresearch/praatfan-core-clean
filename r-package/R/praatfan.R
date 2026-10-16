@@ -41,8 +41,8 @@
 #'   \code{I()} so length-1 vectors stay JSON arrays.
 #' @param channel  0-based channel to read from a multi-channel file.
 #'   Default \code{NULL} (file must be mono).
-#' @param engine   Engine for this call: \code{"open"}, \code{"wasm"} or
-#'   \code{"gpl"}.
+#' @param engine   Engine for this call: \code{"open"}, \code{"wasm"},
+#'   \code{"gpl"} or \code{"gpl_wasm"}.
 #'   Default \code{NULL} = the session engine (see \code{\link{pf_engine}}).
 #'   Both engines speak the same schema, so this is handy for side-by-side
 #'   comparisons.
@@ -51,8 +51,8 @@
 #'   analysis, in request order, each a list of parallel vectors.
 #' @export
 pf_analyze <- function(wav, analyses, channel = NULL, engine = NULL) {
-  eng <- .pf_engine_of(engine)
-  if (eng$name != "wasm") .pf_ensure_ready(eng)
+  eng <- .pf_runtime_engine(.pf_engine_of(engine))
+  if (is.null(eng$wasm)) .pf_ensure_ready(eng)
   req <- list(
     wav_path = normalizePath(wav, mustWork = TRUE),
     analyses = analyses

@@ -92,7 +92,7 @@ Praat's exact spectrogram.
 
 ## Engines
 
-Three interchangeable engines speak the same JSON schema; every analysis
+Four interchangeable engines speak the same JSON schema; every analysis
 function works identically with any of them:
 
 | Engine | Runs as | License | Notes |
@@ -100,9 +100,20 @@ function works identically with any of them:
 | `"open"` | `praatfan-open-pipe` binary | MIT | Clean-room implementation, validated frame-by-frame against Praat |
 | `"wasm"` | the open engine as WebAssembly, in `V8` | MIT | Ships with the package; same numbers as `"open"` (to floating-point rounding), one thread per call |
 | `"gpl"` | `praatfan-gpl-pipe` binary | GPL | Tracks Praat's values even more closely |
+| `"gpl_wasm"` | the GPL engine as WebAssembly, in `V8` | GPL | Not shipped (GPL): `pf_setup(engine = "gpl_wasm")` downloads it; one thread per call |
 
 With no engine chosen, `"open"` is used when its binary is available and
-`"wasm"` otherwise.
+`"wasm"` otherwise. Likewise `"gpl"` uses the GPL binary when it is installed
+and otherwise the GPL WASM build if you downloaded it, so the GPL engine also
+works on machines where its binary cannot run:
+
+```r
+pf_setup(engine = "gpl_wasm")   # download + checksum check; no compiler, no binary
+pf_engine("gpl")                # binary if installed, else the WASM build
+```
+
+`pf_setup(engine = "gpl_wasm", source = "praatfan-gpl-wasm-v8.zip")` installs
+a local copy of the bundle instead (offline; not checked).
 
 ```r
 pf_setup(engine = "gpl")     # install alongside the default engine

@@ -38,12 +38,24 @@ NULL
     repo = "ucpresearch/praatfan-core-rs",
     src  = "praatfan-core-rs"
   ),
-  # the open engine as WebAssembly, run in V8 (wasm.R); no binary
+  # the open engine as WebAssembly, run in V8 (wasm.R); ships with the
+  # package, no binary
   wasm = list(
     name = "wasm",
     bin  = NULL,
     repo = NULL,
-    src  = NULL
+    src  = NULL,
+    wasm = "open"
+  ),
+  # the GPL engine as WebAssembly; GPL-licensed, so downloaded on request by
+  # pf_setup(engine = "gpl_wasm") rather than shipped
+  gpl_wasm = list(
+    name  = "gpl_wasm",
+    bin   = NULL,
+    repo  = "ucpresearch/praatfan-core-rs",
+    src   = NULL,
+    wasm  = "gpl",
+    asset = "praatfan-gpl-wasm-v8.zip"
   )
 )
 
@@ -62,8 +74,13 @@ NULL
 #' \code{PRAATFAN_PIPE} environment variable — a path to a specific binary
 #' — always wins for the native engines.
 #'
+#' The GPL engine also comes as WebAssembly (\code{"gpl_wasm"}, downloaded
+#' by \code{pf_setup(engine = "gpl_wasm")}).  Choosing \code{"gpl"} uses
+#' the GPL binary when it is installed and otherwise the GPL WASM build when
+#' that is, so \code{"gpl"} works with either.
+#'
 #' @param engine \code{NULL} to query, or one of \code{"open"},
-#'   \code{"wasm"}, \code{"gpl"} to select.
+#'   \code{"wasm"}, \code{"gpl"}, \code{"gpl_wasm"} to select.
 #' @return The current engine name (invisibly, when setting).
 #' @export
 pf_engine <- function(engine = NULL) {
@@ -103,6 +120,23 @@ pf_engine <- function(engine = NULL) {
   "wasm"
 }
 
+#' The engine a call actually runs on: \code{"gpl"} without its binary but
+#' with the GPL WASM build installed runs on that (announced once).
+#' @keywords internal
+.pf_runtime_engine <- function(eng) {
+  if (eng$name == "gpl" && !.pf_is_ready(eng) &&
+      .pf_is_ready(.pf_engines$gpl_wasm)) {
+    if (!isTRUE(.pf_wasm_env$announced_gpl)) {
+      .pf_wasm_env$announced_gpl <- TRUE
+      message("praatfan: no praatfan-gpl-pipe binary found; using the GPL ",
+              "engine's WASM build (same engine, slower). ",
+              "pf_setup(engine = \"gpl\") installs the binary.")
+    }
+    return(.pf_engines$gpl_wasm)
+  }
+  eng
+}
+
 #' Resolve an engine name (or NULL = current) to its registry entry.
 #' @keywords internal
 .pf_engine_of <- function(engine = NULL) {
@@ -119,10 +153,11 @@ pf_engine <- function(engine = NULL) {
 
 .pf_pipe_call <- function(request, engine = NULL) {
   eng <- .pf_engine_of(engine)
-  if (eng$name == "wasm") {
-    resp <- .pf_parse_response(.pf_wasm_text(request), "praatfan (WASM engine)")
-    # the binary prints these to stderr, which the WASM engine has none of
-    for (w in resp$warnings) warning("praatfan (WASM engine): ", w, call. = FALSE)
+  if (!is.null(eng$wasm)) {
+    who <- paste0("praatfan (", eng$name, " engine)")
+    resp <- .pf_parse_response(.pf_wasm_text(request, eng$wasm), who)
+    # the binary prints these to stderr, which a WASM engine has none of
+    for (w in resp$warnings) warning(who, ": ", w, call. = FALSE)
     return(resp)
   }
   bin <- .pf_pipe_bin(eng)

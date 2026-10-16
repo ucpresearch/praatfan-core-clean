@@ -52,11 +52,14 @@ NULL
 #'   \item{\code{"source"}}{Build a local source tree with \code{cargo}.}
 #' }
 #'
-#' @param engine  Which engine to install: \code{"open"} (default) or
-#'   \code{"gpl"}.  See \code{\link{pf_engine}}.  Both can be installed
-#'   side by side.  (\code{"wasm"} ships with the package: nothing to
-#'   install.)
-#' @param source  Path to a source tree — either a repository root
+#' @param engine  Which engine to install: \code{"open"} (default),
+#'   \code{"gpl"}, or \code{"gpl_wasm"} (the GPL engine as WebAssembly: a
+#'   download, no binary; runs wherever the \pkg{V8} package does).  See
+#'   \code{\link{pf_engine}}.  All can be installed side by side.
+#'   (\code{"wasm"} ships with the package: nothing to install.)
+#' @param source  For \code{"gpl_wasm"}: a local
+#'   \code{praatfan-gpl-wasm-v8.zip} to install instead of downloading one
+#'   (it is not checked against any SHA256SUMS).  Otherwise: path to a source tree — either a repository root
 #'   (containing \code{rust/Cargo.toml}) or the crate directory itself.
 #'   If given, it is built directly and the other routes are skipped.  If
 #'   \code{NULL} (default), the \code{"source"} route auto-detects a
@@ -82,6 +85,9 @@ pf_setup <- function(engine = NULL, source = NULL, repo = NULL, ref = NULL,
     message("The WASM engine ships with the package; nothing to install. ",
             "pf_setup(engine = \"open\") installs the faster native binary.")
     return(invisible(TRUE))
+  }
+  if (eng$name == "gpl_wasm") {
+    return(.pf_install_gpl_wasm(eng, ref = ref, zip = source, force = force))
   }
 
   if (!force && .pf_is_ready(eng)) {
@@ -152,6 +158,11 @@ pf_uninstall <- function(sources = TRUE) {
     unlink(.pf_bin_dir, recursive = TRUE)
   } else {
     message("Nothing to remove at ", .pf_bin_dir)
+  }
+  if (dir.exists(dirname(.pf_gpl_wasm_dir()))) {
+    message("Removing: ", dirname(.pf_gpl_wasm_dir()))
+    unlink(dirname(.pf_gpl_wasm_dir()), recursive = TRUE)
+    .pf_wasm_reset("gpl")
   }
   if (sources && dir.exists(.pf_src_dir)) {
     message("Removing: ", .pf_src_dir)
@@ -432,6 +443,73 @@ pf_uninstall <- function(sources = TRUE) {
 }
 
 
+#' Install the GPL engine's WASM build.
+#'
+#' Downloads \code{praatfan-gpl-wasm-v8.zip} from the GPL engine's release
+#' (\code{ref}, or the latest), checks it against that release's
+#' SHA256SUMS (\code{.pf_verify_sha256}), unpacks it, and test-loads it in
+#' V8 before replacing any previous install.  \code{zip} installs a local
+#' file instead (offline; not checked).
+#' @keywords internal
+.pf_install_gpl_wasm <- function(eng, ref = NULL, zip = NULL, force = FALSE) {
+  why <- .pf_wasm_unavailable("open")
+  if (!is.null(why) && grepl("V8", why)) stop("praatfan: ", why, call. = FALSE)
+  if (!force && is.null(zip) && .pf_is_ready(eng)) {
+    message("The GPL WASM engine is already installed: ", .pf_gpl_wasm_dir())
+    return(invisible(TRUE))
+  }
+  tmp <- tempfile()
+  dir.create(tmp)
+  on.exit(unlink(tmp, recursive = TRUE), add = TRUE)
+
+  if (is.null(zip)) {
+    message("Downloading ", eng$asset, " from ", eng$repo,
+            if (is.null(ref)) "" else paste0(" (", ref, ")"), "...")
+    zip <- .pf_release_asset(eng, ref, eng$asset, tmp)
+    if (is.null(zip)) {
+      stop("could not download ", eng$asset, " from ", eng$repo,
+           if (is.null(ref)) " (latest release)" else paste0(" (", ref, ")"),
+           call. = FALSE)
+    }
+    .pf_verify_sha256(zip, eng$asset,
+                      .pf_release_asset(eng, ref, "SHA256SUMS", tmp))
+  } else {
+    zip <- normalizePath(zip, mustWork = TRUE)
+    message("Installing ", basename(zip), " from a local file (not checked).")
+  }
+
+  unpacked <- file.path(tmp, "unpacked")
+  utils::unzip(zip, exdir = unpacked, junkpaths = TRUE)
+  need <- c("praatfan_gpl.js", "praatfan_gpl_bg.wasm", "LICENSE")
+  missing <- need[!file.exists(file.path(unpacked, need))]
+  if (length(missing)) {
+    stop(basename(zip), " lacks ", paste(missing, collapse = ", "),
+         call. = FALSE)
+  }
+  # it must load and answer before it replaces anything
+  version <- tryCatch({
+    ctx <- .pf_wasm_load(file.path(unpacked, "praatfan_gpl.js"),
+                         file.path(unpacked, "praatfan_gpl_bg.wasm"))
+    ctx$eval("wasm_bindgen.version()")
+  }, error = function(e) {
+    stop("the GPL WASM bundle does not load: ", conditionMessage(e),
+         call. = FALSE)
+  })
+
+  dest <- .pf_gpl_wasm_dir()
+  unlink(dest, recursive = TRUE)
+  dir.create(dest, recursive = TRUE, showWarnings = FALSE)
+  files <- list.files(unpacked, full.names = TRUE)
+  if (!all(file.copy(files, dest, overwrite = TRUE))) {
+    stop("could not copy the GPL WASM bundle to ", dest, call. = FALSE)
+  }
+  .pf_wasm_reset("gpl")
+  message("GPL WASM engine ", version, " installed at ", dest,
+          " (GPL-3.0; see its LICENSE).")
+  invisible(TRUE)
+}
+
+
 #' Download one asset of a release into `dir`; its path, or NULL.
 #'
 #' Tries a direct download first.  A private repository serves 404 to an
@@ -503,7 +581,7 @@ pf_uninstall <- function(sources = TRUE) {
 
 
 .pf_is_ready <- function(eng = .pf_engine_of()) {
-  if (eng$name == "wasm") return(is.null(.pf_wasm_unavailable()))
+  if (!is.null(eng$wasm)) return(is.null(.pf_wasm_unavailable(eng$wasm)))
   env <- Sys.getenv("PRAATFAN_PIPE", "")
   if (nzchar(env) && file.exists(env)) return(TRUE)
   candidate <- file.path(.pf_bin_dir, eng$bin)

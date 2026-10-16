@@ -726,12 +726,21 @@ bit-exactly.
 (raw batch), and tidy wrappers `pf_pitch`, `pf_formants`, `pf_intensity`,
 `pf_harmonicity`, `pf_spectral_moments`, `pf_band_energy` returning
 data.frames, plus `pf_spectrogram` (S3 object with `plot`/`as.data.frame`;
-`window_length = "wide"` 0.005 s / `"narrow"` 0.025 s / seconds) (JSON null → NA; unvoiced f0 → NA + `voiced` column). Two
-interchangeable engines speak the same schema: `"open"` (praatfan-open-pipe,
-MIT, default) and `"gpl"` (praatfan-gpl-pipe from ucpresearch/praatfan-core-rs,
-closer to Praat's exact values). Select via `pf_engine("gpl")`,
-`pf_analyze(engine=)`, or `PRAATFAN_ENGINE`; `pf_setup(engine=)` installs
-either; both can coexist. Binary
+`window_length = "wide"` 0.005 s / `"narrow"` 0.025 s / seconds). JSON null →
+NA; unvoiced f0 → NA + `voiced` column. Four interchangeable engines speak the
+same schema: `"open"` (praatfan-open-pipe, MIT), `"wasm"` (the open engine in
+V8, shipped), `"gpl"` (praatfan-gpl-pipe from ucpresearch/praatfan-core-rs,
+closer to Praat's exact values) and `"gpl_wasm"` (the GPL engine in V8:
+GPL-licensed, so never shipped; `pf_setup(engine = "gpl_wasm")` downloads
+`praatfan-gpl-wasm-v8.zip`, checks it against SHA256SUMS, test-loads it, and
+installs it under `.pf_home/wasm/gpl`; `source =` takes a local zip). No
+engine chosen: open binary, else wasm. `"gpl"` falls back to `"gpl_wasm"`
+when only that is installed (`.pf_runtime_engine`). Each WASM bundle gets its
+own V8 context; both load our `shim.js`. Select via `pf_engine()`,
+`pf_analyze(engine=)`, or `PRAATFAN_ENGINE`; `pf_setup(engine=)` installs any;
+all can coexist. `rust/wasm-v8/shape.mjs` black-box checks either bundle's
+response shape against `docs/pipe-spectrogram.md` (never read the GPL
+bundle's files — load and query only). Binary
 override: `PRAATFAN_PIPE` env var (always wins). Install:
 `remotes::install_github("ucpresearch/praatfan-core-clean", subdir = "r-package")`.
 Release assets expected as `praatfan-open-pipe-<os>-<arch>[.exe]`, plus a

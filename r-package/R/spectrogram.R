@@ -59,7 +59,18 @@ pf_spectrogram <- function(wav, window_length = "wide", max_frequency = 5000,
                dtype = if (precision == "single") "f32le" else "f64le")
   if (!is.null(start_time)) spec$start_time <- start_time
   if (!is.null(end_time)) spec$end_time <- end_time
-  r <- pf_analyze(wav, list(spec), channel, engine)$results[[1]]
+  r <- tryCatch(
+    pf_analyze(wav, list(spec), channel, engine)$results[[1]],
+    error = function(e) {
+      msg <- conditionMessage(e)
+      if (grepl("unknown type \"spectrogram\"", msg, fixed = TRUE)) {
+        msg <- paste0(msg, "\nThis engine's installed version predates ",
+                      "spectrograms; update it with pf_setup(engine = \"",
+                      pf_engine(), "\", force = TRUE) (or the engine you ",
+                      "passed), or check what PRAATFAN_PIPE / PATH points to.")
+      }
+      stop(msg, call. = FALSE)
+    })
 
   times <- as.numeric(unlist(r$times))
   freqs <- as.numeric(unlist(r$freqs))
