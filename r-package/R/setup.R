@@ -464,6 +464,11 @@ pf_uninstall <- function(sources = TRUE) {
 
 #' Check a downloaded asset against the release's SHA256SUMS.
 #'
+#' A self-consistency check, not an authenticity check: SHA256SUMS comes
+#' from the same release (same origin, same credentials) as the asset, so it
+#' catches corrupt, truncated or mismatched downloads, but not a release
+#' whose assets were replaced together.
+#'
 #' \code{sums} is the downloaded SHA256SUMS (\code{sha256sum} format: hash,
 #' two spaces or " *", file name), or NULL when the release has none --
 #' releases made before checksums were published -- in which case the asset
@@ -473,7 +478,7 @@ pf_uninstall <- function(sources = TRUE) {
 .pf_verify_sha256 <- function(path, name, sums) {
   if (is.null(sums)) {
     message("  This release publishes no SHA256SUMS; ", name,
-            " was not verified.")
+            " was not checked.")
     return(invisible(FALSE))
   }
   lines <- readLines(sums, warn = FALSE)
@@ -488,10 +493,11 @@ pf_uninstall <- function(sources = TRUE) {
   got <- as.vector(as.character(openssl::sha256(file(path))))
   if (!identical(got, want)) {
     stop("checksum mismatch for ", name, ": expected ", want, ", got ", got,
-         ". The download is corrupt or was altered; try again, and report ",
-         "it if it persists.", call. = FALSE)
+         ". The download is corrupt or incomplete, or the release's assets ",
+         "are inconsistent; try again, and report it if it persists.",
+         call. = FALSE)
   }
-  message("  Verified ", name, " (SHA-256).")
+  message("  ", name, " matches the release's SHA256SUMS.")
   invisible(TRUE)
 }
 

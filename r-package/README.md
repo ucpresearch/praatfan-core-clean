@@ -25,8 +25,11 @@ nodes, pins a version with `ref =`, and installs the GPL engine.
 `pf_setup()` tries, in order: a pre-built binary from GitHub Releases, a git
 clone built with cargo, and a local source tree. A downloaded binary is
 checked against the release's `SHA256SUMS` and refused if it does not match
-(older releases without that file install with a "not verified" note). Point the package at an
-existing binary instead with `PRAATFAN_PIPE=/path/to/praatfan-open-pipe`.
+(older releases without that file install with a note). This is a
+consistency check — it catches a corrupt, truncated or mismatched download —
+not protection against a compromised release: the checksum file comes from
+the same release as the binary, so whoever could replace one could replace
+both. Point the package at an existing binary instead with `PRAATFAN_PIPE=/path/to/praatfan-open-pipe`.
 
 ## Use
 

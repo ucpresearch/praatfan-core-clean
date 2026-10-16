@@ -375,7 +375,9 @@ jobs:
 
   # One SHA256SUMS covering every asset of the release (sha256sum format).
   # The R package's pf_setup() checks each download against it; the GPL
-  # engine's releases publish the same file.
+  # engine's releases publish the same file. A self-consistency check
+  # (corrupt or mismatched downloads), not protection against a compromised
+  # release: the sums come from the same origin as the assets.
   checksums:
     needs: [upload-release, upload-rust-sdist, upload-sdist]
     runs-on: ubuntu-latest

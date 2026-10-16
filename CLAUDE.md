@@ -736,9 +736,12 @@ override: `PRAATFAN_PIPE` env var (always wins). Install:
 `remotes::install_github("ucpresearch/praatfan-core-clean", subdir = "r-package")`.
 Release assets expected as `praatfan-open-pipe-<os>-<arch>[.exe]`, plus a
 `SHA256SUMS` covering every asset (release.yml's `checksums` job; the GPL
-engine publishes the same). `pf_setup()` verifies each downloaded binary
+engine publishes the same). `pf_setup()` checks each downloaded binary
 against it (openssl) and refuses an unlisted or mismatching one; releases
-without the file install with a "not verified" note.
+without the file install with a note. This is a **self-consistency check**
+(corrupt/truncated/mismatched downloads), not protection against a hijacked
+release — the sums come from the same origin as the binaries. Say so
+wherever it is documented; don't call it "verification".
 
 ### Embedded-V8 WASM backend (Python `praatfan_wasm`, R engine `"wasm"`)
 
