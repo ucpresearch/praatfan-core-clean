@@ -47,6 +47,16 @@ ANALYSES (defaults shown):
         times[] (required), window_length 0.025, f_min 0, f_max 0 (0 = Nyquist)
         → times[], values[] (Pa²·s, as Praat's "Get band energy")
 
+    spectrogram
+        window_length 0.005, max_frequency 5000 (<= 0 or > Nyquist = Nyquist),
+        time_step 0.002, frequency_step 20, window_shape "gaussian" | "hanning",
+        dtype "f64le" | "f32le", start_time / end_time (optional: limit the
+        returned frames; the grid stays the whole file's)
+        → n_times, n_freqs, time_step, frequency_step (as used), times[],
+          freqs[], layout "time-major", dtype, power_b64 (base64 of
+          n_times×n_freqs little-endian values, frame by frame; linear power).
+        A plain STFT: the grid and values are not Praat-exact.
+
 RESPONSE:
     { "ok": true, "version": "...", "duration": ..., "sample_rate": ..., "results": [...],
       "warnings": [...] }               // only when there are any; also printed to stderr

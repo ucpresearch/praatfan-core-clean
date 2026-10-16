@@ -628,8 +628,16 @@ Claude auto-memory directory. Gitignored but syncthinged across machines. Contai
 | Pitch (CC) | ✅ | ✅ | ✅ | ✅ |
 | Harmonicity | ✅ | ✅ | ✅ | ✅ |
 | Formant | ✅ | ✅ | ✅ | ✅ |
-| Spectrogram | ✅ | ✅ | ✅ | ✅ |
+| Spectrogram (STFT; not Praat-exact, see below) | ✅ | ✅ | ✅ | ✅ |
 | Per-window Spectral | ✅ | - | - | - |
+
+**Spectrogram is not Praat-exact (by decision, 2026-10-16).** It is a
+standard Gaussian/Hanning STFT. Black-box checks against parselmouth: the time
+grid matches at common settings, but Praat's frequency grid differs (e.g. 5 ms
+window: Praat 213 bins at 23.4 Hz, ours 427 at 11.7 Hz), Praat raises the time
+step for long windows (50 ms: 3.5 ms instead of 2 ms), and values differ by a
+few percent per bin with outliers. We do not chase parity here: users who
+need Praat's exact spectrogram use the GPL engine.
 
 ### Per-Window Spectral Methods (New)
 
@@ -700,12 +708,14 @@ cargo test
 `pipe`) provide a JSON-stdin → JSON-stdout binary for R and other external
 callers. One request = one audio file + a list
 of analyses (`pitch_ac`, `pitch_cc`, `formant_burg`, `intensity`,
-`harmonicity_ac`, `harmonicity_cc`, `spectral_moments`, `band_energy`), so
-callers pay the file load once. Omitted params take Praat's defaults; unknown
-types/param keys are hard errors; NaN serializes as JSON `null` (jsonlite →
-`NA`). Raw spectrum bins and full spectrograms are deliberately not exposed —
-R covers generic spectra (seewave/phonTools/wrassp); the pipe carries the
-Praat-parity scalars R can't replicate. `praatfan-open-pipe --help` documents
+`harmonicity_ac`, `harmonicity_cc`, `spectral_moments`, `band_energy`,
+`spectrogram`), so callers pay the file load once. Omitted params take
+Praat's defaults; unknown types/param keys are hard errors; NaN serializes as
+JSON `null` (jsonlite → `NA`). Raw spectrum bins are not exposed. The
+`spectrogram` result carries its power matrix as base64 (f64 or f32,
+time-major), not JSON numbers; its schema is shared with the GPL engine's
+pipe and frozen in `docs/pipe-spectrogram.md` (uniform *shape*; the grid and
+values are per engine — ours is a plain STFT). `praatfan-open-pipe --help` documents
 the full schema. serde_json uses `float_roundtrip` so request floats parse
 bit-exactly.
 
@@ -715,7 +725,8 @@ bit-exactly.
 `pf_setup()` (binary download → git+cargo → local source), `pf_analyze()`
 (raw batch), and tidy wrappers `pf_pitch`, `pf_formants`, `pf_intensity`,
 `pf_harmonicity`, `pf_spectral_moments`, `pf_band_energy` returning
-data.frames (JSON null → NA; unvoiced f0 → NA + `voiced` column). Two
+data.frames, plus `pf_spectrogram` (S3 object with `plot`/`as.data.frame`;
+`window_length = "wide"` 0.005 s / `"narrow"` 0.025 s / seconds) (JSON null → NA; unvoiced f0 → NA + `voiced` column). Two
 interchangeable engines speak the same schema: `"open"` (praatfan-open-pipe,
 MIT, default) and `"gpl"` (praatfan-gpl-pipe from ucpresearch/praatfan-core-rs,
 closer to Praat's exact values). Select via `pf_engine("gpl")`,

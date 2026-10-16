@@ -53,9 +53,32 @@ for every analysis. Callers asking for "narrow" vs "wide" band pass a
 - A sound shorter than the analysis window gives an empty result, not an
   error: `n_times: 0`, `times: []`, `power_b64: ""`, response `ok: true`.
   `freqs` and `n_freqs` are still reported.
-- Parity target: the grid exactly (same `n_times`, `n_freqs`, times and freqs
-  to float rounding) and values to relative 1e-10, checked black-box against
-  parselmouth's `To Spectrogram` and between the two engines.
+- Parity is per engine, not across engines. The GPL engine targets Praat's
+  `To Spectrogram` exactly. The open engine is a standard Gaussian/Hanning
+  STFT with the same time grid at common settings but its own frequency
+  grid and values (within a few percent of Praat's; it does not chase
+  parity — use the GPL engine for that). Callers must read the grid from
+  `times`/`freqs`, never assume it; only the response *shape* is uniform.
+
+### Errors and edge cases
+
+`ok: false` (with `error`) when:
+
+- `window_length`, `time_step` or `frequency_step` is not finite and > 0;
+- `max_frequency`, `start_time` or `end_time` is not finite;
+- `start_time > end_time`;
+- `window_shape` is not `gaussian`/`hanning`, or `dtype` not `f64le`/`f32le`.
+
+`ok: true`:
+
+- explicit `null` for `start_time`/`end_time` means absent;
+- `max_frequency` of 0, negative, or above Nyquist is clamped to Nyquist
+  (parselmouth rejects `<= 0`, so black-box comparisons pass it Nyquist for
+  that case);
+- a time range that selects no frames gives the empty result above.
+
+Cross-build parity (native vs wasm32, different libm) is close but not
+bit-identical; compare with relative tolerances, not equality.
 
 Size note: the defaults give 500 frames/s × 250 bins = 125k values/s, i.e.
 1 MB/s of f64 (1.3 MB/s of base64). Long files should use `f32le` and/or a
@@ -70,7 +93,10 @@ time range.
   - `pipe_request_bytes(Uint8Array file_bytes, String json)` — `wav_path`
     optional, used only as a format hint (extension) and name;
   - `pipe_request_samples(Float64Array samples, Number sample_rate, String
-    json)` — refuses `wav_path` and `channel`, and `sample_rate <= 0`.
+    json)` — refuses `wav_path` and `channel`, and a `sample_rate` that is
+    not finite and > 0.
+  - Undecodable bytes give `ok: false`, naming `wav_path` if given, else
+    `"<bytes>"`.
 
 ## 4. Embedded-V8 bundle contract (for the R package's `"wasm"` engines)
 
