@@ -791,12 +791,27 @@ This is an optional dependency enabled automatically by the `wasm` feature flag.
 
 ### Release Status
 
-**Version in this tree:** 0.1.11.
+**Version in this tree:** 0.1.12 (being prepared; GitHub release only — **no
+PyPI upload** for this one, by decision).
 **Latest published release:** v0.1.11 (2026-09-23; GitHub release + PyPI
 `praatfan` and `praatfan-rust`).
 
 Verify with `gh release list` / `git tag -l | sort -V | tail` rather than
 trusting this section — it goes stale.
+
+**v0.1.12 — WASM in embedded V8, spectrograms, release checksums.**
+Existing analysis values are unchanged except where noted.
+- New Python backend `praatfan_wasm` (praatfan_rust as wasm32 in mini-racer;
+  `praatfan[wasm]`) and R engine `"wasm"` (shipped; V8 in Imports). Auto
+  order rust → gpl → wasm → praatfan; parselmouth by name only.
+- **Behaviour change (Python):** unvoiced F0 is `nan` on every backend
+  (`Pitch.values()`; `call(..., "Get value in frame")` returns nan).
+- Pipe: bytes/samples transports, additive `"warnings"`, and the
+  `spectrogram` analysis (`docs/pipe-spectrogram.md`, shared with the GPL
+  engine). R: `pf_spectrogram()` with `plot()`.
+- R: `"gpl_wasm"` engine (downloaded on request); `"gpl"` falls back to it.
+- Releases carry `SHA256SUMS` (a self-consistency check); `pf_setup()`
+  checks downloads against it. R now imports `openssl`.
 
 **v0.1.11 — parallel frame loops (output unchanged).** Commits
 `05d8357` and `33d60a2`. Every result is bit-identical to v0.1.10; only speed
