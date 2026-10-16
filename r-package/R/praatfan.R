@@ -35,9 +35,9 @@
 #'   \code{type} field (\code{"pitch_ac"}, \code{"pitch_cc"},
 #'   \code{"formant_burg"}, \code{"intensity"}, \code{"harmonicity_ac"},
 #'   \code{"harmonicity_cc"}, \code{"spectral_moments"},
-#'   \code{"band_energy"}) plus that analysis's parameters.  Omitted
-#'   parameters take Praat's defaults; unknown parameter names are errors.
-#'   Vector-valued fields (e.g. \code{times}) should be wrapped in
+#'   \code{"band_energy"}, \code{"spectrogram"}) plus that analysis's
+#'   parameters.  Omitted parameters take Praat's defaults; unknown
+#'   parameter names are errors.  Vector-valued fields (e.g. \code{times}) should be wrapped in
 #'   \code{I()} so length-1 vectors stay JSON arrays.
 #' @param channel  0-based channel to read from a multi-channel file.
 #'   Default \code{NULL} (file must be mono).

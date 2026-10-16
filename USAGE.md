@@ -96,6 +96,7 @@ i <- pf_intensity("audio.wav")                # time, intensity (dB)
 h <- pf_harmonicity("audio.wav")              # time, hnr (dB)
 m <- pf_spectral_moments("audio.wav", times = c(0.10, 0.15))
 b <- pf_band_energy("audio.wav", times = c(0.10, 0.15), f_min = 0, f_max = 1000)
+plot(pf_spectrogram("audio.wav"))             # "wide" (default), "narrow", or seconds
 ```
 
 See `r-package/README.md` for details, including the batch interface

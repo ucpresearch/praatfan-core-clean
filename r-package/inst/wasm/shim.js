@@ -37,20 +37,30 @@ if (typeof globalThis.TextEncoder === 'undefined') {
 if (typeof globalThis.TextDecoder === 'undefined') {
   globalThis.TextDecoder = class {
     constructor() {}
+    // Runs of ASCII (all of a JSON response, base64 included) are converted
+    // CHUNK bytes at a time; only other bytes go one code point at a time.
+    // Building a long string one character at a time exhausts V8's heap on
+    // large responses (spectrograms run to hundreds of MB).
     decode(b) {
       if (!b) return '';
+      const CHUNK = 8192;
       const parts = [];
-      let s = '';
       let i = 0;
       while (i < b.length) {
+        let j = i;
+        const stop = Math.min(b.length, i + CHUNK);
+        while (j < stop && b[j] < 0x80) j++;
+        if (j > i) {
+          parts.push(String.fromCharCode.apply(null, b.subarray(i, j)));
+          i = j;
+          continue;
+        }
         let c = b[i++];
         if (c >= 0xf0) c = ((c & 7) << 18) | ((b[i++] & 63) << 12) | ((b[i++] & 63) << 6) | (b[i++] & 63);
         else if (c >= 0xe0) c = ((c & 15) << 12) | ((b[i++] & 63) << 6) | (b[i++] & 63);
         else if (c >= 0xc0) c = ((c & 31) << 6) | (b[i++] & 63);
-        s += String.fromCodePoint(c);
-        if (s.length >= 8192) { parts.push(s); s = ''; }
+        parts.push(String.fromCodePoint(c));
       }
-      parts.push(s);
       return parts.join('');
     }
   };

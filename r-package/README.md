@@ -2,7 +2,8 @@
 
 Praat-compatible acoustic analysis in R: pitch (F0), formants (Burg LPC),
 intensity, harmonicity (HNR), spectral moments, and band energy, with values
-validated frame-by-frame against Praat. The Rust engine ships inside the
+validated frame-by-frame against Praat, plus spectrograms with a plot method.
+The Rust engine ships inside the
 package compiled to WebAssembly and runs in R through the `V8` package, so it
 works as soon as the package is installed; the native binary
 (`praatfan-open-pipe`, JSON stdin/stdout) is an optional speed-up with the
@@ -61,6 +62,29 @@ res <- pf_analyze("audio.wav", list(
 (Wrap vector fields like `times` in `I()` so length-1 vectors stay JSON
 arrays.)
 
+### Spectrograms
+
+```r
+sg <- pf_spectrogram("audio.wav")             # wide-band (0.005 s window)
+plot(sg)                                       # grey scale, 50 dB range, +6 dB/octave
+plot(pf_spectrogram("audio.wav", "narrow",     # narrow-band (0.025 s): harmonics
+                    max_frequency = 3000))
+pf_spectrogram("audio.wav", window_length = 0.01)  # or any window in seconds
+d <- as.data.frame(sg)                         # time, frequency, power: for ggplot2
+```
+
+`sg$power` is a frames × bins matrix of linear power; `sg$times` and
+`sg$freqs` give the grid. Parameters follow Praat's *To Spectrogram*
+(`max_frequency`, `time_step`, `frequency_step`, `window_shape`). For long
+files, `start_time`/`end_time` return part of the file and
+`precision = "single"` halves the transfer: the defaults produce about
+125,000 values per second of audio.
+
+The open engines compute a standard short-time Fourier transform: the time
+grid matches Praat's at common settings, but the frequency grid and values
+are close to Praat's, not identical. Use the `"gpl"` engine when you need
+Praat's exact spectrogram.
+
 ## Engines
 
 Three interchangeable engines speak the same JSON schema; every analysis
@@ -93,9 +117,6 @@ which subprocess runs; this package itself remains MIT either way.
 
 ## Notes
 
-- For generic spectra/spectrograms, R is already well served (seewave,
-  phonTools, wrassp); this package deliberately carries only the
-  Praat-parity values those tools can't replicate.
 - The `"open"` engine's binary uses all CPU cores for each file. When you
   run analyses in parallel yourself (`parallel::mclapply`, `future`, ...),
   limit its threads with `Sys.setenv(RAYON_NUM_THREADS = 1)` (or cores ÷

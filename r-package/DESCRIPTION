@@ -5,8 +5,9 @@ Authors@R: person("praatfan contributors", role = c("aut", "cre"),
                    email = "noreply@example.com")
 Description: R interface to praatfan, a clean-room reimplementation of
     Praat's core acoustic analysis algorithms. Computes pitch (F0),
-    formants (Burg LPC), intensity, harmonicity (HNR), spectral moments,
-    and band energy with values validated frame-by-frame against Praat.
+    formants (Burg LPC), intensity, harmonicity (HNR), spectral moments
+    and band energy, with values validated frame-by-frame against Praat,
+    and spectrograms with a plot method.
     The Rust engine ships inside the package as WebAssembly and runs in R
     through 'V8', so nothing else needs installing; the native binary
     (praatfan-open-pipe, installed by pf_setup()) is an optional speed-up
@@ -17,6 +18,8 @@ Encoding: UTF-8
 Roxygen: list(markdown = TRUE)
 RoxygenNote: 7.3.0
 Imports:
+    graphics,
+    grDevices,
     jsonlite,
     utils,
     V8
