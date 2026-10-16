@@ -116,7 +116,7 @@ pf_pitch <- function(wav, method = c("ac", "cc"), time_step = 0,
 #' Equivalent to Praat's \emph{Sound: To Formant (burg)}.
 #'
 #' @param wav              Path to an audio file.
-#' @param time_step        Frame step in seconds; 0 = auto (25\% of window).
+#' @param time_step        Frame step in seconds; 0 = auto (a quarter of the window).
 #' @param max_num_formants Maximum formants per frame (default 5).
 #' @param max_formant_hz   Formant ceiling in Hz (default 5500; use ~5000
 #'   for a typical male speaker).

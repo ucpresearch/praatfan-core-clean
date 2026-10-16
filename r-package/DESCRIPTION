@@ -16,7 +16,6 @@ Description: R interface to praatfan, a clean-room reimplementation of
 License: MIT + file LICENSE
 Encoding: UTF-8
 Roxygen: list(markdown = TRUE)
-RoxygenNote: 7.3.0
 Imports:
     graphics,
     grDevices,
@@ -28,3 +27,4 @@ Suggests:
     testthat (>= 3.0.0)
 URL: https://github.com/ucpresearch/praatfan-core-clean
 BugReports: https://github.com/ucpresearch/praatfan-core-clean/issues
+Config/roxygen2/version: 8.1.0

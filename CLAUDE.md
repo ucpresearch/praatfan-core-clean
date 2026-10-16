@@ -743,6 +743,13 @@ response shape against `docs/pipe-spectrogram.md` (never read the GPL
 bundle's files — load and query only). Binary
 override: `PRAATFAN_PIPE` env var (always wins). Install:
 `remotes::install_github("ucpresearch/praatfan-core-clean", subdir = "r-package")`.
+Help pages (`r-package/man/`) are generated from the roxygen comments:
+`Rscript -e 'roxygen2::roxygenise("r-package", roclets = "rd")'` after editing
+them, and commit the result. NAMESPACE stays hand-written (don't run the
+namespace roclet). With markdown on, write no `\%` (it becomes an Rd comment
+that swallows the page). `R CMD check --no-manual` is clean as of 0.1.12. The
+LICENSE is the CRAN DCF stub; the full MIT text is in LICENSE.md
+(.Rbuildignore'd).
 Release assets expected as `praatfan-open-pipe-<os>-<arch>[.exe]`, plus a
 `SHA256SUMS` covering every asset (release.yml's `checksums` job; the GPL
 engine publishes the same). `pf_setup()` checks each downloaded binary
