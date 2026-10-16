@@ -42,7 +42,7 @@ NULL
 
 #' Where the downloaded GPL bundle lives.
 #' @keywords internal
-.pf_gpl_wasm_dir <- function() file.path(.pf_home, "wasm", "gpl")
+.pf_gpl_wasm_dir <- function() file.path(.pf_home(), "wasm", "gpl")
 
 #' The glue script and module of a bundle: \code{"open"} (shipped) or
 #' \code{"gpl"} (downloaded by \code{pf_setup(engine = "gpl_wasm")}).

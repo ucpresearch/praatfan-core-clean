@@ -13,14 +13,19 @@ NULL
 # Configuration
 # ---------------------------------------------------------------------------
 
-.pf_home <- if (.Platform$OS.type == "windows") {
-  file.path(Sys.getenv("LOCALAPPDATA", Sys.getenv("APPDATA")), "praatfan")
-} else {
-  file.path(Sys.getenv("XDG_DATA_HOME", path.expand("~/.local/share")),
-            "praatfan")
+# Functions, not constants: a top-level value would be computed once, when
+# the package is installed, and so would point every user of a shared
+# library at the installing user's home.
+.pf_home <- function() {
+  if (.Platform$OS.type == "windows") {
+    file.path(Sys.getenv("LOCALAPPDATA", Sys.getenv("APPDATA")), "praatfan")
+  } else {
+    file.path(Sys.getenv("XDG_DATA_HOME", path.expand("~/.local/share")),
+              "praatfan")
+  }
 }
-.pf_bin_dir <- file.path(.pf_home, "bin")
-.pf_src_dir <- file.path(.pf_home, "src")
+.pf_bin_dir <- function() file.path(.pf_home(), "bin")
+.pf_src_dir <- function() file.path(.pf_home(), "src")
 
 # HTTPS is tried first (works anonymously for a public repo, and with a
 # credential helper for a private one); SSH is the fallback.
@@ -96,7 +101,7 @@ pf_setup <- function(engine = NULL, source = NULL, repo = NULL, ref = NULL,
     return(invisible(TRUE))
   }
 
-  dir.create(.pf_bin_dir, showWarnings = FALSE, recursive = TRUE)
+  dir.create(.pf_bin_dir(), showWarnings = FALSE, recursive = TRUE)
 
   if (!is.null(source)) {
     # Explicit source tree: use it, and let its errors surface directly.
@@ -138,7 +143,7 @@ pf_setup <- function(engine = NULL, source = NULL, repo = NULL, ref = NULL,
   }
 
   if (.pf_is_ready(eng)) {
-    message(eng$bin, " ready at ", .pf_bin_dir)
+    message(eng$bin, " ready at ", .pf_bin_dir())
   } else {
     stop("Installation failed. Check the output above for errors.",
          call. = FALSE)
@@ -153,24 +158,24 @@ pf_setup <- function(engine = NULL, source = NULL, repo = NULL, ref = NULL,
 #'   \code{pf_setup(method = "git")}.  Default \code{TRUE}.
 #' @export
 pf_uninstall <- function(sources = TRUE) {
-  if (dir.exists(.pf_bin_dir)) {
-    message("Removing: ", .pf_bin_dir)
-    unlink(.pf_bin_dir, recursive = TRUE)
+  if (dir.exists(.pf_bin_dir())) {
+    message("Removing: ", .pf_bin_dir())
+    unlink(.pf_bin_dir(), recursive = TRUE)
   } else {
-    message("Nothing to remove at ", .pf_bin_dir)
+    message("Nothing to remove at ", .pf_bin_dir())
   }
   if (dir.exists(dirname(.pf_gpl_wasm_dir()))) {
     message("Removing: ", dirname(.pf_gpl_wasm_dir()))
     unlink(dirname(.pf_gpl_wasm_dir()), recursive = TRUE)
     .pf_wasm_reset("gpl")
   }
-  if (sources && dir.exists(.pf_src_dir)) {
-    message("Removing: ", .pf_src_dir)
-    unlink(.pf_src_dir, recursive = TRUE)
+  if (sources && dir.exists(.pf_src_dir())) {
+    message("Removing: ", .pf_src_dir())
+    unlink(.pf_src_dir(), recursive = TRUE)
   }
-  remaining <- list.files(.pf_home, all.files = TRUE, no.. = TRUE)
-  if (length(remaining) == 0L && dir.exists(.pf_home)) {
-    unlink(.pf_home, recursive = TRUE)
+  remaining <- list.files(.pf_home(), all.files = TRUE, no.. = TRUE)
+  if (length(remaining) == 0L && dir.exists(.pf_home())) {
+    unlink(.pf_home(), recursive = TRUE)
   }
   invisible(TRUE)
 }
@@ -232,7 +237,7 @@ pf_uninstall <- function(sources = TRUE) {
 #' Copy a binary into the install directory and make it executable.
 #' @keywords internal
 .pf_install_file <- function(src, plat) {
-  dest <- file.path(.pf_bin_dir, plat$exe)
+  dest <- file.path(.pf_bin_dir(), plat$exe)
   if (!file.copy(src, dest, overwrite = TRUE)) {
     stop("could not copy ", src, " to ", dest, call. = FALSE)
   }
@@ -319,8 +324,8 @@ pf_uninstall <- function(sources = TRUE) {
          "Install from https://rustup.rs/", call. = FALSE)
   }
 
-  dir.create(.pf_src_dir, showWarnings = FALSE, recursive = TRUE)
-  dest <- file.path(.pf_src_dir, eng$src)
+  dir.create(.pf_src_dir(), showWarnings = FALSE, recursive = TRUE)
+  dest <- file.path(.pf_src_dir(), eng$src)
   urls <- if (is.null(repo)) .pf_repo_urls(eng$repo) else repo
 
   # A cached clone of some other remote must not silently satisfy an explicit
@@ -584,7 +589,7 @@ pf_uninstall <- function(sources = TRUE) {
   if (!is.null(eng$wasm)) return(is.null(.pf_wasm_unavailable(eng$wasm)))
   env <- Sys.getenv("PRAATFAN_PIPE", "")
   if (nzchar(env) && file.exists(env)) return(TRUE)
-  candidate <- file.path(.pf_bin_dir, eng$bin)
+  candidate <- file.path(.pf_bin_dir(), eng$bin)
   if (file.exists(candidate) || file.exists(paste0(candidate, ".exe"))) {
     return(TRUE)
   }

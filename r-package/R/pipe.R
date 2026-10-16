@@ -199,7 +199,7 @@ pf_engine <- function(engine = NULL) {
   if (nzchar(env) && file.exists(env)) return(env)
 
   # 2. Installed location
-  candidate <- file.path(.pf_bin_dir, eng$bin)
+  candidate <- file.path(.pf_bin_dir(), eng$bin)
   if (file.exists(candidate)) return(candidate)
   if (file.exists(paste0(candidate, ".exe"))) return(paste0(candidate, ".exe"))
 
