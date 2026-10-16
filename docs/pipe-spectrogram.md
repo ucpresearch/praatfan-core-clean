@@ -109,9 +109,14 @@ time range.
   first; it provides `TextEncoder`, `TextDecoder`, a `console` fallback,
   `praatfan_b64decode` and `praatfan_b64bytes`. This contract is kept stable;
   additions only.
-- Plain wasm32 target features (rustc defaults): no `simd128`, no relaxed
-  SIMD. R's V8 package links the system V8 on Linux (12.4 on the reference
-  machine, via libnode) and older ones exist in the wild.
+- Target features: current rustc/wasm-bindgen defaults (reference types /
+  `externref`, multi-value, bulk memory), which require **V8 >= 9.6**. Plain
+  **SIMD128 may be present** (dependencies compile it in; it needs only
+  V8 >= 9.1, so it does not raise the floor) — both bundles contain it.
+  **Relaxed SIMD is forbidden**; each build fails if any appears. Hosts
+  below V8 9.6 use the native pipe binaries. (R's V8 package links the
+  system V8 on Linux — 12.4 on the reference machine, via libnode; CRAN's
+  Windows/macOS builds bundle their own.)
 - A Rust panic traps (wasm32 aborts); hosts catch the trap, report it, and
   discard the instance.
 - No builder paths in the `.wasm` (`--remap-path-prefix`).

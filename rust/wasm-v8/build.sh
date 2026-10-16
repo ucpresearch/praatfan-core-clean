@@ -48,6 +48,28 @@ for f in "$OUT/praatfan_bg.wasm" "$OUT/praatfan.js"; do
   fi
 done
 
+# Relaxed SIMD must not ship: V8s that predate it reject the whole module.
+# Plain SIMD128 is fine -- a dependency compiles it in, and every V8 with the
+# reference types this module already needs (>= 9.6) has SIMD128 (>= 9.1).
+# Counted from a file, not `wasm-objdump | grep -q`: under pipefail, grep's
+# early exit SIGPIPEs the producer and the test silently reads "no match".
+# A failed disassembly aborts the build (set -e) rather than passing.
+if command -v wasm-objdump >/dev/null; then
+  DIS="$(mktemp)"
+  wasm-objdump -d "$OUT/praatfan_bg.wasm" > "$DIS"
+  N_RELAXED="$(grep -c 'relaxed' "$DIS" || true)"
+  N_SIMD="$(grep -cE '(v128|[if](8x16|16x8|32x4|64x2))\.' "$DIS" || true)"
+  rm -f "$DIS"
+  if [ "$N_RELAXED" -gt 0 ]; then
+    echo "error: praatfan_bg.wasm contains $N_RELAXED relaxed-SIMD instructions" >&2
+    exit 1
+  fi
+  SIMD_NOTE="simd128 instructions: $N_SIMD; relaxed SIMD: 0"
+else
+  echo "warning: wasm-objdump (wabt) not found; relaxed-SIMD check skipped" >&2
+  SIMD_NOTE="simd: not checked (no wasm-objdump)"
+fi
+
 VERSION="$(sed -n 's/^version = "\(.*\)"/\1/p' "$CRATE/Cargo.toml" | head -1)"
 COMMIT="$(git -C "$ROOT" rev-parse HEAD)"
 DIRTY=""
@@ -57,6 +79,7 @@ git -C "$ROOT" diff --quiet HEAD -- "$CRATE/src" "$CRATE/Cargo.toml" "$CRATE/Car
   echo "commit: $COMMIT$DIRTY"
   echo "build: wasm-pack build --release --target no-modules --features wasm --out-name praatfan"
   echo "remap: <crate>=/src, <cargo home>=/cargo, \$HOME=/~"
+  echo "$SIMD_NOTE"
   echo "toolchain: $(rustc --version)"
   echo "wasm-pack: $(wasm-pack --version)"
   echo "sha256:"

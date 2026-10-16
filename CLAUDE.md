@@ -765,6 +765,11 @@ lacks. Rules learned the hard way:
   garbage-collected in the child (their `__del__` hangs).
 - Paths are remapped (`--remap-path-prefix`) so no builder path ships in the
   `.wasm`; the build fails if one survives.
+- The bundle needs V8 >= 9.6 (reference types, bulk memory from rustc
+  defaults). It contains plain SIMD128 (~1500 instructions from
+  dependencies; accepted, needs only V8 9.1); **relaxed SIMD** fails the
+  build. The check counts from a dump file, never `wasm-objdump | grep -q`
+  (under pipefail, SIGPIPE turns a match into a silent pass).
 - **Rebuild + vendor on every version bump** (`tests/test_wasm_backend.py::
   test_bundle_is_this_version` trips otherwise).
 - Pipe responses carry an additive `"warnings"` array (also printed to stderr
