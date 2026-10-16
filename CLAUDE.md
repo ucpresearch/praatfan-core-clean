@@ -798,10 +798,11 @@ This is an optional dependency enabled automatically by the `wasm` feature flag.
 
 ### Release Status
 
-**Version in this tree:** 0.1.12 (being prepared; GitHub release only — **no
-PyPI upload** for this one, by decision).
-**Latest published release:** v0.1.11 (2026-09-23; GitHub release + PyPI
-`praatfan` and `praatfan-rust`).
+**Version in this tree:** 0.1.12.
+**Latest published release:** v0.1.12 (2026-10-16; **GitHub release only** —
+PyPI `praatfan` and `praatfan-rust` stay at 0.1.11, by decision). First release
+with `SHA256SUMS` (the `checksums` job ran; all 16 assets check out, and
+`pf_setup()` checked its download against it).
 
 Verify with `gh release list` / `git tag -l | sort -V | tail` rather than
 trusting this section — it goes stale.
