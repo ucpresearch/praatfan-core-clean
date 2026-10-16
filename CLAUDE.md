@@ -734,7 +734,11 @@ closer to Praat's exact values). Select via `pf_engine("gpl")`,
 either; both can coexist. Binary
 override: `PRAATFAN_PIPE` env var (always wins). Install:
 `remotes::install_github("ucpresearch/praatfan-core-clean", subdir = "r-package")`.
-Release assets expected as `praatfan-open-pipe-<os>-<arch>[.exe]`.
+Release assets expected as `praatfan-open-pipe-<os>-<arch>[.exe]`, plus a
+`SHA256SUMS` covering every asset (release.yml's `checksums` job; the GPL
+engine publishes the same). `pf_setup()` verifies each downloaded binary
+against it (openssl) and refuses an unlisted or mismatching one; releases
+without the file install with a "not verified" note.
 
 ### Embedded-V8 WASM backend (Python `praatfan_wasm`, R engine `"wasm"`)
 

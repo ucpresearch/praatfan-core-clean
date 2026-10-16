@@ -23,7 +23,9 @@ present it is used automatically. `pf_setup()` also pre-provisions cluster
 nodes, pins a version with `ref =`, and installs the GPL engine.
 
 `pf_setup()` tries, in order: a pre-built binary from GitHub Releases, a git
-clone built with cargo, and a local source tree. Point the package at an
+clone built with cargo, and a local source tree. A downloaded binary is
+checked against the release's `SHA256SUMS` and refused if it does not match
+(older releases without that file install with a "not verified" note). Point the package at an
 existing binary instead with `PRAATFAN_PIPE=/path/to/praatfan-open-pipe`.
 
 ## Use

@@ -21,6 +21,7 @@ Imports:
     graphics,
     grDevices,
     jsonlite,
+    openssl,
     utils,
     V8
 Suggests:

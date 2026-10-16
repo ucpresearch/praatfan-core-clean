@@ -372,3 +372,22 @@ jobs:
           files: dist/*.tar.gz
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+
+  # One SHA256SUMS covering every asset of the release (sha256sum format).
+  # The R package's pf_setup() checks each download against it; the GPL
+  # engine's releases publish the same file.
+  checksums:
+    needs: [upload-release, upload-rust-sdist, upload-sdist]
+    runs-on: ubuntu-latest
+    if: github.event_name == 'release'
+    steps:
+      - name: Hash every release asset
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          TAG: ${{ github.event.release.tag_name }}
+        run: |
+          gh release download "$TAG" --repo "$GITHUB_REPOSITORY" --dir assets
+          rm -f assets/SHA256SUMS
+          (cd assets && sha256sum -- *) > SHA256SUMS
+          cat SHA256SUMS
+          gh release upload "$TAG" SHA256SUMS --repo "$GITHUB_REPOSITORY" --clobber

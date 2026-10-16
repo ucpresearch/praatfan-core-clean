@@ -395,6 +395,9 @@ pf_uninstall <- function(sources = TRUE) {
 
 #' Download a pre-built binary from the engine's GitHub Releases.
 #'
+#' The binary is checked against the release's \code{SHA256SUMS} when the
+#' release has one (see \code{.pf_verify_sha256}).
+#'
 #' @param ref  Release tag to pull from; \code{NULL} uses the latest release.
 #' @keywords internal
 .pf_download_binary <- function(eng, ref = NULL) {
@@ -405,54 +408,91 @@ pf_uninstall <- function(sources = TRUE) {
 
   tmp <- tempfile()
   on.exit(unlink(tmp, recursive = TRUE), add = TRUE)
+  dir.create(tmp)
 
   # Candidate assets in order of preference (e.g. native ARM64, then x86_64).
+  src <- NULL
   for (name in plat$assets) {
-    url <- if (is.null(ref)) {
-      paste0("https://github.com/", eng$repo,
-             "/releases/latest/download/", name)
-    } else {
-      paste0("https://github.com/", eng$repo,
-             "/releases/download/", ref, "/", name)
-    }
-
-    unlink(tmp, recursive = TRUE)
-    src <- tmp
-    got <- tryCatch({
-      suppressWarnings(
-        utils::download.file(url, tmp, mode = "wb", quiet = TRUE))
-      file.exists(tmp) && file.size(tmp) > 0L
-    }, error = function(e) FALSE)
-
-    # A private repository serves 404 to an unauthenticated download; gh
-    # carries the user's token, so retry through it when it is available.
-    if (!got && Sys.which("gh") != "") {
-      message("  Direct download of ", name, " failed; retrying via gh.")
-      unlink(tmp, recursive = TRUE)
-      dir.create(tmp, showWarnings = FALSE, recursive = TRUE)
-      status <- system2("gh",
-                        c("release", "download", ref, "--repo", eng$repo,
-                          "--pattern", shQuote(name), "--dir", shQuote(tmp),
-                          "--clobber"),
-                        stdout = "", stderr = "")
-      src <- file.path(tmp, name)
-      got <- status == 0L && file.exists(src)
-    }
-
-    if (got) break
+    src <- .pf_release_asset(eng, ref, name, tmp)
+    if (!is.null(src)) break
     if (name != plat$assets[[length(plat$assets)]]) {
       message("  ", name, " not available; trying the next build.")
     }
   }
 
-  if (!got) {
+  if (is.null(src)) {
     stop("could not download ", paste(plat$assets, collapse = " or "),
          " from ", eng$repo,
          " (a private repository needs an authenticated `gh`, or use ",
          "method = \"git\")", call. = FALSE)
   }
 
+  .pf_verify_sha256(src, name, .pf_release_asset(eng, ref, "SHA256SUMS", tmp))
   .pf_install_file(src, plat)
+}
+
+
+#' Download one asset of a release into `dir`; its path, or NULL.
+#'
+#' Tries a direct download first.  A private repository serves 404 to an
+#' unauthenticated download; gh carries the user's token, so it is the
+#' fallback when available.
+#' @keywords internal
+.pf_release_asset <- function(eng, ref, name, dir) {
+  dest <- file.path(dir, name)
+  url <- if (is.null(ref)) {
+    paste0("https://github.com/", eng$repo, "/releases/latest/download/", name)
+  } else {
+    paste0("https://github.com/", eng$repo, "/releases/download/", ref, "/", name)
+  }
+  got <- tryCatch({
+    suppressWarnings(
+      utils::download.file(url, dest, mode = "wb", quiet = TRUE))
+    file.exists(dest) && file.size(dest) > 0L
+  }, error = function(e) FALSE)
+  if (!got && Sys.which("gh") != "") {
+    unlink(dest)
+    status <- suppressWarnings(system2(
+      "gh", c("release", "download", ref, "--repo", eng$repo,
+              "--pattern", shQuote(name), "--dir", shQuote(dir), "--clobber"),
+      stdout = FALSE, stderr = FALSE))
+    got <- identical(status, 0L) && file.exists(dest)
+  }
+  if (got) dest else NULL
+}
+
+
+#' Check a downloaded asset against the release's SHA256SUMS.
+#'
+#' \code{sums} is the downloaded SHA256SUMS (\code{sha256sum} format: hash,
+#' two spaces or " *", file name), or NULL when the release has none --
+#' releases made before checksums were published -- in which case the asset
+#' is installed with a note.  A release that has the file must list the
+#' asset with a matching hash; anything else is an error.
+#' @keywords internal
+.pf_verify_sha256 <- function(path, name, sums) {
+  if (is.null(sums)) {
+    message("  This release publishes no SHA256SUMS; ", name,
+            " was not verified.")
+    return(invisible(FALSE))
+  }
+  lines <- readLines(sums, warn = FALSE)
+  m <- regmatches(lines, regexec("^([0-9a-fA-F]{64}) [ *](.+)$", lines))
+  m <- m[lengths(m) == 3L]
+  want <- tolower(vapply(m, `[[`, "", 2L))[vapply(m, `[[`, "", 3L) == name]
+  if (length(want) != 1L) {
+    stop("SHA256SUMS of this release does not list ", name,
+         "; refusing to install it", call. = FALSE)
+  }
+  # openssl reads the connection to the end and closes it
+  got <- as.vector(as.character(openssl::sha256(file(path))))
+  if (!identical(got, want)) {
+    stop("checksum mismatch for ", name, ": expected ", want, ", got ", got,
+         ". The download is corrupt or was altered; try again, and report ",
+         "it if it persists.", call. = FALSE)
+  }
+  message("  Verified ", name, " (SHA-256).")
+  invisible(TRUE)
 }
 
 
