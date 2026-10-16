@@ -336,7 +336,7 @@ fn load_sound(req: &PipeRequest, audio: Audio) -> Result<Sound, String> {
             .map_err(|e| format!("failed to load {}: {}", path, e))
         }
         Audio::Bytes(bytes) => {
-            let name = req.wav_path.as_deref().unwrap_or("audio bytes");
+            let name = req.wav_path.as_deref().unwrap_or("<bytes>");
             let ext = req
                 .wav_path
                 .as_deref()
@@ -902,6 +902,19 @@ mod tests {
         let resp: serde_json::Value =
             serde_json::from_str(&handle_request_samples(vec![0.0; 100], 0.0, r#"{"analyses": []}"#)).unwrap();
         assert_eq!(resp["ok"], false);
+    }
+
+    /// Undecodable bytes are named by wav_path, or "<bytes>" without one
+    /// (docs/pipe-spectrogram.md section 3).
+    #[test]
+    fn undecodable_bytes_are_named() {
+        let resp: serde_json::Value = serde_json::from_str(&handle_request_bytes(
+            vec![1, 2, 3, 4], r#"{"analyses": [{"type": "intensity"}]}"#)).unwrap();
+        assert_eq!(resp["ok"], false);
+        assert!(resp["error"].as_str().unwrap().contains("<bytes>"), "{}", resp);
+        let resp: serde_json::Value = serde_json::from_str(&handle_request_bytes(
+            vec![1, 2, 3, 4], r#"{"wav_path": "a.wav", "analyses": []}"#)).unwrap();
+        assert!(resp["error"].as_str().unwrap().contains("a.wav"), "{}", resp);
     }
 
     #[test]
