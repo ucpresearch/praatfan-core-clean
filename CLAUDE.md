@@ -798,7 +798,7 @@ This is an optional dependency enabled automatically by the `wasm` feature flag.
 
 ### Release Status
 
-**Version in this tree:** 0.1.12.
+**Version in this tree:** 0.1.13 (unreleased; bumped 2026-10-19).
 **Latest published release:** v0.1.12 (2026-10-16; **GitHub release only** —
 PyPI `praatfan` and `praatfan-rust` stay at 0.1.11, by decision). First release
 with `SHA256SUMS` (the `checksums` job ran; all 16 assets check out, and
@@ -806,6 +806,14 @@ with `SHA256SUMS` (the `checksums` job ran; all 16 assets check out, and
 
 Verify with `gh release list` / `git tag -l | sort -V | tail` rather than
 trusting this section — it goes stale.
+
+**v0.1.13 (unreleased) — desphere 0.1.1.** Rust git dep tag `v0.1.1`;
+Python `sphere`/`dev` extras require `desphere>=0.1.1`. desphere 0.1.1 is a
+decoder-robustness release: 16/32-bit PCM SPHERE without
+`sample_byte_format` is now rejected instead of silently read as
+little-endian, and corrupt shorten streams / malformed header fields fail
+with a clean error. Valid files decode as before (shorten µ-law spot-checked:
+Python and Rust identical). Analysis values unchanged.
 
 **v0.1.12 — WASM in embedded V8, spectrograms, release checksums.**
 Existing analysis values are unchanged except where noted.
