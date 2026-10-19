@@ -798,16 +798,16 @@ This is an optional dependency enabled automatically by the `wasm` feature flag.
 
 ### Release Status
 
-**Version in this tree:** 0.1.13 (unreleased; bumped 2026-10-19).
-**Latest published release:** v0.1.12 (2026-10-16; **GitHub release only** —
-PyPI `praatfan` and `praatfan-rust` stay at 0.1.11, by decision). First release
-with `SHA256SUMS` (the `checksums` job ran; all 16 assets check out, and
-`pf_setup()` checked its download against it).
+**Version in this tree:** 0.1.13.
+**Latest published release:** v0.1.13 (2026-10-19; GitHub release **and**
+PyPI `praatfan` / `praatfan-rust` 0.1.13 — PyPI skipped 0.1.12, so 0.1.13
+carries the v0.1.12 Python changes there too). CI run 39329938606, all 20 jobs
+green; `SHA256SUMS` covers all 16 assets.
 
 Verify with `gh release list` / `git tag -l | sort -V | tail` rather than
 trusting this section — it goes stale.
 
-**v0.1.13 (unreleased) — desphere 0.1.1.** Rust git dep tag `v0.1.1`;
+**v0.1.13 — desphere 0.1.1.** Rust git dep tag `v0.1.1`;
 Python `sphere`/`dev` extras require `desphere>=0.1.1`. desphere 0.1.1 is a
 decoder-robustness release: 16/32-bit PCM SPHERE without
 `sample_byte_format` is now rejected instead of silently read as
