@@ -150,7 +150,7 @@ pub fn estimate_speech_reference(
         frame_peak.push(hi.max(-lo));
     }
 
-    let mut db: Vec<f64> = rms.iter().map(|&r| 20.0 * (r + 1e-20).log10()).collect();
+    let mut db: Vec<f64> = rms.iter().map(|&r| 20.0 * libm::log10(r + 1e-20)).collect();
     let ceiling_db = {
         let mut tmp = db.clone();
         percentile_type7(&mut tmp, 95.0)
@@ -261,7 +261,7 @@ mod tests {
         // 60 s quiet sine + 0.5 s burst: reference stays at sine scale.
         let sr = 16000usize;
         let mut s: Vec<f64> = (0..sr * 60)
-            .map(|i| 0.02 * (2.0 * std::f64::consts::PI * 120.0 * i as f64 / sr as f64).sin())
+            .map(|i| 0.02 * libm::sin(2.0 * std::f64::consts::PI * 120.0 * i as f64 / sr as f64))
             .collect();
         for x in s[sr * 30..sr * 30 + sr / 2].iter_mut() {
             *x = 0.9;

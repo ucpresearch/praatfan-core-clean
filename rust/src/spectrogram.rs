@@ -274,7 +274,7 @@ fn gaussian_window(n: usize, alpha: f64) -> Vec<f64> {
             // Map to [-1, 1] range centered at mid
             let x = (i as f64 - mid) / mid;
             // Gaussian: exp(-α × x²)
-            (-alpha * x * x).exp()
+            libm::exp(-alpha * x * x)
         })
         .collect();
 
@@ -307,7 +307,7 @@ fn hanning_window(n: usize) -> Vec<f64> {
 
     (0..n)
         .map(|i| {
-            0.5 - 0.5 * (2.0 * std::f64::consts::PI * i as f64 / (n - 1) as f64).cos()
+            0.5 - 0.5 * libm::cos(2.0 * std::f64::consts::PI * i as f64 / (n - 1) as f64)
         })
         .collect()
 }

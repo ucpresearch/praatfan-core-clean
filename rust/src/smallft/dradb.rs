@@ -472,8 +472,8 @@ pub(crate) fn dradbg(
     let t10 = ip * ido;
     let t0 = l1 * ido;
     let arg = TPI / ip as f64;
-    let dcp = f64::cos(arg as f64) as f64;
-    let dsp = f64::sin(arg as f64) as f64;
+    let dcp = libm::cos(arg as f64) as f64;
+    let dsp = libm::sin(arg as f64) as f64;
     let nbd = (ido - 1) >> 1_i32;
     let ipp2 = ip;
     let ipph = (ip + 1) >> 1_i32;

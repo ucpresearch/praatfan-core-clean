@@ -390,7 +390,7 @@ pub fn strength_to_hnr(r: f64) -> f64 {
     }
 
     // Apply the HNR formula: 10 × log₁₀(r / (1-r))
-    10.0 * (r / (1.0 - r)).log10()
+    10.0 * libm::log10(r / (1.0 - r))
 }
 
 /// Compute harmonicity using autocorrelation method.

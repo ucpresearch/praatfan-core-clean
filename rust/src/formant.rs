@@ -97,9 +97,9 @@ fn build_resample_kernel(precision: usize, oversample: usize) -> Vec<f64> {
             1.0
         } else {
             let pa = pi * phi;
-            pa.sin() / pa
+            libm::sin(pa) / pa
         };
-        let w = 0.5 + 0.5 * (pi * phi * inv_n_half).cos();
+        let w = 0.5 + 0.5 * libm::cos(pi * phi * inv_n_half);
         kernel[RESAMPLE_KERNEL_PREFIX + j] = s * w;
     }
     kernel
@@ -484,7 +484,7 @@ fn gaussian_window(n: usize) -> Vec<f64> {
     let mid = (n - 1) as f64 / 2.0;
 
     // Edge value to subtract so window goes to zero at boundaries
-    let edge = (-alpha as f64).exp();
+    let edge = libm::exp(-alpha as f64);
     let norm = 1.0 / (1.0 - edge);
 
     (0..n)
@@ -492,7 +492,7 @@ fn gaussian_window(n: usize) -> Vec<f64> {
             // Normalize position to range [-1, 1]
             let x = (i as f64 - mid) / mid;
             // Gaussian function with edge correction
-            ((-alpha * x * x).exp() - edge) * norm
+            (libm::exp(-alpha * x * x) - edge) * norm
         })
         .map(|v| v.max(0.0))
         .collect()
@@ -666,7 +666,7 @@ fn polish_root(a: &[f64], mut z: Complex64, max_iter: usize, tol: f64) -> Comple
         let (p_val, dp_val) = eval_polynomial(a, z);
 
         // Avoid division by near-zero derivative
-        if dp_val.norm() < 1e-30 {
+        if libm::hypot(dp_val.re, dp_val.im) < 1e-30 {
             break;
         }
 
@@ -675,7 +675,7 @@ fn polish_root(a: &[f64], mut z: Complex64, max_iter: usize, tol: f64) -> Comple
         z = z - delta;
 
         // Check for convergence (relative change)
-        if delta.norm() < tol * z.norm() {
+        if libm::hypot(delta.re, delta.im) < tol * libm::hypot(z.re, z.im) {
             break;
         }
     }
@@ -699,7 +699,7 @@ fn polish_root(a: &[f64], mut z: Complex64, max_iter: usize, tol: f64) -> Comple
 /// * `roots` - Mutable slice of complex roots to process in-place.
 fn reflect_unstable_roots(roots: &mut [Complex64]) {
     for root in roots.iter_mut() {
-        let r = root.norm();
+        let r = libm::hypot(root.re, root.im);
         if r > 1.0 {
             // Reflect to inside unit circle: z_new = 1 / conj(z) = conj(z) / |z|²
             // This preserves the angle (frequency) while reducing the magnitude
@@ -915,8 +915,8 @@ fn roots_to_formants(
         }
 
         // Magnitude and angle of the root
-        let r = root.norm(); // Distance from origin
-        let theta = root.arg(); // Angle in radians
+        let r = libm::hypot(root.re, root.im); // Distance from origin
+        let theta = libm::atan2(root.im, root.re); // Angle in radians
 
         // Convert angle to frequency
         // θ radians corresponds to θ/(2π) cycles, at sample_rate samples/second
@@ -926,7 +926,7 @@ fn roots_to_formants(
         // A root at z = r×e^(iθ) gives bandwidth B = -ln(r) × fs / π
         // Closer to unit circle (r→1) means narrower bandwidth (ln(1)=0)
         let bandwidth = if r > 0.0 {
-            -r.ln() * sample_rate / std::f64::consts::PI
+            -libm::log(r) * sample_rate / std::f64::consts::PI
         } else {
             f64::INFINITY
         };
@@ -1249,7 +1249,7 @@ pub fn sound_to_formant_burg(
     // Filter: x'[i] = x[i] - α × x[i-1]
     // where α = exp(-2π × F × Δt), F = pre_emphasis_from frequency
     let dt = 1.0 / sample_rate;
-    let alpha = (-2.0 * std::f64::consts::PI * pre_emphasis_from * dt).exp();
+    let alpha = libm::exp(-2.0 * std::f64::consts::PI * pre_emphasis_from * dt);
 
     let mut pre_emphasized = vec![0.0; samples.len()];
     if !samples.is_empty() {

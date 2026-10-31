@@ -728,6 +728,7 @@ dependencies = [
  "faer",
  "hound",
  "js-sys",
+ "libm",
  "nalgebra",
  "ndarray",
  "num-complex",

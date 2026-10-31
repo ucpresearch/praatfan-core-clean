@@ -807,6 +807,29 @@ green; `SHA256SUMS` covers all 16 assets.
 Verify with `gh release list` / `git tag -l | sort -V | tail` rather than
 trusting this section — it goes stale.
 
+**Unreleased (next: v0.1.14) — pure-Rust transcendentals.** Every
+exp/log/pow/sin/cos/atan2/hypot in the Rust crate goes through the `libm`
+crate (a musl port in plain Rust) instead of the host C maths library. glibc
+selects its maths code path per CPU (FMA/AVX2), and macOS and Windows use their
+own maths libraries, so the last bits of results used to depend on the machine.
+`rust/clippy.toml` bans the std/num_complex transcendentals
+(`cargo +stable clippy`). `sqrt` and `powi` are exact or plain multiplication,
+so they stay. Expect last-bit moves versus v0.1.13, nothing larger. The
+pure-Python backend still uses numpy/math.
+- **Remaining host dependence (accepted):** the stock `rustfft` computes its
+  twiddle factors with the host `sin`/`cos`. On glibc 2.43, power-of-two FFTs up
+  to 8192 points come out byte-identical with FMA/AVX2 on or off; 16384 points
+  and above do not. All our FFT sizes are powers of two, so this only affects
+  analyses whose FFT reaches 16384, e.g. CC pitch and the spectrogram on 48 kHz
+  input. The drift there is ~1e-16 in strength and ~1e-13 Hz in F0. Formant
+  (smallft resampler + Burg) is unaffected. rustfft's runtime SIMD choice
+  (AVX/SSE/NEON/wasm) is a further accepted difference between CPU families.
+- Check with `GLIBC_TUNABLES=glibc.cpu.hwcaps=-FMA` (also `-AVX2`,
+  `-AVX2,-FMA`). glibc 2.43 spells them like that; the old `*_Usable` names
+  are silently ignored. `nm -D` on a binary should show glibc maths imports
+  only from dependencies (rustfft, the symphonia AAC/Vorbis decoders, and one
+  `log2` in faer's block-size heuristic).
+
 **v0.1.13 — desphere 0.1.1.** Rust git dep tag `v0.1.1`;
 Python `sphere`/`dev` extras require `desphere>=0.1.1`. desphere 0.1.1 is a
 decoder-robustness release: 16/32-bit PCM SPHERE without

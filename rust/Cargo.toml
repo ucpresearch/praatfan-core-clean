@@ -31,6 +31,11 @@ ndarray = "0.16"
 rustfft = "6.2"
 num-complex = "0.4"
 
+# Pure-Rust transcendentals: host-independent results (enforced by clippy.toml).
+# Exception: rustfft's twiddles still use host sin/cos; on glibc they are
+# path-independent only for power-of-two sizes <= 8192 (see CLAUDE.md).
+libm = "0.2"
+
 # Numeric traits
 num-traits = "0.2"
 

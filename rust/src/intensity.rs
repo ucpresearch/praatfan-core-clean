@@ -264,7 +264,7 @@ fn gauss_window(n: usize, alpha: f64) -> Vec<f64> {
     let mid = (n - 1) as f64 / 2.0;
 
     // Edge value: exp(-α) at x = ±1
-    let exp_edge = (-alpha).exp();
+    let exp_edge = libm::exp(-alpha);
 
     // Normalization factor: 1 - exp(-α)
     let norm = 1.0 - exp_edge;
@@ -275,7 +275,7 @@ fn gauss_window(n: usize, alpha: f64) -> Vec<f64> {
             let x = (i as f64 - mid) / mid;
 
             // Gaussian with edge subtraction and normalization
-            let exp_term = (-alpha * x * x).exp();
+            let exp_term = libm::exp(-alpha * x * x);
             (exp_term - exp_edge) / norm
         })
         .collect()
@@ -427,7 +427,7 @@ pub fn sound_to_intensity(sound: &Sound, min_pitch: f64, time_step: f64) -> Inte
         let intensity_db = if mean_square <= 0.0 {
             f64::NEG_INFINITY
         } else {
-            10.0 * (mean_square / p_ref).log10()
+            10.0 * libm::log10(mean_square / p_ref)
         };
 
         (t, intensity_db)

@@ -165,7 +165,7 @@ impl Spectrum {
             let magnitude = (self.real[i].powi(2) + self.imag[i].powi(2)).sqrt();
 
             // Raise to power p: |S|^p
-            let weighted = magnitude.powf(power);
+            let weighted = libm::pow(magnitude, power);
 
             // Frequency for this bin
             let freq = i as f64 * self.df;
@@ -208,7 +208,7 @@ impl Spectrum {
         // First pass: compute center of gravity and total weighted sum
         for i in 0..n_bins {
             let magnitude = (self.real[i].powi(2) + self.imag[i].powi(2)).sqrt();
-            let weighted = magnitude.powf(power);
+            let weighted = libm::pow(magnitude, power);
             let freq = i as f64 * self.df;
 
             freq_weighted_sum += freq * weighted;
@@ -227,7 +227,7 @@ impl Spectrum {
         let mut numerator = 0.0;
         for i in 0..n_bins {
             let magnitude = (self.real[i].powi(2) + self.imag[i].powi(2)).sqrt();
-            let weighted = magnitude.powf(power);
+            let weighted = libm::pow(magnitude, power);
             let freq = i as f64 * self.df;
 
             // Deviation from center of gravity
@@ -296,7 +296,7 @@ impl Spectrum {
             0.0
         } else {
             // Normalize by σ^3 = (μ₂^0.5)^3 = μ₂^1.5
-            mu3 / mu2.powf(1.5)
+            mu3 / libm::pow(mu2, 1.5)
         }
     }
 

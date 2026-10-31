@@ -431,7 +431,7 @@ fn hanning_window(n: usize) -> Vec<f64> {
     (0..n)
         .map(|i| {
             // Hanning formula: 0.5 - 0.5 × cos(2πi/(N-1))
-            0.5 - 0.5 * (2.0 * std::f64::consts::PI * i as f64 / (n - 1) as f64).cos()
+            0.5 - 0.5 * libm::cos(2.0 * std::f64::consts::PI * i as f64 / (n - 1) as f64)
         })
         .collect()
 }
@@ -863,7 +863,7 @@ fn viterbi_path(
                 } else {
                     // Both voiced: penalize octave jumps
                     // Cost proportional to |log₂(F_j / F_k)|
-                    octave_jump_cost * (f_j / f_k).log2().abs()
+                    octave_jump_cost * libm::log2(f_j / f_k).abs()
                 };
 
                 // Scale transition cost by time correction
@@ -1307,7 +1307,7 @@ pub fn sound_to_pitch_internal(
                 // This penalizes lower frequencies to prevent selection of subharmonics
                 let adjusted_strength = if apply_octave_cost {
                     // Cost increases logarithmically for lower frequencies
-                    strength - octave_cost * (pitch_floor / freq + 1e-30).log2()
+                    strength - octave_cost * libm::log2(pitch_floor / freq + 1e-30)
                 } else {
                     // Raw strength for harmonicity computation
                     strength
