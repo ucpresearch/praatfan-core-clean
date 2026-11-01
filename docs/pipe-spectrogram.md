@@ -77,8 +77,10 @@ for every analysis. Callers asking for "narrow" vs "wide" band pass a
   that case);
 - a time range that selects no frames gives the empty result above.
 
-Cross-build parity (native vs wasm32, different libm) is close but not
-bit-identical; compare with relative tolerances, not equality.
+Cross-build parity (native vs wasm32): the open engine (praatfan-core-clean)
+is bit-identical across builds since 0.1.14 (pure-Rust maths and FFT). Other
+engines may differ in the last bits between builds; when comparing engines or
+builds generally, use relative tolerances, not equality.
 
 Size note: the defaults give 500 frames/s × 250 bins = 125k values/s, i.e.
 1 MB/s of f64 (1.3 MB/s of base64). Long files should use `f32le` and/or a

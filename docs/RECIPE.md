@@ -122,7 +122,7 @@ struct Sound {
 
 ✅ **DOCUMENTED:** Standard DFT definition
 
-Use `rustfft` crate or similar. Verify normalization conventions.
+Any standard FFT works; verify normalization conventions. (The Rust crate now uses its vendored FFTPACK port, `rust/src/fft.rs`, for host-independent results.)
 
 ### 1.3 Window Functions
 

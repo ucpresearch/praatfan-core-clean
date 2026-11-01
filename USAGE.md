@@ -627,8 +627,8 @@ available of these is used:
 
 `praatfan_wasm` runs the analyses the JSON pipe carries — pitch (AC/CC),
 formant (Burg), intensity, harmonicity (AC/CC), spectral moments and band
-energy at times — in WebAssembly, with the same numbers as `praatfan_rust` to
-floating-point rounding. Everything else (`to_spectrum`, `to_spectrogram`,
+energy at times — in WebAssembly, with the same numbers as `praatfan_rust`
+(bit for bit since 0.1.14). Everything else (`to_spectrum`, `to_spectrogram`,
 the `*_referenced` analyses, `extract_part`, `resample`) is served by the
 pure-Python implementation, and `Pitch.raw_ac_strengths()` raises
 `NotImplementedError`. Unvoiced F0 is `NaN`, as on every backend. Each

@@ -4,7 +4,7 @@
 #' \code{praatfan-open-pipe} binary that \code{pf_setup()} installs, and as a
 #' WebAssembly build of the same Rust code under \code{inst/wasm/}, run in an
 #' embedded V8 (the \pkg{V8} package).  Both answer the same JSON pipe
-#' protocol with the same numbers (to floating-point rounding); the binary is
+#' protocol with the same numbers (bit for bit since 0.1.14); the binary is
 #' faster (several threads per call), WASM needs nothing installed beyond this
 #' package.
 #'

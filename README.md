@@ -13,6 +13,17 @@ A clean-room reimplementation of Praat's acoustic analysis algorithms, with a un
 > slower; with all cores the cost is ~1.2–1.3×. Every binary now ships its
 > third-party license notices. See [Performance and threading](#performance-and-threading).
 >
+> **v0.1.13** updates NIST SPHERE decoding to desphere 0.1.1: malformed files
+> now fail with a clear error instead of being read incorrectly. Analysis
+> values are unchanged.
+>
+> **v0.1.12 — read before upgrading:** unvoiced F0 is now `nan` on every
+> backend (`Pitch.values()`, and `call(..., "Get value in frame")`), where some
+> backends returned 0. It also adds the `praatfan_wasm` backend (the Rust
+> engine as WebAssembly, `pip install "praatfan[wasm]"`), the `spectrogram`
+> analysis in the JSON pipe and R package, and a `SHA256SUMS` file on each
+> release.
+>
 > **v0.1.11** runs the Rust backend's analyses on all CPU cores. Results are
 > bit-identical to v0.1.10; see [Performance and threading](#performance-and-threading)
 > for how to limit the thread count. It also adds a native Windows ARM64
@@ -129,14 +140,18 @@ praatfan supports multiple acoustic analysis backends through a unified API. You
 | `praatfan_rust` | `praatfan_rust` (from wheels or maturin) | MIT | Rust implementation with PyO3 bindings |
 | `parselmouth` | `praat-parselmouth` | GPL | Python bindings to Praat |
 | `praatfan_gpl` | `praatfan_gpl` | MIT | Separate Rust implementation |
+| `praatfan_wasm` | `praatfan[wasm]` (adds `mini-racer`) | MIT | The `praatfan_rust` engine compiled to WebAssembly, run in an embedded V8; pipe analyses only, the rest falls back to pure Python |
 
 ### Backend Selection
 
 Backends are selected automatically in this order of preference:
-1. `praatfan_gpl` (if installed)
-2. `praatfan_rust` (if installed)
-3. `praatfan` (always available)
-4. `parselmouth` (if installed)
+1. `praatfan_rust` (if installed)
+2. `praatfan_gpl` (if installed)
+3. `praatfan_wasm` (if `praatfan[wasm]` is installed)
+4. `praatfan` (always available)
+
+`parselmouth` is never selected automatically; request it by name
+(`set_backend("parselmouth")` or `PRAATFAN_BACKEND=parselmouth`).
 
 You can override this through:
 

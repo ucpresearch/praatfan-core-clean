@@ -98,7 +98,7 @@ function works identically with any of them:
 | Engine | Runs as | License | Notes |
 |--------|---------|---------|-------|
 | `"open"` | `praatfan-open-pipe` binary | MIT | Clean-room implementation, validated frame-by-frame against Praat |
-| `"wasm"` | the open engine as WebAssembly, in `V8` | MIT | Ships with the package; same numbers as `"open"` (to floating-point rounding), one thread per call |
+| `"wasm"` | the open engine as WebAssembly, in `V8` | MIT | Ships with the package; same numbers as `"open"` (bit for bit since 0.1.14), one thread per call |
 | `"gpl"` | `praatfan-gpl-pipe` binary | GPL | Tracks Praat's values even more closely |
 | `"gpl_wasm"` | the GPL engine as WebAssembly, in `V8` | GPL | Not shipped (GPL): `pf_setup(engine = "gpl_wasm")` downloads it; one thread per call |
 
