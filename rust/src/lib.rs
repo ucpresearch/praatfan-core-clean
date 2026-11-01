@@ -62,6 +62,7 @@
 
 // Module declarations
 pub mod error;
+pub mod fft;
 pub mod formant;
 pub mod harmonicity;
 pub mod intensity;

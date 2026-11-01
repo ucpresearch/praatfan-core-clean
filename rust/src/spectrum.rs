@@ -11,7 +11,7 @@
 //! # Clean Room Implementation
 //!
 //! The Fourier transform is a standard mathematical operation. Our implementation
-//! uses the rustfft library for efficient FFT computation, with the Praat-documented
+//! uses the crate's FFTPACK-based real FFT (`crate::fft`), with the Praat-documented
 //! scaling by dt (sample period) to convert from discrete to continuous transform.
 //!
 //! # Spectral Moments
@@ -25,7 +25,7 @@
 //! - **Kurtosis**: Fourth central moment normalized by std^2, minus 3
 
 use ndarray::Array1;
-use rustfft::{num_complex::Complex, FftPlanner};
+use crate::fft::RealFft;
 
 use crate::sound::Sound;
 
@@ -470,29 +470,25 @@ pub fn sound_to_spectrum(sound: &Sound, fast: bool) -> Spectrum {
 
     // Prepare input buffer with zero-padding if needed
     // Zero-padding provides interpolation in the frequency domain
-    let mut buffer: Vec<Complex<f64>> = vec![Complex::new(0.0, 0.0); fft_size];
-    for (i, &sample) in samples.iter().enumerate() {
-        buffer[i] = Complex::new(sample, 0.0);
+    let mut buffer = vec![0.0; fft_size];
+    buffer[..samples.len()].copy_from_slice(samples.as_slice().unwrap());
+
+    // Compute forward FFT: X[k] = Σ x[n] × e^(-2πikn/N)
+    let fft = RealFft::new(fft_size);
+    let mut work = vec![0.0; fft_size];
+    fft.forward(&mut buffer, &mut work);
+
+    // Keep only positive frequencies (0 to Nyquist inclusive); for real
+    // input X[-k] = X[k]*. Multiply by dt (documented in Praat manual):
+    // this converts the DFT to a continuous Fourier transform approximation.
+    let n_positive = fft.n_bins();
+    let mut real = Vec::with_capacity(n_positive);
+    let mut imag = Vec::with_capacity(n_positive);
+    for k in 0..n_positive {
+        let (re, im) = fft.bin(&buffer, k);
+        real.push(re * dt);
+        imag.push(im * dt);
     }
-
-    // Compute forward FFT using rustfft
-    // The FFT computes X[k] = Σ x[n] × e^(-2πikn/N)
-    let mut planner = FftPlanner::new();
-    let fft = planner.plan_fft_forward(fft_size);
-    fft.process(&mut buffer);
-
-    // Multiply by dt (documented in Praat manual)
-    // This converts DFT to continuous Fourier transform approximation
-    for c in buffer.iter_mut() {
-        *c *= dt;
-    }
-
-    // Keep only positive frequencies (0 to Nyquist inclusive)
-    // For real input, negative frequencies are conjugate symmetric:
-    // X[-k] = X[k]*, so we don't need to store them
-    let n_positive = fft_size / 2 + 1;
-    let real: Vec<f64> = buffer[..n_positive].iter().map(|c| c.re).collect();
-    let imag: Vec<f64> = buffer[..n_positive].iter().map(|c| c.im).collect();
 
     // Frequency resolution: df = sample_rate / FFT_size
     // This is the frequency spacing between adjacent bins

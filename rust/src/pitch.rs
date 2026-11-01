@@ -41,7 +41,7 @@
 //!    across all frames by minimizing transition costs + maximizing strength.
 
 use ndarray::Array1;
-use rustfft::{num_complex::Complex, FftPlanner};
+use crate::fft::RealFft;
 
 use crate::parallel::map_frames;
 use crate::sound::Sound;
@@ -448,10 +448,9 @@ fn hanning_window(n: usize) -> Vec<f64> {
 ///
 /// * `samples` - Input signal samples (or window coefficients)
 /// * `max_lag` - Maximum lag to compute
-/// * `buffer` - Pre-allocated FFT complex buffer (length = fft_size)
-/// * `fft` - Pre-planned forward FFT
-/// * `ifft` - Pre-planned inverse FFT
-/// * `fft_size` - FFT size (must be >= 2 × samples.len(), power of 2)
+/// * `buffer` - Pre-allocated real FFT buffer (length = fft.len())
+/// * `fft` - Prepared real FFT; length >= 2 × samples.len(), power of 2
+/// * `fft_work` - FFT work buffer (length >= fft.len())
 ///
 /// # Returns
 ///
@@ -459,40 +458,28 @@ fn hanning_window(n: usize) -> Vec<f64> {
 fn compute_autocorrelation_fft(
     samples: &[f64],
     max_lag: usize,
-    buffer: &mut [Complex<f64>],
-    fft: &dyn rustfft::Fft<f64>,
-    ifft: &dyn rustfft::Fft<f64>,
-    fft_size: usize,
-    fft_scratch: &mut [Complex<f64>],
+    buffer: &mut [f64],
+    fft: &RealFft,
+    fft_work: &mut [f64],
 ) -> Vec<f64> {
     let n = samples.len();
+    let fft_size = fft.len();
 
     // Fill buffer: samples followed by zeros
-    for i in 0..fft_size {
-        buffer[i] = if i < n {
-            Complex::new(samples[i], 0.0)
-        } else {
-            Complex::new(0.0, 0.0)
-        };
-    }
+    buffer[..n].copy_from_slice(samples);
+    buffer[n..fft_size].fill(0.0);
 
-    // Forward FFT
-    fft.process_with_scratch(buffer, fft_scratch);
-
-    // Power spectrum: |X[k]|²
-    for x in buffer.iter_mut() {
-        *x = Complex::new(x.norm_sqr(), 0.0);
-    }
-
-    // Inverse FFT
-    ifft.process_with_scratch(buffer, fft_scratch);
+    // Forward FFT, power spectrum |X[k]|², inverse FFT
+    fft.forward(buffer, fft_work);
+    fft.packed_to_power(buffer);
+    fft.backward(buffer, fft_work);
 
     // Extract and normalize by fft_size
-    // (rustfft uses unnormalized transforms, so IFFT(|FFT(x)|²)[τ] = fft_size × r(τ))
+    // (unnormalized transforms, so IFFT(|FFT(x)|²)[τ] = fft_size × r(τ))
     let scale = 1.0 / fft_size as f64;
     let mut r = vec![0.0; max_lag + 1];
     for lag in 0..=max_lag.min(n.saturating_sub(1)) {
-        r[lag] = buffer[lag].re * scale;
+        r[lag] = buffer[lag] * scale;
     }
 
     r
@@ -515,10 +502,9 @@ fn compute_autocorrelation_fft(
 /// * `samples` - Input signal samples
 /// * `min_lag` - Minimum lag (corresponding to pitch_ceiling)
 /// * `max_lag` - Maximum lag (corresponding to pitch_floor)
-/// * `buffer` - Pre-allocated FFT complex buffer
-/// * `fft` - Pre-planned forward FFT
-/// * `ifft` - Pre-planned inverse FFT
-/// * `fft_size` - FFT size
+/// * `buffer` - Pre-allocated real FFT buffer (length = fft.len())
+/// * `fft` - Prepared real FFT (power of 2)
+/// * `fft_work` - FFT work buffer (length >= fft.len())
 ///
 /// # Returns
 ///
@@ -527,28 +513,20 @@ fn compute_cross_correlation_fft(
     samples: &[f64],
     min_lag: usize,
     max_lag: usize,
-    buffer: &mut [Complex<f64>],
-    fft: &dyn rustfft::Fft<f64>,
-    ifft: &dyn rustfft::Fft<f64>,
-    fft_size: usize,
-    fft_scratch: &mut [Complex<f64>],
+    buffer: &mut [f64],
+    fft: &RealFft,
+    fft_work: &mut [f64],
 ) -> Vec<f64> {
     let n = samples.len();
+    let fft_size = fft.len();
     let mut r = vec![0.0; max_lag + 1];
 
     // Compute unnormalized autocorrelation via FFT
-    for i in 0..fft_size {
-        buffer[i] = if i < n {
-            Complex::new(samples[i], 0.0)
-        } else {
-            Complex::new(0.0, 0.0)
-        };
-    }
-    fft.process_with_scratch(buffer, fft_scratch);
-    for x in buffer.iter_mut() {
-        *x = Complex::new(x.norm_sqr(), 0.0);
-    }
-    ifft.process_with_scratch(buffer, fft_scratch);
+    buffer[..n].copy_from_slice(samples);
+    buffer[n..fft_size].fill(0.0);
+    fft.forward(buffer, fft_work);
+    fft.packed_to_power(buffer);
+    fft.backward(buffer, fft_work);
     let scale = 1.0 / fft_size as f64;
 
     // Compute cumulative sum of squares for energy normalization
@@ -560,7 +538,7 @@ fn compute_cross_correlation_fft(
 
     // Normalize each lag by geometric mean of segment energies
     for lag in min_lag..=max_lag.min(n.saturating_sub(1)) {
-        let corr = buffer[lag].re * scale;
+        let corr = buffer[lag] * scale;
         let e1 = cum_sq[n - lag]; // Σ x[0:n-τ]²
         let e2 = cum_sq[n] - cum_sq[lag]; // Σ x[τ:n]²
         if e1 > 0.0 && e2 > 0.0 {
@@ -1133,16 +1111,10 @@ pub fn sound_to_pitch_internal(
 
     // Create FFT workspace — reused for all frames and window autocorrelation.
     // Pad to >= 2×window_samples (power of 2) to get linear autocorrelation.
-    let mut planner = FftPlanner::new();
     let fft_size = (2 * window_samples).next_power_of_two();
-    let fft_forward = planner.plan_fft_forward(fft_size);
-    let fft_inverse = planner.plan_fft_inverse(fft_size);
-    let mut fft_buffer = vec![Complex::new(0.0, 0.0); fft_size];
-    // rustfft's process() allocates this on every call; keep one per worker
-    let fft_scratch_len = fft_forward
-        .get_inplace_scratch_len()
-        .max(fft_inverse.get_inplace_scratch_len());
-    let mut fft_scratch = vec![Complex::new(0.0, 0.0); fft_scratch_len];
+    let fft = RealFft::new(fft_size);
+    let mut fft_buffer = vec![0.0; fft_size];
+    let mut fft_work = vec![0.0; fft_size];
 
     // For AC method: generate window and compute its autocorrelation via FFT
     // The window autocorrelation is used for normalization (Eq. 9)
@@ -1150,8 +1122,7 @@ pub fn sound_to_pitch_internal(
         PitchMethod::Ac => {
             let w = hanning_window(window_samples);
             let rw = compute_autocorrelation_fft(
-                &w, max_lag, &mut fft_buffer,
-                &*fft_forward, &*fft_inverse, fft_size, &mut fft_scratch,
+                &w, max_lag, &mut fft_buffer, &fft, &mut fft_work,
             );
             (Some(w), Some(rw))
         }
@@ -1212,21 +1183,20 @@ pub fn sound_to_pitch_internal(
     let samples = samples.as_slice().unwrap();
     let window = window.as_deref();
     let r_w = r_w.as_deref();
-    let fft_forward = &*fft_forward;
-    let fft_inverse = &*fft_inverse;
+    let fft = &fft;
 
     // Per-worker scratch buffers, fully overwritten for every frame
     let init_scratch = || {
         (
             vec![0.0; window_samples],
             vec![0.0; window_samples],
-            vec![Complex::new(0.0, 0.0); fft_size],
-            vec![Complex::new(0.0, 0.0); fft_scratch_len],
+            vec![0.0; fft_size],
+            vec![0.0; fft_size],
         )
     };
 
     let mut frames = map_frames(n_frames, init_scratch, |scratch, i| {
-        let (frame_samples, windowed, fft_buffer, fft_scratch) = scratch;
+        let (frame_samples, windowed, fft_buffer, fft_work) = scratch;
         let t = t1 + i as f64 * time_step;
 
         // Extract frame samples centered at time t
@@ -1272,8 +1242,7 @@ pub fn sound_to_pitch_internal(
 
                 // Compute autocorrelation via FFT
                 let r = compute_autocorrelation_fft(
-                    windowed, max_lag, fft_buffer,
-                    fft_forward, fft_inverse, fft_size, fft_scratch,
+                    windowed, max_lag, fft_buffer, fft, fft_work,
                 );
 
                 // Find peaks with window normalization
@@ -1282,8 +1251,7 @@ pub fn sound_to_pitch_internal(
             PitchMethod::Cc => {
                 // CC method: cross-correlation via FFT with energy normalization
                 let r = compute_cross_correlation_fft(
-                    frame_samples, min_lag, max_lag, fft_buffer,
-                    fft_forward, fft_inverse, fft_size, fft_scratch,
+                    frame_samples, min_lag, max_lag, fft_buffer, fft, fft_work,
                 );
                 find_cc_peaks(&r, min_lag, max_lag, sample_rate, 15)
             }

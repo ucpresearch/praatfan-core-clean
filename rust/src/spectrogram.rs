@@ -44,7 +44,7 @@
 //! This is a fundamental property of the Fourier transform (uncertainty principle).
 
 use ndarray::Array2;
-use rustfft::{num_complex::Complex, FftPlanner};
+use crate::fft::RealFft;
 
 use crate::parallel::map_frames;
 use crate::sound::Sound;
@@ -434,13 +434,11 @@ pub fn sound_to_spectrogram_with_shape(
     let n_freq_bins = (max_frequency / df_fft).round() as usize;
 
     // Set up FFT
-    let mut planner = FftPlanner::new();
-    let fft = planner.plan_fft_forward(fft_size);
+    let fft = RealFft::new(fft_size);
 
     let n_samples = samples.len();
     let samples_slice = samples.as_slice().unwrap();
-    let fft = &*fft;
-    let fft_scratch_len = fft.get_inplace_scratch_len();
+    let fft = &fft;
 
     // Process each frame. Frames are independent, so they run in parallel
     // (order-preserving; bit-identical to a serial loop). Per-worker scratch
@@ -448,12 +446,12 @@ pub fn sound_to_spectrogram_with_shape(
     let init_scratch = || {
         (
             vec![0.0; window_samples],
-            vec![Complex::new(0.0, 0.0); fft_size],
-            vec![Complex::new(0.0, 0.0); fft_scratch_len],
+            vec![0.0; fft_size],
+            vec![0.0; fft_size],
         )
     };
     let columns = map_frames(n_frames, init_scratch, |scratch, i| {
-        let (frame, buffer, fft_scratch) = scratch;
+        let (frame, buffer, fft_work) = scratch;
         let t = t1 + i as f64 * time_step;
 
         // Extract frame centered at time t
@@ -480,22 +478,21 @@ pub fn sound_to_spectrogram_with_shape(
         // Apply window function (reduces spectral leakage from edge
         // discontinuities) and zero-pad to FFT size (frequency-domain
         // interpolation)
-        for j in 0..fft_size {
-            buffer[j] = if j < window_samples {
-                Complex::new(frame[j] * window[j], 0.0)
-            } else {
-                Complex::new(0.0, 0.0)
-            };
+        for j in 0..window_samples {
+            buffer[j] = frame[j] * window[j];
         }
+        buffer[window_samples..].fill(0.0);
 
         // Compute FFT: X[k] = Σ x[n] × e^(-2πikn/N)
-        fft.process_with_scratch(buffer, fft_scratch);
+        fft.forward(buffer, fft_work);
 
         // Power spectrum |X(f)|² = Re² + Im², stored at FFT bin resolution
         // (positive frequencies only)
-        buffer[..n_freq_bins.min(fft_size / 2 + 1)]
-            .iter()
-            .map(|c| c.norm_sqr())
+        (0..n_freq_bins.min(fft.n_bins()))
+            .map(|k| {
+                let (re, im) = fft.bin(buffer, k);
+                re * re + im * im
+            })
             .collect::<Vec<f64>>()
     });
 

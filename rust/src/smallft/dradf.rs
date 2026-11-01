@@ -9,7 +9,7 @@ pub(crate) fn dradf2(
     l1: i32,
     cc: &mut [f64],
     ch: &mut [f64],
-    wa1: &mut [f64],
+    wa1: &[f64],
 ) {
     let mut t1 = 0;
     let mut t2 = l1 * ido;

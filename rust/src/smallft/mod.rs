@@ -23,3 +23,4 @@ pub(crate) mod fftwrap;
 pub(crate) mod smallft;
 
 pub use fftwrap::DrftLookup;
+pub(crate) use smallft::{drftb1, drftf1, fdrffti};

@@ -110,7 +110,7 @@ fn drftf1_l102(
     na: &mut i32,
     c: &mut [f64],
     ch: &mut [f64],
-    wa: &mut [f64],
+    wa: &[f64],
 ) {
     let iw_temp = iw as usize - 1;
     if ip != 4 {
@@ -126,9 +126,9 @@ fn drftf1_l102(
                 *na = 1;
             }
         } else if *na != 0 {
-            dradf2(ido, l1, ch, c, &mut wa[iw_temp..]);
+            dradf2(ido, l1, ch, c, &wa[iw_temp..]);
         } else {
-            dradf2(ido, l1, c, ch, &mut wa[iw_temp..]);
+            dradf2(ido, l1, c, ch, &wa[iw_temp..]);
         }
     }
 }
@@ -137,8 +137,8 @@ pub(crate) fn drftf1(
     n: i32,
     c: &mut [f64],
     ch: &mut [f64],
-    wa: &mut [f64],
-    ifac: &mut [i32],
+    wa: &[f64],
+    ifac: &[i32],
 ) {
     let nf = ifac[1];
     let mut na = 1;
@@ -202,7 +202,7 @@ fn drftb1_l102(
     na: &mut i32,
     c: &mut [f64],
     ch: &mut [f64],
-    wa: &mut [f64],
+    wa: &[f64],
 ) {
     let iw_temp = iw as usize - 1;
     if ip != 2 {
@@ -239,8 +239,8 @@ pub(crate) fn drftb1(
     n: i32,
     c: &mut [f64],
     ch: &mut [f64],
-    wa: &mut [f64],
-    ifac: &mut [i32],
+    wa: &[f64],
+    ifac: &[i32],
 ) {
     let nf = ifac[1];
     let mut l1 = 1;
