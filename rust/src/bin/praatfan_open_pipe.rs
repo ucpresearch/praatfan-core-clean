@@ -8,6 +8,7 @@ USAGE:
     praatfan-open-pipe             read one JSON request from stdin, write one JSON response to stdout
     praatfan-open-pipe --help      show this message
     praatfan-open-pipe --version   print version and exit
+    praatfan-open-pipe --licenses  print the license and third-party notices
 
 REQUEST:
     { "wav_path": "audio.wav",          // any format the library reads (WAV/FLAC/MP3/OGG/SPHERE...)
@@ -71,12 +72,23 @@ EXAMPLES:
       {"type":"spectral_moments","times":[0.10,0.15,0.20]}]}' | praatfan-open-pipe
 "#;
 
+const LICENSE: &str = include_str!("../../LICENSE");
+const THIRD_PARTY: &str = include_str!("../../LICENSE-THIRD-PARTY");
+
 fn main() {
     let args: Vec<String> = std::env::args().skip(1).collect();
     for arg in &args {
         match arg.as_str() {
             "--help" | "-h" | "help" => {
                 print!("{}", HELP);
+                return;
+            }
+            "--licenses" | "--license" => {
+                // Third-party notices travel inside the binary, so a
+                // standalone download still carries them.
+                use std::io::Write;
+                let text = format!("{}\n\n{}", LICENSE, THIRD_PARTY);
+                let _ = std::io::stdout().write_all(text.as_bytes()); // ignore EPIPE (| head)
                 return;
             }
             "--version" | "-V" => {

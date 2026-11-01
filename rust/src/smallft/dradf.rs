@@ -1,3 +1,9 @@
+// Vendored from speexdsp-rs (MIT, Copyright (c) 2018 Luca Barbato), a Rust
+// translation of smallft.c from Xiph.Org speexdsp / Ogg Vorbis (BSD,
+// Copyright Xiph.Org Foundation), itself derived from FFTPACK (Paul N.
+// Swarztrauber, NCAR; UCAR BSD-style license).  Modified for f64.  License
+// texts: see mod.rs and rust/LICENSE-THIRD-PARTY.
+
 pub(crate) fn dradf2(
     ido: i32,
     l1: i32,

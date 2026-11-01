@@ -1,0 +1,16 @@
+praatfan (R package) is MIT-licensed; see LICENSE.
+
+The WebAssembly engine bundled in inst/wasm/ (praatfan_bg.wasm, praatfan.js)
+is praatfan_rust compiled to wasm32. Besides praatfan's own MIT code it
+contains third-party code, all under permissive or file-level licenses:
+
+  - Rust crates (MIT, Apache-2.0, BSD, Zlib, Unicode-3.0, and the MPL-2.0
+    'symphonia' audio decoders, used unmodified; their source is at
+    https://github.com/pdeljanov/Symphonia and on crates.io);
+  - a vendored real FFT derived from FFTPACK (UCAR BSD-style license) via
+    Xiph.Org's smallft.c (BSD) and speexdsp-rs (MIT).
+
+The full list with every license text is in inst/wasm/LICENSE-THIRD-PARTY.
+
+The praatfan-open-pipe binary that pf_setup() can install contains the same
+code; run `praatfan-open-pipe --licenses` to print its notices.

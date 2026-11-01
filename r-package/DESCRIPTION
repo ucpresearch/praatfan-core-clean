@@ -14,6 +14,8 @@ Description: R interface to praatfan, a clean-room reimplementation of
     with the same numbers. No Python dependencies. Reads WAV, FLAC, MP3,
     OGG, and NIST SPHERE audio.
 License: MIT + file LICENSE
+Copyright: The bundled WebAssembly engine (inst/wasm) includes third-party
+    code; see inst/COPYRIGHTS and inst/wasm/LICENSE-THIRD-PARTY.
 Encoding: UTF-8
 Roxygen: list(markdown = TRUE)
 Imports:

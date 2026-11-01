@@ -67,4 +67,4 @@ include = ["praatfan*"]
 [tool.setuptools.package-data]
 "*" = ["py.typed"]
 # the praatfan_wasm engine bundle (rust/wasm-v8/build.sh --vendor)
-praatfan = ["wasm/*.js", "wasm/*.wasm", "wasm/LICENSE", "wasm/PROVENANCE.txt"]
+praatfan = ["wasm/*.js", "wasm/*.wasm", "wasm/LICENSE", "wasm/LICENSE-THIRD-PARTY", "wasm/PROVENANCE.txt"]

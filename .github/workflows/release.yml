@@ -199,6 +199,7 @@ jobs:
 
       - name: Package WASM artifacts
         run: |
+          cp rust/LICENSE rust/LICENSE-THIRD-PARTY rust/pkg/
           cd rust/pkg
           tar czf ../praatfan-wasm.tar.gz .
 
@@ -261,17 +262,31 @@ jobs:
           name: ${{ matrix.asset }}
           path: ${{ matrix.asset }}
 
+  # rust/LICENSE-THIRD-PARTY (shipped in wheels, embedded in the pipe binary
+  # via --licenses, bundled with the WASM builds) must match Cargo.lock.
+  notices-check:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v6
+      - name: Third-party notices are up to date
+        run: python3 rust/third-party/generate_notices.py --check
+
   # Upload all wheels + pipe binaries to the GitHub release
   upload-release:
-    needs: [build-python, build-rust-linux-py, build-rust-linux-aarch64-py, build-rust-macos-py, build-rust-macos-intel-py, build-rust-windows-py, build-rust-windows-arm64-py, build-wasm, build-pipe]
+    needs: [notices-check, build-python, build-rust-linux-py, build-rust-linux-aarch64-py, build-rust-macos-py, build-rust-macos-intel-py, build-rust-windows-py, build-rust-windows-arm64-py, build-wasm, build-pipe]
     runs-on: ubuntu-latest
     if: github.event_name == 'release'
     steps:
+      - uses: actions/checkout@v6
+
       - name: Download all artifacts
         uses: actions/download-artifact@v8
         with:
           path: dist
           merge-multiple: true
+
+      - name: Third-party notices as a release asset
+        run: cp rust/LICENSE-THIRD-PARTY dist/LICENSE-THIRD-PARTY.txt
 
       - name: List artifacts
         run: ls -la dist/
@@ -283,6 +298,7 @@ jobs:
             dist/*.whl
             dist/praatfan-wasm.tar.gz
             dist/praatfan-open-pipe-*
+            dist/LICENSE-THIRD-PARTY.txt
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
 

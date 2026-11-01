@@ -29,6 +29,14 @@ on:
   #     - '.github/workflows/wheels.yml'
 
 jobs:
+  # rust/LICENSE-THIRD-PARTY must match Cargo.lock (same check as release.yml).
+  notices-check:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v6
+      - name: Third-party notices are up to date
+        run: python3 rust/third-party/generate_notices.py --check
+
   # Pure-Python sdist + wheel
   build-python:
     runs-on: ubuntu-latest
@@ -222,6 +230,7 @@ jobs:
         working-directory: rust
       - name: Package WASM artifacts
         run: |
+          cp rust/LICENSE rust/LICENSE-THIRD-PARTY rust/pkg/
           cd rust/pkg
           tar czf ../praatfan-wasm.tar.gz .
       - uses: actions/upload-artifact@v7

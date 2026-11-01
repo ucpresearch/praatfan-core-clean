@@ -41,7 +41,8 @@ project can pick up.
 ### `speexdsp-rs` FFTPACK port
 
 This crate is independently published MIT-licensed Rust, derived from
-Xiph/Vorbis's public-domain `smallft` C code. Whether it happens to
+Xiph/Vorbis's BSD-licensed `smallft` C code (itself an FFTPACK port,
+UCAR BSD-style license; not public domain). Whether it happens to
 match any other FFT implementation's bit pattern is something you'd
 have to verify yourself — I'm not asserting parity with anything in
 particular.

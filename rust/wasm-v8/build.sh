@@ -38,6 +38,8 @@ rm -rf "$OUT"
 
 cp "$HERE/shim.js" "$OUT/shim.js"
 cp "$ROOT/LICENSE" "$OUT/LICENSE"
+# Third-party notices for everything compiled into the .wasm.
+cp "$CRATE/LICENSE-THIRD-PARTY" "$OUT/LICENSE-THIRD-PARTY"
 
 # No builder paths may ship.
 for f in "$OUT/praatfan_bg.wasm" "$OUT/praatfan.js"; do
@@ -94,7 +96,7 @@ if [[ $VENDOR == 1 ]]; then
   for dest in "$ROOT/src/praatfan/wasm" "$ROOT/r-package/inst/wasm"; do
     rm -rf "$dest"
     mkdir -p "$dest"
-    cp "$OUT"/{praatfan.js,praatfan_bg.wasm,shim.js,LICENSE,PROVENANCE.txt} "$dest/"
+    cp "$OUT"/{praatfan.js,praatfan_bg.wasm,shim.js,LICENSE,LICENSE-THIRD-PARTY,PROVENANCE.txt} "$dest/"
     echo "vendored -> $dest"
   done
 fi
