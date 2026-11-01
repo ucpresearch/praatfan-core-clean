@@ -51,7 +51,10 @@ harmonicity = sound.to_harmonicity_ac(0.01, 75.0, 0.1, 4.5)
 
 Per-frame analysis (pitch, harmonicity, intensity, formants, spectrogram) and
 the resampler run on all CPU cores, with results bit-identical to a
-single-threaded run. Set `RAYON_NUM_THREADS` before the first analysis to
+single-threaded run. Since 0.1.14 results are also the same on every machine:
+maths functions come from the pure-Rust `libm` crate and FFTs from a vendored
+FFTPACK port, so nothing depends on the host's maths library or on CPU
+features detected at run time. Set `RAYON_NUM_THREADS` before the first analysis to
 limit the thread count, e.g. `1` when you already parallelise across
 processes. The GIL is released during analyses, and the library is safe to
 use in `multiprocessing` children started with `fork`. The WebAssembly build
@@ -84,4 +87,6 @@ an error in a future release). `4.5` is the standard value for the AC method;
 
 ## Licence
 
-MIT.
+MIT. The wheel also contains third-party code (MIT, Apache-2.0, BSD, Zlib,
+Unicode-3.0, and the MPL-2.0 `symphonia` decoders, unmodified); their notices
+are in the wheel's `LICENSE-THIRD-PARTY` file.

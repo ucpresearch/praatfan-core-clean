@@ -601,6 +601,13 @@ single-threaded run at any thread count.
   from several Python threads run concurrently.
 - **`multiprocessing`:** safe with the `fork` start method, including after
   the parent process has already run analyses.
+- **Same numbers on every machine (since v0.1.14):** the Rust backend's
+  numerics use no host maths library and no CPU-specific code paths.
+  Transcendental functions come from the pure-Rust `libm` crate and FFTs from
+  a vendored FFTPACK port. A given input therefore gives the same bits
+  whichever CPU features the machine has (checked across glibc's FMA, AVX2
+  and AVX code paths). Builds for different CPU architectures have not been
+  compared bit for bit.
 - **WebAssembly** builds are single-threaded.
 
 ### Backends and auto-selection (Python)

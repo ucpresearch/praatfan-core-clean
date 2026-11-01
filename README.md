@@ -2,8 +2,16 @@
 
 A clean-room reimplementation of Praat's acoustic analysis algorithms, with a unified API that supports multiple backends.
 
-> **Note:** Latest published release **v0.1.11**. The API is stabilizing but may
-> still change.
+> **Note:** Latest release **v0.1.14**. The API is stabilizing but may still
+> change.
+>
+> **v0.1.14** makes the Rust backend give the same numbers on every machine:
+> its maths functions and FFTs no longer depend on the host's maths library or
+> on which CPU features it detects at run time. Values move from v0.1.13 only
+> in the last digits: at most ~1.5e-11 relative (formants by up to ~1e-8 Hz,
+> F0 by ~1e-12 Hz). Single-threaded pitch and harmonicity analysis is up to ~1.8×
+> slower; with all cores the cost is ~1.2–1.3×. Every binary now ships its
+> third-party license notices. See [Performance and threading](#performance-and-threading).
 >
 > **v0.1.11** runs the Rust backend's analyses on all CPU cores. Results are
 > bit-identical to v0.1.10; see [Performance and threading](#performance-and-threading)
@@ -449,6 +457,13 @@ single-threaded run at any thread count.
   from several Python threads run concurrently.
 - **`multiprocessing`:** safe with the `fork` start method, including after
   the parent process has already run analyses.
+- **Same numbers on every machine (since v0.1.14):** the Rust backend's
+  numerics use no host maths library and no CPU-specific code paths.
+  Transcendental functions come from the pure-Rust `libm` crate and FFTs from
+  a vendored FFTPACK port. A given input therefore gives the same bits
+  whichever CPU features the machine has (checked across glibc's FMA, AVX2
+  and AVX code paths). Builds for different CPU architectures have not been
+  compared bit for bit.
 - **WebAssembly** builds are single-threaded.
 
 ## Why Multiple Backends?
@@ -475,6 +490,14 @@ The clean-room implementation (`praatfan`) matches parselmouth closely:
 ## License
 
 MIT License - see LICENSE file.
+
+Compiled forms of the Rust backend (the `praatfan-rust` wheels, the
+`praatfan-open-pipe` binaries and the WebAssembly bundles) also contain
+third-party code under permissive or file-level licenses (MIT, Apache-2.0,
+BSD, Zlib, Unicode-3.0, MPL-2.0 for the unmodified `symphonia` audio
+decoders). The full list with license texts is `rust/LICENSE-THIRD-PARTY`,
+shipped inside each wheel and bundle; `praatfan-open-pipe --licenses` prints
+it.
 
 The `praatfan` and `praatfan-rust` backends are clean-room implementations that do not contain any GPL code.
 
