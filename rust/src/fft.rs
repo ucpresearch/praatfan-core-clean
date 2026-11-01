@@ -6,12 +6,14 @@
 //! library. (rustfft, used before, picked a SIMD path at run time and built
 //! its twiddles with the host `sin`/`cos`.)
 //!
-//! Power-of-two lengths run directly on FFTPACK's radix-2/4 real transform.
-//! The vendored port's mixed/general-radix paths are not reliable (forward
-//! panics on lengths such as 9 or 4095; the inverse is wrong for odd
-//! lengths), so any other length uses Bluestein's chirp-z algorithm
+//! Lengths whose prime factors are all <= 13 run directly on FFTPACK. Its
+//! general-radix kernels build twiddles for a factor p by a rotation
+//! recurrence, whose rounding error grows with p (measured: ~1e-12 relative
+//! at p ~ 500, ~4e-11 at p = 9973, vs ~2e-16 for smooth lengths). Lengths
+//! with a larger prime factor therefore use Bluestein's chirp-z algorithm
 //! (Bluestein 1970; Oppenheim & Schafer, "Discrete-Time Signal Processing",
-//! the chirp transform algorithm) on power-of-two FFTPACK transforms.
+//! the chirp transform algorithm) on power-of-two FFTPACK transforms, which
+//! stays at ~2e-16.
 //!
 //! Packed layout (FFTPACK `rfftf`), for a length-`n` real input `x`:
 //!
@@ -21,14 +23,33 @@
 //! ```
 //!
 //! with `Xk = sum_j x[j] * exp(-2*pi*i*j*k/n)` (unnormalized). `backward`
-//! (power-of-two lengths only) is the unnormalized inverse:
+//! (lengths with prime factors <= 13 only) is the unnormalized inverse:
 //! `backward(forward(x)) = n * x`.
 
 use crate::smallft::{drftb1, drftf1, fdrffti};
 
-/// FFTPACK real transform of a power-of-two length.
+/// Largest prime factor allowed for a direct FFTPACK transform.
+const MAX_DIRECT_FACTOR: usize = 13;
+
+fn largest_prime_factor(mut n: usize) -> usize {
+    let mut largest = 1;
+    let mut p = 2;
+    while p * p <= n {
+        while n % p == 0 {
+            largest = p;
+            n /= p;
+        }
+        p += 1;
+    }
+    if n > 1 {
+        largest = n;
+    }
+    largest
+}
+
+/// Direct FFTPACK real transform.
 #[derive(Clone, Debug)]
-struct Pow2 {
+struct Direct {
     n: usize,
     /// Twiddle factors (FFTPACK `wsave[n..2n]`).
     wa: Vec<f64>,
@@ -36,13 +57,12 @@ struct Pow2 {
     ifac: Vec<i32>,
 }
 
-impl Pow2 {
+impl Direct {
     fn new(n: usize) -> Self {
-        debug_assert!(n.is_power_of_two());
         let mut wsave = vec![0.0; 2 * n];
         let mut ifac = vec![0i32; 32];
         fdrffti(n, &mut wsave, &mut ifac);
-        Pow2 { n, wa: wsave[n..].to_vec(), ifac }
+        Direct { n, wa: wsave[n..].to_vec(), ifac }
     }
 
     fn forward(&self, data: &mut [f64], work: &mut [f64]) {
@@ -66,7 +86,7 @@ impl Pow2 {
 #[derive(Clone, Debug)]
 struct Bluestein {
     m: usize,
-    inner: Pow2,
+    inner: Direct,
     /// `conj(c_j)` for j in 0..n, as (cos, -sin).
     chirp: Vec<(f64, f64)>,
     /// Full complex spectrum of the circularly placed `c`, divided by `m`.
@@ -76,7 +96,7 @@ struct Bluestein {
 impl Bluestein {
     fn new(n: usize) -> Self {
         let m = (2 * n - 1).next_power_of_two();
-        let inner = Pow2::new(m);
+        let inner = Direct::new(m);
         // Angle pi*j^2/n with j^2 reduced mod 2n in integers, so the phase
         // stays exact for large j.
         let two_n = 2 * n as u128;
@@ -150,7 +170,7 @@ impl Bluestein {
 /// Full complex FFT of `re + i*im` (power-of-two length) from two real
 /// FFTPACK transforms. Overwrites `re` and `im`.
 fn complex_fft(
-    p: &Pow2,
+    p: &Direct,
     re: &mut [f64],
     im: &mut [f64],
     work: &mut [f64],
@@ -181,7 +201,7 @@ fn complex_fft(
 
 #[derive(Clone, Debug)]
 enum Plan {
-    Pow2(Pow2),
+    Direct(Direct),
     Bluestein(Box<Bluestein>),
 }
 
@@ -197,8 +217,8 @@ pub struct RealFft {
 impl RealFft {
     pub fn new(n: usize) -> Self {
         assert!(n >= 1, "FFT length must be at least 1");
-        let plan = if n.is_power_of_two() {
-            Plan::Pow2(Pow2::new(n))
+        let plan = if largest_prime_factor(n) <= MAX_DIRECT_FACTOR {
+            Plan::Direct(Direct::new(n))
         } else {
             Plan::Bluestein(Box::new(Bluestein::new(n)))
         };
@@ -215,19 +235,22 @@ impl RealFft {
     pub fn forward(&self, data: &mut [f64], work: &mut [f64]) {
         assert!(data.len() == self.n && work.len() >= self.n);
         match &self.plan {
-            Plan::Pow2(p) => p.forward(data, work),
+            Plan::Direct(p) => p.forward(data, work),
             Plan::Bluestein(b) => b.forward(self.n, data),
         }
     }
 
     /// Unnormalized inverse in place: packed half spectrum -> `n` times the
-    /// real signal. Power-of-two lengths only (all inverse uses in the crate
-    /// are). `work` as for [`forward`](Self::forward).
+    /// real signal. Only for lengths with prime factors <= 13 (all inverse
+    /// uses in the crate are powers of two). `work` as for
+    /// [`forward`](Self::forward).
     pub fn backward(&self, data: &mut [f64], work: &mut [f64]) {
         assert!(data.len() == self.n && work.len() >= self.n);
         match &self.plan {
-            Plan::Pow2(p) => p.backward(data, work),
-            Plan::Bluestein(_) => panic!("RealFft::backward needs a power-of-two length"),
+            Plan::Direct(p) => p.backward(data, work),
+            Plan::Bluestein(_) => {
+                panic!("RealFft::backward: length {} has a prime factor > 13", self.n)
+            }
         }
     }
 
@@ -315,7 +338,7 @@ mod tests {
             let err = (gr - re).abs().max((gi - im).abs());
             assert!(err <= 1e-12 * scale, "n={n} k={k}: got ({gr},{gi}) want ({re},{im})");
         }
-        if n.is_power_of_two() {
+        if largest_prime_factor(n) <= MAX_DIRECT_FACTOR {
             fft.backward(&mut data, &mut work);
             for j in 0..n {
                 let err = (data[j] / n as f64 - x[j]).abs();
@@ -352,6 +375,45 @@ mod tests {
         for lag in 0..x.len() {
             let direct: f64 = (0..x.len() - lag).map(|i| x[i] * x[i + lag]).sum();
             assert!((data[lag] / n as f64 - direct).abs() < 1e-12, "lag {lag}");
+        }
+    }
+
+    /// The vendored FFTPACK kernels themselves, at every length (including
+    /// the repeated odd factors that used to panic and the odd lengths whose
+    /// inverse used to be wrong). Tolerance allows for the general-radix
+    /// rotation recurrence at large prime factors.
+    #[test]
+    fn fftpack_kernels_every_length_to_700() {
+        for n in 1..=700 {
+            let x = signal(n);
+            let p = Direct::new(n);
+            let mut data = x.clone();
+            let mut work = vec![0.0; n];
+            p.forward(&mut data, &mut work);
+            let scale: f64 = x.iter().map(|v| v.abs()).sum::<f64>().max(1.0);
+            let fft = RealFft { n, plan: Plan::Direct(p.clone()) };
+            for &(k, (re, im)) in dft(&x, 1).iter() {
+                let (gr, gi) = fft.bin(&data, k);
+                let err = (gr - re).abs().max((gi - im).abs());
+                assert!(err <= 1e-11 * scale, "n={n} k={k}: err {err}");
+            }
+            p.backward(&mut data, &mut work);
+            for j in 0..n {
+                let err = (data[j] / n as f64 - x[j]).abs();
+                assert!(err <= 1e-11, "n={n} round trip j={j}: err {err}");
+            }
+        }
+        // Lengths named in the original bug reports.
+        for &n in &[4095, 4097, 9, 18, 27, 45] {
+            let x = signal(n);
+            let p = Direct::new(n);
+            let mut d = x.clone();
+            let mut w = vec![0.0; n];
+            p.forward(&mut d, &mut w);
+            p.backward(&mut d, &mut w);
+            for j in 0..n {
+                assert!((d[j] / n as f64 - x[j]).abs() <= 1e-11, "n={n}");
+            }
         }
     }
 }

@@ -216,7 +216,9 @@ fn dradfg_l102(
             }
         }
     } else {
-        for _ in 0..ip {
+        // C: for(j=1;j<ip;j++). The c2rust translation had 0..ip (one pass
+        // too many), which overran `ch` for repeated odd factors (n=9, 4095).
+        for _ in 1..ip {
             is += ido;
             let mut idij = is - 1;
             t1 += t0;
