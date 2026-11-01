@@ -32,8 +32,10 @@ rustfft = "6.2"
 num-complex = "0.4"
 
 # Pure-Rust transcendentals: host-independent results (enforced by clippy.toml).
-# Exception: rustfft's twiddles still use host sin/cos; on glibc they are
-# path-independent only for power-of-two sizes <= 8192 (see CLAUDE.md).
+# Exception (accepted): rustfft's twiddles still use the host sin/cos. On
+# glibc 2.43 they are identical across CPU code paths (FMA/AVX2) only for
+# power-of-two FFTs up to 8192 points; larger ones (e.g. CC pitch and the
+# spectrogram at 48 kHz) can differ in the last bits (~1e-16 in strength).
 libm = "0.2"
 
 # Numeric traits

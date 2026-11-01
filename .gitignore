@@ -18,3 +18,8 @@ BACKUP_*.md
 # Internal bug reports (kept locally, not published)
 BUG-hnr-ac-backend-disagreement.md
 BUG-hnr-ac-saturation.md
+
+# Claude instructions are local, never tracked
+CLAUDE.md
+CLAUDE.local.md
+**/CLAUDE.md
