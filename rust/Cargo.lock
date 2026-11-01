@@ -123,7 +123,7 @@ checksum = "930c7171c8df9fb1782bdf9b918ed9ed2d33d1d22300abb754f9085bc48bf8e8"
 [[package]]
 name = "desphere"
 version = "0.1.1"
-source = "git+https://github.com/ucpresearch/desphere?tag=v0.1.1#2db6f6693ede0adb8da874bf1a8de56bc201954f"
+source = "git+https://github.com/ucpresearch/desphere?tag=v0.1.1#fa19e59e98bc70463aff6a95f3481e94d7f94279"
 
 [[package]]
 name = "dyn-stack"
