@@ -9,6 +9,7 @@ description = "Clean room reimplementation of Praat's acoustic analysis algorith
 readme = "USAGE.md"
 requires-python = ">=3.9"
 license = {text = "MIT"}
+authors = [{name = "Uriel Cohen Priva", email = "uriel_cohen_priva@brown.edu"}]
 keywords = ["audio", "speech", "acoustics", "formant", "pitch", "praat"]
 classifiers = [
     "Development Status :: 4 - Beta",

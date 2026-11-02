@@ -11,6 +11,7 @@ dynamic = ["version"]
 description = "Clean-room reimplementation of Praat's acoustic analysis algorithms"
 readme = "README.md"
 license = { text = "MIT" }
+authors = [{name = "Uriel Cohen Priva", email = "uriel_cohen_priva@brown.edu"}]
 requires-python = ">=3.9"
 keywords = ["audio", "speech", "acoustics", "formant", "pitch", "praat"]
 classifiers = [

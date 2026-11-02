@@ -4,6 +4,7 @@ version = "0.1.15"
 edition = "2021"
 description = "Clean-room reimplementation of Praat's acoustic analysis algorithms"
 license = "MIT"
+authors = ["Uriel Cohen Priva <uriel_cohen_priva@brown.edu>"]
 keywords = ["audio", "speech", "acoustics", "formant", "pitch"]
 categories = ["multimedia::audio", "science"]
 
