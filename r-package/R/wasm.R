@@ -136,7 +136,7 @@ NULL
 .pf_wasm_text <- function(request, which = "open") {
   ctx <- .pf_wasm_ctx(which)
   .pf_wasm_load_audio(ctx, request$wav_path, which)
-  ctx$assign("pf_req", jsonlite::toJSON(request, auto_unbox = TRUE, digits = NA))
+  ctx$assign("pf_req", .pf_to_json(request))
   txt <- tryCatch(
     ctx$eval("wasm_bindgen.pipe_request_bytes(pf_audio, pf_req)"),
     error = function(e) {

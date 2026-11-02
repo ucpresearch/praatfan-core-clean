@@ -161,7 +161,7 @@ pf_engine <- function(engine = NULL) {
     return(resp)
   }
   bin <- .pf_pipe_bin(eng)
-  json_in <- jsonlite::toJSON(request, auto_unbox = TRUE, digits = NA)
+  json_in <- .pf_to_json(request)
 
   err_file <- tempfile()
   on.exit(unlink(err_file), add = TRUE)
@@ -214,3 +214,15 @@ pf_engine <- function(engine = NULL) {
 # --- Null-coalescing operator (base R) ---------------------------------------
 
 `%||%` <- function(x, y) if (is.null(x)) y else x
+
+#' Serialise a pipe request to JSON so that every double round-trips
+#'
+#' \code{digits = NA} writes only 15 significant digits, which changes about
+#' one double in four by an ulp (e.g. a phone midpoint 1.0619687500000001
+#' becomes 1.06196875 and parses back as 1.0619687499999999). At a window
+#' edge that moves a whole sample. 17 significant digits always round-trip,
+#' and the engines parse JSON numbers exactly.
+#' @keywords internal
+.pf_to_json <- function(request) {
+  jsonlite::toJSON(request, auto_unbox = TRUE, digits = I(17))
+}
