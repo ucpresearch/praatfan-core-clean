@@ -2,10 +2,30 @@
 
 A clean-room reimplementation of Praat's acoustic analysis algorithms, with a unified API that supports multiple backends.
 
-> **Note:** Latest release **v0.1.14**. The API is stabilizing but may still
+> **Note:** Latest release **v0.1.15**. The API is stabilizing but may still
 > change.
 >
-> **v0.1.15 (unreleased) changes analysis values — read before upgrading.**
+> **v0.1.16 (unreleased) changes pitch and harmonicity values — read before
+> upgrading.** Every backend changes the same way:
+> - **Pitch voicing:** the silence test now follows Boersma (1993, eq. 23) as
+>   printed, and measures each frame's peak only around the frame centre
+>   (the central half period of the pitch floor). Previously a loud sample
+>   near the edge of the analysis window could make a quiet frame count as
+>   loud, so praatfan voiced frames Praat leaves unvoiced, often with octave
+>   errors.
+> - **CC method:** pitch (cc) and harmonicity (cc) now use the forward
+>   cross-correlation Praat's manual describes: a one-period segment
+>   compared with the same span shifted by each lag. The CC harmonicity
+>   difference from Praat drops from a median of 1.8 dB to 0.15 dB.
+> - **`call(sound, "To Pitch (ac)" / "To Pitch (cc)", ...)`** with all ten
+>   arguments now passes the silence and voicing thresholds and the three
+>   costs through; they used to be ignored. Other argument counts than 3 or
+>   10 raise an error, and "very accurate" warns that it is not implemented.
+> - The reference for the silence test stays the 99.99th percentile of the
+>   absolute sample values, not the single loudest sample as in Praat, so
+>   one click cannot make the rest of a file look quiet.
+>
+> **v0.1.15 changes analysis values — read before upgrading.**
 > Every backend (pure Python, Rust, WASM) changes the same way:
 > - **Intensity:** frames are now centred, with Praat's frame count (often
 >   one more frame than before), and use the documented Kaiser-20 window.
@@ -518,15 +538,17 @@ single-threaded run at any thread count.
 praatfan was validated against **Praat 6.1.38, as bundled in parselmouth
 0.4.7**, by black-box comparison of outputs. Frame counts and frame times
 match Praat exactly. Values, frame by frame on the three test fixtures with
-default settings (v0.1.15, frames defined in both):
+default settings (v0.1.16, frames defined in both):
 
 | Analysis | Median difference | 90th percentile |
 |----------|-------------------|-----------------|
 | Pitch F0 (frames voiced in both) | 0.016 Hz | 0.11 Hz |
 | Formants F1 / F2 / F3 (all frames, silence included) | 0.6 / 1.1 / 1.1 Hz | 8 / 16 / 35 Hz |
 | Intensity | 0.002 dB | 0.02 dB |
-| HNR, AC method | 0.23 dB | 0.94 dB |
-| HNR, CC method | 1.8 dB | 6.6 dB |
+| HNR, AC method | 0.23 dB | 0.92 dB |
+| HNR, CC method | 0.15 dB | 4.7 dB |
+
+Pitch voicing differs from Praat in 2 of 607 frames.
 
 The largest differences are in low-energy frames (silence, pauses), where
 the analyses are least stable. The spectrogram is a standard STFT and is

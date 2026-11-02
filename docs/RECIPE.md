@@ -326,8 +326,21 @@ sinc_window(φ, N) = [sin(πφ) / (πφ)] × [0.5 + 0.5×cos(πφ/N)]
 
 ✅ **DOCUMENTED (Eq. 23) - Unvoiced:**
 ```
-R_unvoiced = voicingThreshold + max(0, 2 - (localPeak/globalPeak)/silenceThreshold) × (1 + voicingThreshold)
+R_unvoiced = voicingThreshold + max(0, 2 - (localPeak/globalPeak) / (silenceThreshold / (1 + voicingThreshold)))
 ```
+
+(Until v0.1.16 this recipe, and the code, misread the equation as
+`... max(0, 2 - (localPeak/globalPeak)/silenceThreshold) × (1 + voicingThreshold)`.
+Black-box check: with the path finder off, Praat stops voicing a slowly
+decaying tone where localPeak/globalPeak = silenceThreshold, for every
+voicingThreshold, as the printed form predicts for r ≈ 1.)
+
+🔬 **DETERMINED (black-box, 2026-11-02) - "local absolute peak":** only the
+central ±half period of the pitch floor counts, Hann-weighted for AC (the
+analysis window) and unweighted for CC. Measured by sweeping single unit
+impulses across frames and reading Praat's per-frame intensity. The global
+peak in Praat is the single largest |sample|; praatfan deliberately uses the
+99.99th percentile instead (robust to clicks).
 
 ✅ **DOCUMENTED (Eq. 24) - Voiced:**
 ```
@@ -430,7 +443,19 @@ This means: run Pitch with AC method, extract strength values, apply HNR formula
 ✅ **DOCUMENTED (Praat manual, Sound: To Harmonicity (cc)):**
 The CC method uses "forward cross-correlation" internally via the Pitch algorithm.
 
-**Implementation:** Run Pitch with CC method (method=3, FCC_ACCURATE), extract strength values, apply HNR formula.
+**Implementation:** Run Pitch with the CC method, extract strength values, apply HNR formula.
+
+✅ **DOCUMENTED (Praat manual, "pitch analysis by raw cross-correlation"):**
+the window is one longest period long (1/pitch floor).
+
+🔬 **DETERMINED (black-box, 2026-11-02):** for each lag τ a fixed segment u is
+correlated with the same span shifted forward by τ. With pairs of unit impulses
+a fixed lag apart, Praat reports a candidate at that lag only when the first
+impulse lies in [centre − half frame − 1, centre − 5] samples, at every floor
+(63–150 Hz) and sample rate (8–44.1 kHz) tried. praatfan uses a segment of
+round((periodsPerWindow − 1) × period) − 3 samples starting half a frame + 1
+sample before the centre. (Before v0.1.16 it correlated the shrinking overlap
+of a two-period frame, which picked weak candidates near the ceiling.)
 
 📚 **STANDARD:** Normalized cross-correlation formula:
 ```

@@ -19,7 +19,7 @@
 //! - **Sinc interpolation**: For sub-sample precision (Eq. 22)
 //!
 //! - **Candidate strength formulas**:
-//!   - Unvoiced strength (Eq. 23): voicing_threshold + bonus for weak signals
+//!   - Unvoiced strength (Eq. 23): VT + max(0, 2 - (local/global)·(1+VT)/ST)
 //!   - Octave cost (Eq. 24): penalizes selection of subharmonics
 //!
 //! - **Viterbi transition costs** (Eq. 27):
@@ -485,67 +485,67 @@ fn compute_autocorrelation_fft(
     r
 }
 
-/// Compute cross-correlation using FFT for the numerator and
-/// cumulative sum of squares for the energy normalization denominator.
+/// Forward cross-correlation for the CC pitch method.
 ///
-/// # Formula
+/// Praat's manual ("pitch analysis by raw cross-correlation"): a *forward*
+/// cross-correlation whose window is one longest period long. For each lag τ
+/// a fixed segment `u` is compared with the same span shifted forward by τ:
 ///
 /// ```text
-/// r(τ) = Σ(x[i] × x[i+τ]) / sqrt(Σx[0:n-τ]² × Σx[τ:n]²)
+/// r(τ) = Σ u[i]·v_τ[i] / sqrt(Σ u[i]² · Σ v_τ[i]²),   v_τ[i] = x[a+τ+i]
 /// ```
 ///
-/// The numerator uses FFT-based autocorrelation (O(n log n)).
-/// The denominator uses prefix sums of squares (O(n)).
+/// The segment's placement was measured black-box (2026-11-02) with pairs of
+/// unit impulses a fixed lag apart swept across the frame centre: Praat
+/// reports a candidate at that lag only when the first impulse lies in
+/// `[centre − half_window − 1, centre − 5]`, at every floor and sample rate
+/// tried. Samples are mean-subtracted with the frame mean (Boersma 1993, step
+/// 3.2); positions outside the signal are zero. Same arithmetic as the
+/// Python `_compute_forward_cross_correlation`.
 ///
-/// # Arguments
-///
-/// * `samples` - Input signal samples
-/// * `min_lag` - Minimum lag (corresponding to pitch_ceiling)
-/// * `max_lag` - Maximum lag (corresponding to pitch_floor)
-/// * `buffer` - Pre-allocated real FFT buffer (length = fft.len())
-/// * `fft` - Prepared real FFT (power of 2)
-/// * `fft_work` - FFT work buffer (length >= fft.len())
-///
-/// # Returns
-///
-/// Vector of normalized correlation values (indices 0..min_lag will be 0)
-fn compute_cross_correlation_fft(
+/// Returns `r` with indices `0..=max_lag + 1`.
+fn compute_forward_cross_correlation(
     samples: &[f64],
-    min_lag: usize,
+    center_sample: isize,
+    half_window_samples: usize,
+    segment_samples: usize,
+    mean: f64,
     max_lag: usize,
-    buffer: &mut [f64],
-    fft: &RealFft,
-    fft_work: &mut [f64],
+    ext: &mut Vec<f64>,
 ) -> Vec<f64> {
-    let n = samples.len();
-    let fft_size = fft.len();
-    let mut r = vec![0.0; max_lag + 1];
-
-    // Compute unnormalized autocorrelation via FFT
-    buffer[..n].copy_from_slice(samples);
-    buffer[n..fft_size].fill(0.0);
-    fft.forward(buffer, fft_work);
-    fft.packed_to_power(buffer);
-    fft.backward(buffer, fft_work);
-    let scale = 1.0 / fft_size as f64;
-
-    // Compute cumulative sum of squares for energy normalization
-    // cum_sq[k] = Σᵢ₌₀^{k-1} x[i]²
-    let mut cum_sq = vec![0.0; n + 1];
-    for i in 0..n {
-        cum_sq[i + 1] = cum_sq[i] + samples[i] * samples[i];
-    }
-
-    // Normalize each lag by geometric mean of segment energies
-    for lag in min_lag..=max_lag.min(n.saturating_sub(1)) {
-        let corr = buffer[lag] * scale;
-        let e1 = cum_sq[n - lag]; // Σ x[0:n-τ]²
-        let e2 = cum_sq[n] - cum_sq[lag]; // Σ x[τ:n]²
-        if e1 > 0.0 && e2 > 0.0 {
-            r[lag] = corr / (e1 * e2).sqrt();
+    let n_total = samples.len() as isize;
+    let a = center_sample - half_window_samples as isize - 1;
+    let span = segment_samples + max_lag + 1;
+    ext.clear();
+    ext.resize(span, 0.0);
+    for (j, e) in ext.iter_mut().enumerate() {
+        let idx = a + j as isize;
+        if idx >= 0 && idx < n_total {
+            *e = samples[idx as usize] - mean;
         }
     }
-
+    let mut r = vec![0.0; max_lag + 2];
+    if segment_samples == 0 {
+        return r;
+    }
+    let u = &ext[..segment_samples];
+    let eu: f64 = u.iter().map(|&x| x * x).sum();
+    if eu <= 0.0 {
+        return r;
+    }
+    // Running energy of v_τ = ext[τ..τ+segment_samples]
+    let mut cum = vec![0.0; span + 1];
+    for j in 0..span {
+        cum[j + 1] = cum[j] + ext[j] * ext[j];
+    }
+    for lag in 1..=max_lag + 1 {
+        let ev = cum[lag + segment_samples] - cum[lag];
+        if ev > 0.0 {
+            let v = &ext[lag..lag + segment_samples];
+            let num: f64 = u.iter().zip(v).map(|(&p, &q)| p * q).sum();
+            r[lag] = num / (eu * ev).sqrt();
+        }
+    }
     r
 }
 
@@ -1098,6 +1098,14 @@ pub fn sound_to_pitch_internal(
     }
     let half_window_samples = window_samples / 2;
 
+    // One period of the pitch floor in samples (local-peak region, CC segment)
+    let period_samples = sample_rate / pitch_floor;
+    // CC: the correlated segment is (periods_per_window - 1) periods long (the
+    // frame's last period is lag reach), less 3 samples (black-box edge, see
+    // compute_forward_cross_correlation).
+    let cc_segment_samples =
+        (((periods_per_window - 1.0) * period_samples).round() as isize - 3).max(1) as usize;
+
     // Create FFT workspace — reused for all frames and window autocorrelation.
     // Pad to >= 2×window_samples (power of 2) to get linear autocorrelation.
     let fft_size = (2 * window_samples).next_power_of_two();
@@ -1181,11 +1189,12 @@ pub fn sound_to_pitch_internal(
             vec![0.0; window_samples],
             vec![0.0; fft_size],
             vec![0.0; fft_size],
+            Vec::new(),
         )
     };
 
     let mut frames = map_frames(n_frames, init_scratch, |scratch, i| {
-        let (frame_samples, windowed, fft_buffer, fft_work) = scratch;
+        let (frame_samples, windowed, fft_buffer, fft_work, cc_ext) = scratch;
         let t = t1 + i as f64 * time_step;
 
         // Extract frame samples centered at time t
@@ -1220,8 +1229,21 @@ pub fn sound_to_pitch_internal(
             *x -= frame_mean;
         }
 
-        // Compute local peak for silence detection
-        let local_peak = frame_samples.iter().map(|&s| s.abs()).fold(0.0f64, f64::max);
+        // Local peak for the silence term of Eq. 23 (Boersma's "local absolute
+        // peak"). Measured black-box (2026-11-02) with unit impulses swept
+        // across the frame: only the central +-half period of the pitch floor
+        // counts, Hann-weighted for AC (the analysis window), unweighted for CC.
+        let mut local_peak = 0.0f64;
+        for j in 0..window_samples {
+            let off = (j as f64 - half_window_samples as f64).abs();
+            if off <= 0.5 * period_samples {
+                let v = match window {
+                    Some(w) if matches!(method, PitchMethod::Ac) => (frame_samples[j] * w[j]).abs(),
+                    _ => frame_samples[j].abs(),
+                };
+                local_peak = local_peak.max(v);
+            }
+        }
         let local_intensity = local_peak / (global_peak + 1e-30);
 
         // Compute correlation and find peaks based on method
@@ -1245,9 +1267,10 @@ pub fn sound_to_pitch_internal(
                 find_autocorrelation_peaks(&r, r_w, min_lag, max_lag, sample_rate, 15, local_intensity, apply_intensity_adjustment)
             }
             PitchMethod::Cc => {
-                // CC method: cross-correlation via FFT with energy normalization
-                let r = compute_cross_correlation_fft(
-                    frame_samples, min_lag, max_lag, fft_buffer, fft, fft_work,
+                // CC method: forward cross-correlation (one-period segment)
+                let r = compute_forward_cross_correlation(
+                    samples, center_sample, half_window_samples, cc_segment_samples,
+                    frame_mean, max_lag, cc_ext,
                 );
                 find_cc_peaks(&r, min_lag, max_lag, sample_rate, 15)
             }
@@ -1256,12 +1279,15 @@ pub fn sound_to_pitch_internal(
         // Create candidates list
         let mut candidates = Vec::new();
 
-        // Unvoiced candidate (Boersma 1993, Eq. 23)
-        // strength = voicing_threshold + bonus for weak signals
-        // Weak signals (low intensity) get higher unvoiced strength, making them
-        // more likely to be classified as unvoiced
-        let unvoiced_strength = voicing_threshold
-            + (2.0 - local_intensity / silence_threshold).max(0.0) * (1.0 + voicing_threshold);
+        // Unvoiced candidate. Boersma (1993) Eq. 23: R = VT + max(0, 2 - (local/global)/(ST/(1+VT))).
+        // Black-box check (2026-11-02): Praat stops voicing a decaying tone at
+        // local/global = ST for every VT, as this form predicts for r ~ 1.
+        let unvoiced_strength = if silence_threshold > 0.0 {
+            voicing_threshold
+                + (2.0 - local_intensity * (1.0 + voicing_threshold) / silence_threshold).max(0.0)
+        } else {
+            voicing_threshold
+        };
         candidates.push(PitchCandidate::new(0.0, unvoiced_strength));
 
         // Voiced candidates from correlation peaks

@@ -1,6 +1,6 @@
 Package: praatfan
 Title: Praat-Compatible Acoustic Analysis
-Version: 0.1.15
+Version: 0.1.16
 Authors@R: person("Uriel", "Cohen Priva", role = c("aut", "cre"),
                    email = "uriel_cohen_priva@brown.edu")
 Description: R interface to praatfan, a clean-room reimplementation of

@@ -1,6 +1,6 @@
 [package]
 name = "praatfan_rust"
-version = "0.1.15"
+version = "0.1.16"
 edition = "2021"
 description = "Clean-room reimplementation of Praat's acoustic analysis algorithms"
 license = "MIT"

@@ -88,68 +88,50 @@ def _parse_bool_arg(arg: Any) -> bool:
 # Sound commands
 # =============================================================================
 
+def _to_pitch_full(obj: Any, args: tuple, method: str) -> Any:
+    """"To Pitch (ac)" / "To Pitch (cc)" with parselmouth's argument order.
+
+    Full form (10 args): time_step, pitch_floor, max_candidates, very_accurate,
+    silence_threshold, voicing_threshold, octave_cost, octave_jump_cost,
+    voiced_unvoiced_cost, pitch_ceiling. Short form (3 args): time_step,
+    pitch_floor, pitch_ceiling. Every threshold and cost is passed through;
+    max_candidates is fixed at 15 internally, and very_accurate is not
+    implemented (a warning says so when it is requested).
+    """
+    import warnings
+    time_step = args[0] if len(args) > 0 else 0.0
+    pitch_floor = args[1] if len(args) > 1 else 75.0
+    kwargs = {}
+    if len(args) > 9:
+        pitch_ceiling = args[9]
+        if _parse_bool_arg(args[3]):
+            warnings.warn("very_accurate is not implemented; using the standard "
+                          "window", UserWarning, stacklevel=4)
+        kwargs = dict(silence_threshold=args[4], voicing_threshold=args[5],
+                      octave_cost=args[6], octave_jump_cost=args[7],
+                      voiced_unvoiced_cost=args[8])
+    elif len(args) > 3:
+        raise PraatCallError(
+            f"To Pitch ({method}) takes 3 or 10 arguments, got {len(args)}")
+    elif len(args) > 2:
+        pitch_ceiling = args[2]
+    else:
+        pitch_ceiling = 600.0
+    fn = getattr(obj, "to_pitch_" + method, None)
+    if fn is not None:
+        return fn(time_step=time_step, pitch_floor=pitch_floor,
+                  pitch_ceiling=pitch_ceiling, **kwargs)
+    return obj.to_pitch(time_step=time_step, pitch_floor=pitch_floor,
+                        pitch_ceiling=pitch_ceiling, method=method, **kwargs)
+
+
 def _call_sound(obj: Any, command: str, args: tuple) -> Any:
     """Handle call() for Sound objects."""
     cmd = _normalize_command(command)
 
-    # To Pitch (ac)
-    if cmd == "to pitch (ac)":
-        # Parselmouth full argument order (10 args):
-        #   time_step, pitch_floor, max_candidates, very_accurate,
-        #   silence_threshold, voicing_threshold, octave_cost,
-        #   octave_jump_cost, voiced_unvoiced_cost, pitch_ceiling
-        # Short form (3 args): time_step, pitch_floor, pitch_ceiling
-        time_step = args[0] if len(args) > 0 else 0.0
-        pitch_floor = args[1] if len(args) > 1 else 75.0
-        if len(args) > 9:
-            # Full parselmouth form: pitch_ceiling is the last (10th) argument
-            pitch_ceiling = args[9]
-        elif len(args) > 2:
-            # Short form: pitch_ceiling is the 3rd argument
-            pitch_ceiling = args[2]
-        else:
-            pitch_ceiling = 600.0
-        # Use to_pitch_ac if available, otherwise to_pitch with method parameter
-        if hasattr(obj, 'to_pitch_ac'):
-            return obj.to_pitch_ac(
-                time_step=time_step,
-                pitch_floor=pitch_floor,
-                pitch_ceiling=pitch_ceiling
-            )
-        else:
-            return obj.to_pitch(
-                time_step=time_step,
-                pitch_floor=pitch_floor,
-                pitch_ceiling=pitch_ceiling,
-                method="ac"
-            )
-
-    # To Pitch (cc)
-    elif cmd == "to pitch (cc)":
-        # Arguments: time_step, pitch_floor, max_candidates (ignored),
-        #            very_accurate (ignored), silence_threshold (ignored),
-        #            voicing_threshold (ignored), octave_cost (ignored),
-        #            octave_jump_cost (ignored), voiced_unvoiced_cost (ignored),
-        #            pitch_ceiling
-        time_step = args[0] if len(args) > 0 else 0.0
-        pitch_floor = args[1] if len(args) > 1 else 75.0
-        # args[2] = max_candidates, args[3] = very_accurate, ...
-        # pitch_ceiling is the last positional argument
-        pitch_ceiling = args[9] if len(args) > 9 else 600.0
-        # Use to_pitch_cc if available, otherwise to_pitch with method parameter
-        if hasattr(obj, 'to_pitch_cc'):
-            return obj.to_pitch_cc(
-                time_step=time_step,
-                pitch_floor=pitch_floor,
-                pitch_ceiling=pitch_ceiling
-            )
-        else:
-            return obj.to_pitch(
-                time_step=time_step,
-                pitch_floor=pitch_floor,
-                pitch_ceiling=pitch_ceiling,
-                method="cc"
-            )
+    # To Pitch (ac) / To Pitch (cc)
+    if cmd in ("to pitch (ac)", "to pitch (cc)"):
+        return _to_pitch_full(obj, args, "cc" if cmd.endswith("(cc)") else "ac")
 
     # To Pitch...
     elif cmd == "to pitch" or cmd == "to pitch...":

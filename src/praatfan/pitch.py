@@ -368,50 +368,55 @@ def _compute_autocorrelation(samples: np.ndarray, max_lag: int) -> np.ndarray:
     return r
 
 
-def _compute_cross_correlation(samples: np.ndarray, min_lag: int, max_lag: int) -> np.ndarray:
+def _compute_forward_cross_correlation(samples: np.ndarray, center_sample: int,
+                                       half_window_samples: int, segment_samples: int,
+                                       mean: float, max_lag: int) -> np.ndarray:
     """
-    Compute full-frame cross-correlation for the CC pitch method using FFT.
+    Forward cross-correlation for the CC pitch method.
 
-    The numerator (unnormalized autocorrelation) is computed via FFT.
-    The denominator (per-lag energy normalization) uses cumulative sums.
+    Praat's manual ("pitch analysis by raw cross-correlation"): the method is a
+    *forward* cross-correlation whose window is one longest period long. For
+    each lag τ a fixed segment u is compared with the same span shifted
+    forward by τ:
 
-    For each lag τ:
-        r(τ) = Σ(x[i] × x[i+τ]) / sqrt(Σx[0:n-τ]² × Σx[τ:n]²)
+        r(τ) = Σ u[i]·v_τ[i] / sqrt(Σ u[i]² · Σ v_τ[i]²),   v_τ[i] = x[a+τ+i]
 
-    Args:
-        samples: Raw (unwindowed) frame samples
-        min_lag: Minimum lag to compute
-        max_lag: Maximum lag to compute
+    The segment's placement was measured black-box (2026-11-02) with pairs of
+    unit impulses a fixed lag apart, swept across the frame centre: Praat
+    reports a candidate at that lag only when the first impulse lies in
+    [centre − half_window − 1, centre − 5], at every floor and sample rate
+    tried. So u starts half_window+1 samples before the centre and is
+    segment_samples long; the lag reach takes v up to the frame's far edge.
+
+    Samples are mean-subtracted with the frame mean (Boersma 1993, step 3.2);
+    positions outside the signal are zero.
 
     Returns:
-        Array of normalized correlation values (0 to 1)
+        Array r of length max_lag + 2 (indices up to max_lag + 1, needed by
+        the peak finder's right neighbour).
     """
-    n = len(samples)
-    r = np.zeros(max_lag + 1)
-
-    # Compute unnormalized autocorrelation via FFT
-    fft_size = 1
-    while fft_size < 2 * n:
-        fft_size *= 2
-
-    X = np.fft.rfft(samples, n=fft_size)
-    power = X.real ** 2 + X.imag ** 2
-    ac_full = np.fft.irfft(power, n=fft_size)
-
-    # Cumulative sum of squares for energy normalization
-    sq = samples * samples
-    cum_sq = np.zeros(n + 1)
-    cum_sq[1:] = np.cumsum(sq)
-
-    # Normalize each lag
-    end_lag = min(max_lag + 1, n)
-    for lag in range(min_lag, end_lag):
-        corr = ac_full[lag]
-        e1 = cum_sq[n - lag]               # Σ x[0:n-τ]²
-        e2 = cum_sq[n] - cum_sq[lag]       # Σ x[τ:n]²
-        if e1 > 0 and e2 > 0:
-            r[lag] = corr / np.sqrt(e1 * e2)
-
+    n_total = len(samples)
+    a = center_sample - half_window_samples - 1
+    span = segment_samples + max_lag + 1
+    ext = np.zeros(span)
+    src_start = max(0, a)
+    src_end = min(n_total, a + span)
+    if src_end > src_start:
+        ext[src_start - a:src_end - a] = samples[src_start:src_end] - mean
+    u = ext[:segment_samples]
+    eu = float(np.dot(u, u))
+    r = np.zeros(max_lag + 2)
+    if eu <= 0.0 or segment_samples <= 0:
+        return r
+    # v_τ for τ = 0..max_lag+1 as rows of a strided view
+    views = np.lib.stride_tricks.sliding_window_view(ext, segment_samples)
+    num = views @ u
+    sq = ext * ext
+    cum = np.concatenate(([0.0], np.cumsum(sq)))
+    ev = cum[segment_samples:segment_samples + max_lag + 2] - cum[:max_lag + 2]
+    for lag in range(1, max_lag + 2):
+        if ev[lag] > 0.0:
+            r[lag] = num[lag] / np.sqrt(eu * ev[lag])
     return r
 
 
@@ -463,7 +468,7 @@ def _find_cc_peaks(r: np.ndarray, min_lag: int, max_lag: int,
     so no window autocorrelation normalization is needed.
 
     Args:
-        r: Cross-correlation values from _compute_cross_correlation
+        r: Cross-correlation values from _compute_forward_cross_correlation
         min_lag: Minimum lag (1/ceiling in samples)
         max_lag: Maximum lag (1/floor in samples)
         sample_rate: Sample rate
@@ -762,6 +767,13 @@ def sound_to_pitch(
         window_samples += 1
     half_window_samples = window_samples // 2
 
+    # One period of the pitch floor, in samples (local-peak region, CC segment)
+    period_samples = sample_rate / pitch_floor
+    # CC: the correlated segment is (periods_per_window - 1) periods long (the
+    # last period of the frame is lag reach), less 3 samples (black-box edge,
+    # see _compute_forward_cross_correlation).
+    cc_segment_samples = max(1, int(round((periods_per_window - 1.0) * period_samples)) - 3)
+
     # For AC method: generate window and compute its autocorrelation
     # For CC method: no windowing needed
     if method == "ac":
@@ -825,10 +837,21 @@ def sound_to_pitch(
 
         # Boersma (1993) step 3.2: subtract the local average. Without it a DC
         # offset or a slow drift correlates with itself at every lag.
-        frame_samples = frame_samples - np.mean(frame_samples)
+        frame_mean = np.mean(frame_samples)
+        frame_samples = frame_samples - frame_mean
 
-        # Compute local peak (for silence detection)
-        local_peak = np.max(np.abs(frame_samples))
+        # Local peak for the silence term of Eq. 23. Boersma (1993) calls it
+        # the "local absolute peak"; which samples it covers was measured
+        # black-box (2026-11-02) by sweeping single unit impulses across the
+        # frame and reading Praat's per-frame intensity: only the central
+        # +-half period of the pitch floor counts, Hann-weighted for AC (the
+        # analysis window) and unweighted for CC. Taking the whole window let
+        # a loud sample near an edge mark a quiet frame as loud.
+        central = np.abs(np.arange(window_samples) - half_window_samples) <= 0.5 * period_samples
+        if method == "ac":
+            local_peak = np.max(np.abs(frame_samples * window)[central])
+        else:
+            local_peak = np.max(np.abs(frame_samples)[central])
         local_intensity = local_peak / (global_peak + 1e-30)
 
         # Compute correlation and find peaks based on method
@@ -841,17 +864,24 @@ def sound_to_pitch(
                                                  apply_intensity_adjustment=apply_intensity_adjustment)
         else:
             # CC: Full-frame cross-correlation on raw samples
-            r = _compute_cross_correlation(frame_samples, min_lag, max_lag)
+            r = _compute_forward_cross_correlation(samples, center_sample,
+                                                   half_window_samples, cc_segment_samples,
+                                                   frame_mean, max_lag)
             peaks, raw_ac_max = _find_cc_peaks(r, min_lag, max_lag, sample_rate)
 
         # Create candidates list
         candidates = []
 
-        # Unvoiced candidate
-        # From Boersma (1993) Eq. 23
-        unvoiced_strength = (voicing_threshold +
-                           max(0, 2 - local_intensity/silence_threshold) *
-                           (1 + voicing_threshold))
+        # Unvoiced candidate, Boersma (1993) Eq. 23:
+        #   R = VT + max(0, 2 - (local/global) / (ST / (1 + VT)))
+        # Black-box check (2026-11-02): on a decaying tone with the path finder
+        # off, Praat stops voicing exactly where local/global = ST, for every
+        # VT, as this form predicts for r ~ 1.
+        if silence_threshold > 0:
+            unvoiced_strength = voicing_threshold + max(
+                0.0, 2.0 - local_intensity * (1.0 + voicing_threshold) / silence_threshold)
+        else:
+            unvoiced_strength = voicing_threshold
         candidates.append(PitchCandidate(0.0, unvoiced_strength))
 
         # Voiced candidates
