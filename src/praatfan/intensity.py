@@ -27,6 +27,8 @@ Decision points determined via testing (revised 2026-11-02, v0.1.15):
 """
 
 import numpy as np
+
+from ._rounding import rhalf
 from typing import List, Optional
 
 
@@ -105,7 +107,7 @@ class Intensity:
             return None
 
         if interpolation == "nearest":
-            idx = int(round(idx_float))
+            idx = rhalf(idx_float)
             idx = max(0, min(self.n_frames - 1, idx))
             return float(self._values[idx])
 
@@ -264,7 +266,7 @@ def sound_to_intensity(
     physical_window_duration = 6.4 / min_pitch
 
     # Number of samples in window
-    window_samples = int(round(physical_window_duration * sample_rate))
+    window_samples = rhalf(physical_window_duration * sample_rate)
     if window_samples % 2 == 0:
         window_samples += 1  # Ensure odd for symmetric window
 
@@ -302,7 +304,7 @@ def sound_to_intensity(
         times[i] = t
 
         # Centre on the sample nearest t; sample i sits at (i + 0.5) / sr.
-        center_sample = int(round(t * sample_rate - 0.5))
+        center_sample = rhalf(t * sample_rate - 0.5)
 
         # Extract window region
         start_sample = center_sample - half_window_samples

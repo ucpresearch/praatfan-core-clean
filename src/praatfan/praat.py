@@ -22,6 +22,8 @@ Note:
 from typing import Any, Optional, Union
 import numpy as np
 
+from ._rounding import rhalf
+
 
 class PraatCallError(Exception):
     """Raised when a call() command fails or is not supported."""
@@ -299,8 +301,8 @@ def _call_sound(obj: Any, command: str, args: tuple) -> Any:
         if samples is not None and hasattr(obj, 'sampling_frequency'):
             sr = obj.sampling_frequency
             samples = np.array(samples)
-            start_sample = round(start_time * sr)
-            end_sample = round(end_time * sr) if end_time else len(samples)
+            start_sample = rhalf(start_time * sr)
+            end_sample = rhalf(end_time * sr) if end_time else len(samples)
             extracted_samples = samples[start_sample:end_sample]
             # Create a new Sound object using the class constructor
             # The unified Sound class accepts (samples, sampling_frequency)
@@ -426,7 +428,7 @@ def _interpolate_at_time(times: np.ndarray, values: np.ndarray, time: float,
         return None
 
     if interpolation == "nearest":
-        idx = int(round(idx_float))
+        idx = rhalf(idx_float)
         idx = max(0, min(n_frames - 1, idx))
         value = values[idx]
         if _is_undefined(value, undefined_value):

@@ -16,6 +16,8 @@ Key documented facts:
 """
 
 import numpy as np
+
+from ._rounding import rhalf
 from typing import Optional
 
 
@@ -205,7 +207,7 @@ def sound_to_spectrogram(
         physical_window_duration = window_length
 
     # Number of samples in physical window
-    window_samples = int(round(physical_window_duration * sample_rate))
+    window_samples = rhalf(physical_window_duration * sample_rate)
     if window_samples % 2 == 0:
         window_samples += 1
     half_window = window_samples // 2
@@ -235,7 +237,7 @@ def sound_to_spectrogram(
     df_fft = sample_rate / fft_size
 
     # Number of frequency bins from 0 to max_frequency at FFT resolution
-    n_freq_bins = int(round(max_frequency / df_fft))
+    n_freq_bins = rhalf(max_frequency / df_fft)
 
     # Compute spectrogram
     # Values array is (n_freq_bins, n_frames)
@@ -245,7 +247,7 @@ def sound_to_spectrogram(
         t = t1 + i * time_step
 
         # Extract frame centered at t
-        center = int(round(t * sample_rate))
+        center = rhalf(t * sample_rate)
         start = center - half_window
         end = start + window_samples
 

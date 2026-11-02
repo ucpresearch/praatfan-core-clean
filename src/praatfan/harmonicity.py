@@ -40,6 +40,8 @@ import os
 import warnings
 
 import numpy as np
+
+from ._rounding import rhalf
 from typing import Optional
 from .pitch import Pitch, sound_to_pitch
 
@@ -174,7 +176,7 @@ class Harmonicity:
             return None
 
         if interpolation == "nearest":
-            idx = int(round(idx_float))
+            idx = rhalf(idx_float)
             idx = max(0, min(self.n_frames - 1, idx))
             return float(self._values[idx])
 

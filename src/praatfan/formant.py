@@ -28,6 +28,8 @@ Decision points:
 import math
 
 import numpy as np
+
+from ._rounding import rhalf
 from dataclasses import dataclass
 from typing import List, Optional
 
@@ -169,7 +171,7 @@ class Formant:
             return None
 
         if interpolation == "nearest":
-            idx = int(round(idx_float))
+            idx = rhalf(idx_float)
             idx = max(0, min(self.n_frames - 1, idx))
             fp = self._frames[idx].get_formant(formant_number)
             if fp is None:
@@ -237,7 +239,7 @@ class Formant:
             return None
 
         if interpolation == "nearest":
-            idx = int(round(idx_float))
+            idx = rhalf(idx_float)
             idx = max(0, min(self.n_frames - 1, idx))
             fp = self._frames[idx].get_formant(formant_number)
             if fp is None:
@@ -709,7 +711,7 @@ def sound_to_formant_burg(
 
     # Window: actual length is 2× the parameter value
     physical_window_duration = 2.0 * window_length
-    window_samples = int(round(physical_window_duration * sample_rate))
+    window_samples = rhalf(physical_window_duration * sample_rate)
     if window_samples % 2 == 0:
         window_samples += 1
     half_window = window_samples // 2
@@ -736,7 +738,7 @@ def sound_to_formant_burg(
         t = t1 + i * time_step
 
         # Extract frame in resampled signal
-        center_sample = int(round(t * sample_rate))
+        center_sample = rhalf(t * sample_rate)
         start_sample = center_sample - half_window
         end_sample = start_sample + window_samples
 

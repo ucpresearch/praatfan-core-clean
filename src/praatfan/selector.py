@@ -65,6 +65,8 @@ from abc import ABC, abstractmethod
 
 import numpy as np
 
+from ._rounding import rhalf
+
 
 class BackendNotAvailableError(Exception):
     """Raised when the requested backend is not installed or available."""
@@ -2011,8 +2013,8 @@ class PraatfanCoreSound(BaseSound):
         samples = np.asarray(self._inner.samples())
         sr = self._inner.sample_rate
         n = len(samples)
-        a = max(0, min(n, round(start_time * sr)))
-        b = max(a, min(n, round(end_time * sr)))
+        a = max(0, min(n, rhalf(start_time * sr)))
+        b = max(a, min(n, rhalf(end_time * sr)))
         return PraatfanCoreSound(praatfan_gpl.Sound(samples[a:b].copy(), sr))
 
     def resample(self, sample_rate: float) -> "PraatfanCoreSound":

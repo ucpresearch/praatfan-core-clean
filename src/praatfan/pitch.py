@@ -24,6 +24,8 @@ Decision points:
 """
 
 import numpy as np
+
+from ._rounding import rhalf
 from dataclasses import dataclass
 from typing import List, Optional
 
@@ -169,7 +171,7 @@ class Pitch:
             return None
 
         if interpolation == "nearest":
-            idx = int(round(idx_float))
+            idx = rhalf(idx_float)
             idx = max(0, min(self.n_frames - 1, idx))
             frame = self._frames[idx]
             if not frame.voiced:
@@ -239,7 +241,7 @@ class Pitch:
             return None
 
         if interpolation == "nearest":
-            idx = int(round(idx_float))
+            idx = rhalf(idx_float)
             idx = max(0, min(self.n_frames - 1, idx))
             return float(self._frames[idx].strength)
 
@@ -762,7 +764,7 @@ def sound_to_pitch(
     max_lag = int(np.floor(sample_rate / pitch_floor))
 
     # Number of samples in window
-    window_samples = int(round(window_duration * sample_rate))
+    window_samples = rhalf(window_duration * sample_rate)
     if window_samples % 2 == 0:
         window_samples += 1
     half_window_samples = window_samples // 2
@@ -772,7 +774,7 @@ def sound_to_pitch(
     # CC: the correlated segment is (periods_per_window - 1) periods long (the
     # last period of the frame is lag reach), less 3 samples (black-box edge,
     # see _compute_forward_cross_correlation).
-    cc_segment_samples = max(1, int(round((periods_per_window - 1.0) * period_samples)) - 3)
+    cc_segment_samples = max(1, rhalf((periods_per_window - 1.0) * period_samples) - 3)
 
     # For AC method: generate window and compute its autocorrelation
     # For CC method: no windowing needed
@@ -809,7 +811,15 @@ def sound_to_pitch(
     # A caller-supplied reference_peak (speech-scoped, see speech_reference.py)
     # replaces the whole-file statistic entirely.
     if reference_peak is None:
-        global_peak = np.percentile(np.abs(samples), 99.99)
+        # The element at rank floor(0.9999 * (n - 1)), exactly as the Rust
+        # port computes it (np.percentile would interpolate, which shifted the
+        # silence term per file and made the backends disagree; fixed 0.1.16).
+        abs_samples = np.abs(samples)
+        if len(abs_samples) == 0:
+            global_peak = 0.0
+        else:
+            k = int((len(abs_samples) - 1) * 0.9999)
+            global_peak = float(np.partition(abs_samples, k)[k])
     else:
         global_peak = reference_peak
 
@@ -820,7 +830,7 @@ def sound_to_pitch(
         t = t1 + i * time_step
 
         # Extract frame samples
-        center_sample = int(round(t * sample_rate))
+        center_sample = rhalf(t * sample_rate)
         start_sample = center_sample - half_window_samples
         end_sample = start_sample + window_samples
 
