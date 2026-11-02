@@ -18,9 +18,11 @@ bibentry(
   bibtype = "Misc",
   key = "boersma2026praat",
   header = paste(
-    "Please also cite Praat: praatfan shares no code with it, but implements",
-    "its analyses and was validated against its output (fill in the Praat",
-    "version and retrieval date, as praat.org asks):"
+    "Please also cite Praat. praatfan shares no code with Praat: it implements",
+    "Praat's analyses from Praat's public documentation only (the manual and",
+    "the papers it cites) and was validated by black-box comparison with",
+    "Praat's output. Fill in the Praat version and retrieval date, as",
+    "praat.org asks:"
   ),
   title = "{Praat}: Doing phonetics by computer",
   author = c(person("Paul", "Boersma"), person("David", "Weenink")),

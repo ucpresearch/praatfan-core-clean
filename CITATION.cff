@@ -5,6 +5,7 @@ title: "Praatfan: A clean-room reimplementation of Praat's acoustic analyses"
 authors:
   - family-names: "Cohen Priva"
     given-names: "Uriel"
+abstract: "A clean-room reimplementation of Praat's acoustic analyses (pitch, harmonicity, intensity, formants, spectra), written from Praat's public documentation only (the Praat manual and the papers it cites) and validated by black-box comparison with Praat's output. It contains no Praat code and is MIT-licensed. Interfaces for Python, R, Rust and WebAssembly."
 repository-code: "https://github.com/ucpresearch/praatfan-core-clean"
 url: "https://github.com/ucpresearch/praatfan-core-clean"
 license: MIT
@@ -25,7 +26,7 @@ references:
       - family-names: "Weenink"
         given-names: "David"
     url: "https://www.praat.org"
-    notes: "praatfan implements Praat's analyses and was validated against its output; please cite Praat too."
+    notes: "praatfan shares no code with Praat. It implements Praat's analyses from Praat's public documentation only (the manual and the papers it cites) and was validated by black-box comparison with Praat's output. Please cite Praat too."
   - type: conference-paper
     title: "Accurate short-term analysis of the fundamental frequency and the harmonics-to-noise ratio of a sampled sound"
     authors:

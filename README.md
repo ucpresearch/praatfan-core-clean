@@ -539,10 +539,11 @@ R):
 }
 ```
 
-Please also cite **Praat**. praatfan's code shares nothing with Praat's,
-but the analyses it implements, their parameters and their defaults are
-Praat's, and praatfan was validated against Praat's output. Praat's
-authors ask for this form (fill in the version and date, see
+Please also cite **Praat**. praatfan shares no code with Praat: it
+implements Praat's analyses (with their parameters and defaults) from
+Praat's public documentation only, that is the Praat manual and the papers
+it cites, and was validated by black-box comparison with Praat's output.
+Praat's authors ask for this form (fill in the version and date, see
 [praat.org](https://www.praat.org)):
 
 ```bibtex
