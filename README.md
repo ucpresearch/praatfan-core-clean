@@ -87,7 +87,7 @@ Both packages are on PyPI: [praatfan](https://pypi.org/project/praatfan/) | [pra
 Available `praatfan-rust` wheels (single abi3 wheel per platform, CPython 3.9+):
 - **Linux**: x86_64, aarch64
 - **macOS**: ARM64, x86_64 (Intel)
-- **Windows**: x86_64, ARM64
+- **Windows**: x86_64, ARM64 (ARM64 needs CPython 3.11+)
 
 ### NIST SPHERE (`.sph`) files
 
@@ -121,7 +121,8 @@ fmt <- pf_formants("audio.wav", max_formant_hz = 5000)
 
 See [`r-package/README.md`](r-package/README.md) for the full function list
 (`pf_pitch`, `pf_formants`, `pf_intensity`, `pf_harmonicity`,
-`pf_spectral_moments`, `pf_band_energy`, and batch `pf_analyze`). The same
+`pf_spectral_moments`, `pf_band_energy`, `pf_spectrogram`, and batch
+`pf_analyze`). The same
 `praatfan-open-pipe` binary is usable from any language that can spawn a
 process and speak JSON (`praatfan-open-pipe --help` documents the schema).
 
@@ -410,14 +411,14 @@ import parselmouth
 from parselmouth.praat import call
 
 snd = parselmouth.Sound("audio.wav")
-pitch = call(snd, "To Pitch (ac)", 0, 75, 600)
+pitch = call(snd, "To Pitch", 0, 75, 600)
 f0 = call(pitch, "Get value in frame", 10, "Hertz")
 
 # After (praatfan) - just change the imports
 from praatfan import Sound, call
 
 snd = Sound("audio.wav")  # Same constructor syntax as parselmouth
-pitch = call(snd, "To Pitch (ac)", 0, 75, 600)
+pitch = call(snd, "To Pitch", 0, 75, 600)
 f0 = call(pitch, "Get value in frame", 10, "Hertz")
 ```
 
@@ -427,7 +428,7 @@ You can also switch backends at runtime:
 from praatfan import Sound, call, set_backend
 
 set_backend("parselmouth")  # Use parselmouth under the hood
-# or "praatfan", "praatfan_rust", "praatfan_gpl"
+# or "praatfan", "praatfan_rust", "praatfan_wasm", "praatfan_gpl"
 
 snd = Sound("audio.wav")
 # ... rest of code unchanged
@@ -506,7 +507,7 @@ single-threaded run at any thread count.
 
 1. **License flexibility**: The built-in `praatfan` backend is MIT-licensed, while `parselmouth` is GPL. Choose based on your project's licensing needs.
 
-2. **Performance**: The Rust backends (`praatfan-rust`, `praatfan-core`) offer better performance for batch processing.
+2. **Performance**: The Rust backends (`praatfan-rust`, `praatfan-gpl`) offer better performance for batch processing.
 
 3. **Validation**: Compare results across backends to validate your analysis pipeline.
 

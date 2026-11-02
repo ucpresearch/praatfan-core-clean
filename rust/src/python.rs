@@ -197,7 +197,7 @@ impl PySound {
 
     /// Return a new Sound resampled to `sample_rate` (Hz).
     ///
-    /// Uses FFT-based sinc interpolation (Praat's Sound_resample algorithm).
+    /// Uses the two-stage resampler (FFT brick-wall low-pass when downsampling, then Hann-windowed sinc interpolation), the one formant analysis uses.
     /// Resamples in either direction; the same rate returns a copy (until
     /// 0.1.14 a higher rate also returned a copy at the old rate).
     fn resample(&self, py: Python<'_>, sample_rate: f64) -> PySound {
@@ -880,7 +880,7 @@ impl PyPitch {
     /// Get per-frame raw autocorrelation peak strengths (range 0-1).
     ///
     /// Returns the maximum normalized autocorrelation value among all peaks
-    /// in each frame, before any intensity adjustment, octave cost, or Viterbi
+    /// in each frame, before octave cost or Viterbi
     /// selection. Higher = stronger periodicity. Purely local and file-length
     /// independent.
     fn raw_ac_strengths<'py>(&self, py: Python<'py>) -> Bound<'py, PyArray1<f64>> {

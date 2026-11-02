@@ -565,8 +565,9 @@ class Sound:
         """
         Return a new Sound resampled to *sample_rate* (Hz).
 
-        Uses FFT-based sinc interpolation (scipy.signal.resample with 5x
-        zero-padding), matching the internal resampler used by to_formant_burg.
+        Uses the two-stage resampler (FFT brick-wall low-pass when
+        downsampling, then Hann-windowed sinc interpolation), the same one
+        to_formant_burg uses.
 
         Resamples in either direction; the same rate returns a copy. (Until
         0.1.14 a higher rate also returned a copy at the old rate.) Praat

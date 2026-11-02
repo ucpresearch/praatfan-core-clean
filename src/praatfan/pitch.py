@@ -136,7 +136,7 @@ class Pitch:
         """Get array of raw autocorrelation peak strengths (0-1, purely local).
 
         Returns the maximum normalized autocorrelation value among all peaks
-        in each frame, before any intensity adjustment, octave cost, or Viterbi
+        in each frame, before octave cost or Viterbi
         selection. Higher = stronger periodicity. File-length independent.
         """
         return np.array([f.raw_autocorrelation_strength for f in self._frames])

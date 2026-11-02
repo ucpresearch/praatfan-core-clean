@@ -5,15 +5,13 @@ This document explains how to validate your clean room implementation against pa
 ## Environment Setup
 
 ```bash
-# Create and activate virtual environment
-python3 -m venv .venv
+# A uv venv kept outside the repo, linked as .venv
+uv venv ~/local/scr/venvs/praatfan-core-clean
+ln -s ~/local/scr/venvs/praatfan-core-clean .venv
 source .venv/bin/activate
 
-# Install dependencies
-pip install numpy soundfile praat-parselmouth matplotlib
-
-# Install praatfan in development mode
-pip install -e src/
+# praatfan in development mode, with parselmouth and the test tools
+uv pip install -e ".[dev]"
 ```
 
 ## Validation Order (Follow Dependencies)

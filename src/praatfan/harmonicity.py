@@ -22,7 +22,7 @@ where r is the normalized autocorrelation (pitch strength) at the pitch period.
 
 Decision points:
 - DP10: HNR boundary representation (r <= 0 and r >= 1) — RESOLVED, see
-  strength_to_hnr: r <= 0 -> UNDEFINED_HNR (-200 dB), r >= 1 -> nan.
+  strength_to_hnr: r <= 0 -> UNDEFINED_HNR (-200 dB), 1 - r <= f64 EPS -> nan.
 - DP11: Value for unvoiced frames — RESOLVED: UNDEFINED_HNR (-200 dB),
   confirmed black-box (Praat reports exactly -200 for silence and for DC).
 - DP34: Minimum periods_per_window for the AC method — RESOLVED, see

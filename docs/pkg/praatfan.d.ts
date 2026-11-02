@@ -74,7 +74,11 @@ export class Harmonicity {
      */
     times(): Float64Array;
     /**
-     * Get HNR values for all frames in dB. Returns -200 for silent/unvoiced frames.
+     * Get HNR values for all frames in dB.
+     *
+     * Two markers are not measurements: -200 for frames with no periodicity
+     * (silence, DC, unvoiced), and NaN where the correlation is not
+     * resolvable from 1. Filter with `Number.isFinite(v) && v > -200`.
      */
     values(): Float64Array;
 }
@@ -152,6 +156,14 @@ export class Pitch {
      */
     pitch_floor(): number;
     /**
+     * Get per-frame raw autocorrelation peak strengths (range 0-1).
+     *
+     * Returns the maximum normalized autocorrelation value among all peaks
+     * in each frame, before any adjustments. Higher = stronger periodicity.
+     * Purely local and file-length independent.
+     */
+    raw_ac_strengths(): Float64Array;
+    /**
      * Get strength (correlation) values for all frames.
      */
     strengths(): Float64Array;
@@ -185,25 +197,27 @@ export class Sound {
      */
     duration(): number;
     /**
-     * Create a Sound from WAV file bytes.
+     * Create a Sound from WAV or NIST SPHERE file bytes.
      *
-     * Supports mono WAV files. For stereo files, use `from_wav_channel()`.
+     * Reads mono WAV directly; NIST SPHERE (including shorten-compressed) is
+     * transcoded in-memory via the statically-linked desphere decoder. For
+     * multi-channel files, use `from_wav_channel()`.
      *
      * # Arguments
      *
-     * * `wav_bytes` - WAV file contents as Uint8Array
+     * * `wav_bytes` - WAV or `.sph` file contents as Uint8Array
      *
      * # Errors
      *
-     * Throws if the WAV file is invalid or has multiple channels.
+     * Throws if the file is not a supported audio file or has multiple channels.
      */
     static from_wav(wav_bytes: Uint8Array): Sound;
     /**
-     * Create a Sound from a specific channel of a WAV file.
+     * Create a Sound from a specific channel of a WAV or NIST SPHERE file.
      *
      * # Arguments
      *
-     * * `wav_bytes` - WAV file contents as Uint8Array
+     * * `wav_bytes` - WAV or `.sph` file contents as Uint8Array
      * * `channel` - Channel index (0 = left, 1 = right, etc.)
      */
     static from_wav_channel(wav_bytes: Uint8Array, channel: number): Sound;
@@ -228,6 +242,13 @@ export class Sound {
      */
     constructor(samples: Float64Array, sample_rate: number);
     /**
+     * Return a new Sound resampled to `new_sample_rate` (Hz).
+     *
+     * Two-stage windowed-sinc resampler (the one formant analysis uses),
+     * in either direction; the same rate returns a copy.
+     */
+    resample(new_sample_rate: number): Sound;
+    /**
      * Get the sample rate in Hz.
      */
     sample_rate(): number;
@@ -242,7 +263,7 @@ export class Sound {
      *
      * * `time_step` - Time step in seconds (0 = auto)
      * * `max_num_formants` - Maximum number of formants (typically 5)
-     * * `max_formant_hz` - Maximum formant frequency (5500 for male, 5000 for female)
+     * * `max_formant_hz` - Maximum formant frequency (5000 for a male speaker, 5500 for a female speaker)
      * * `window_length` - Window length in seconds (typically 0.025)
      * * `pre_emphasis_from` - Pre-emphasis frequency in Hz (typically 50)
      */
@@ -339,6 +360,7 @@ export class Spectrogram {
     get_time_from_frame(frame: number): number;
     /**
      * Get power value at a specific time frame and frequency bin.
+     * Returns NaN if indices are out of bounds.
      */
     get_value_at(time_frame: number, freq_bin: number): number;
     /**
@@ -432,17 +454,35 @@ export class Spectrum {
  */
 export function init(): void;
 
+/**
+ * One pipe request against an audio file's bytes (Uint8Array).
+ *
+ * Decoded exactly as the binary decodes the file from disk (every format it
+ * reads, SPHERE included). `wav_path`, if present in the request, only names
+ * the file: its extension is the format hint, its name appears in errors.
+ */
+export function pipe_request_bytes(bytes: Uint8Array, request_json: string): string;
+
+/**
+ * One pipe request against decoded mono samples (Float64Array) at
+ * `sample_rate` Hz. The request must not carry `wav_path` or `channel`.
+ */
+export function pipe_request_samples(samples: Float64Array, sample_rate: number, request_json: string): string;
+
+/**
+ * The crate version (the pipe response's `"version"`).
+ */
+export function version(): string;
+
 export type InitInput = RequestInfo | URL | Response | BufferSource | WebAssembly.Module;
 
 export interface InitOutput {
     readonly memory: WebAssembly.Memory;
     readonly __wbg_formant_free: (a: number, b: number) => void;
     readonly __wbg_harmonicity_free: (a: number, b: number) => void;
-    readonly __wbg_intensity_free: (a: number, b: number) => void;
     readonly __wbg_pitch_free: (a: number, b: number) => void;
     readonly __wbg_sound_free: (a: number, b: number) => void;
     readonly __wbg_spectrogram_free: (a: number, b: number) => void;
-    readonly __wbg_spectrum_free: (a: number, b: number) => void;
     readonly formant_bandwidth_values: (a: number, b: number) => [number, number];
     readonly formant_formant_values: (a: number, b: number) => [number, number];
     readonly formant_get_bandwidth_at_frame: (a: number, b: number, c: number) => number;
@@ -454,34 +494,28 @@ export interface InitOutput {
     readonly formant_times: (a: number) => [number, number];
     readonly harmonicity_get_time_from_frame: (a: number, b: number) => number;
     readonly harmonicity_get_value_in_frame: (a: number, b: number) => number;
-    readonly harmonicity_n_frames: (a: number) => number;
     readonly harmonicity_time_step: (a: number) => number;
     readonly harmonicity_times: (a: number) => [number, number];
     readonly harmonicity_values: (a: number) => [number, number];
-    readonly init: () => void;
     readonly intensity_get_maximum: (a: number) => number;
     readonly intensity_get_mean: (a: number) => number;
     readonly intensity_get_minimum: (a: number) => number;
-    readonly intensity_get_time_from_frame: (a: number, b: number) => number;
-    readonly intensity_get_value_in_frame: (a: number, b: number) => number;
-    readonly intensity_n_frames: (a: number) => number;
-    readonly intensity_time_step: (a: number) => number;
-    readonly intensity_times: (a: number) => [number, number];
-    readonly intensity_values: (a: number) => [number, number];
+    readonly pipe_request_bytes: (a: number, b: number, c: number, d: number) => [number, number];
+    readonly pipe_request_samples: (a: number, b: number, c: number, d: number, e: number) => [number, number];
     readonly pitch_get_time_from_frame: (a: number, b: number) => number;
     readonly pitch_get_value_in_frame: (a: number, b: number) => number;
     readonly pitch_n_frames: (a: number) => number;
     readonly pitch_pitch_ceiling: (a: number) => number;
     readonly pitch_pitch_floor: (a: number) => number;
+    readonly pitch_raw_ac_strengths: (a: number) => [number, number];
     readonly pitch_strengths: (a: number) => [number, number];
-    readonly pitch_time_step: (a: number) => number;
     readonly pitch_times: (a: number) => [number, number];
     readonly pitch_values: (a: number) => [number, number];
     readonly sound_duration: (a: number) => number;
     readonly sound_from_wav: (a: number, b: number) => [number, number, number];
     readonly sound_from_wav_channel: (a: number, b: number, c: number) => [number, number, number];
-    readonly sound_n_samples: (a: number) => number;
     readonly sound_new: (a: number, b: number, c: number) => number;
+    readonly sound_resample: (a: number, b: number) => number;
     readonly sound_sample_rate: (a: number) => number;
     readonly sound_samples: (a: number) => [number, number];
     readonly sound_to_formant_burg: (a: number, b: number, c: number, d: number, e: number, f: number) => number;
@@ -493,30 +527,43 @@ export interface InitOutput {
     readonly sound_to_spectrogram: (a: number, b: number, c: number, d: number, e: number) => number;
     readonly sound_to_spectrum: (a: number, b: number) => number;
     readonly spectrogram_freq_max: (a: number) => number;
-    readonly spectrogram_freq_min: (a: number) => number;
     readonly spectrogram_freq_step: (a: number) => number;
     readonly spectrogram_frequencies: (a: number) => [number, number];
     readonly spectrogram_get_freq_from_bin: (a: number, b: number) => number;
     readonly spectrogram_get_time_from_frame: (a: number, b: number) => number;
     readonly spectrogram_get_value_at: (a: number, b: number, c: number) => number;
-    readonly spectrogram_n_freqs: (a: number) => number;
     readonly spectrogram_n_times: (a: number) => number;
     readonly spectrogram_time_max: (a: number) => number;
     readonly spectrogram_time_min: (a: number) => number;
     readonly spectrogram_time_step: (a: number) => number;
     readonly spectrogram_times: (a: number) => [number, number];
     readonly spectrogram_values: (a: number) => [number, number];
-    readonly spectrum_df: (a: number) => number;
     readonly spectrum_get_band_energy: (a: number, b: number, c: number) => number;
     readonly spectrum_get_center_of_gravity: (a: number, b: number) => number;
     readonly spectrum_get_freq_from_bin: (a: number, b: number) => number;
     readonly spectrum_get_kurtosis: (a: number, b: number) => number;
     readonly spectrum_get_skewness: (a: number, b: number) => number;
     readonly spectrum_get_standard_deviation: (a: number, b: number) => number;
-    readonly spectrum_imag: (a: number) => [number, number];
+    readonly version: () => [number, number];
+    readonly init: () => void;
+    readonly intensity_get_time_from_frame: (a: number, b: number) => number;
+    readonly harmonicity_n_frames: (a: number) => number;
+    readonly intensity_n_frames: (a: number) => number;
+    readonly intensity_time_step: (a: number) => number;
+    readonly pitch_time_step: (a: number) => number;
+    readonly sound_n_samples: (a: number) => number;
+    readonly spectrogram_freq_min: (a: number) => number;
+    readonly spectrogram_n_freqs: (a: number) => number;
+    readonly spectrum_df: (a: number) => number;
     readonly spectrum_max_frequency: (a: number) => number;
     readonly spectrum_n_bins: (a: number) => number;
+    readonly intensity_get_value_in_frame: (a: number, b: number) => number;
+    readonly __wbg_intensity_free: (a: number, b: number) => void;
+    readonly __wbg_spectrum_free: (a: number, b: number) => void;
+    readonly intensity_values: (a: number) => [number, number];
+    readonly intensity_times: (a: number) => [number, number];
     readonly spectrum_real: (a: number) => [number, number];
+    readonly spectrum_imag: (a: number) => [number, number];
     readonly __wbindgen_free: (a: number, b: number, c: number) => void;
     readonly __wbindgen_malloc: (a: number, b: number) => number;
     readonly __wbindgen_realloc: (a: number, b: number, c: number, d: number) => number;

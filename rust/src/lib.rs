@@ -12,12 +12,13 @@
 //!
 //! # License
 //!
-//! This is a clean-room implementation designed to be non-GPL (MIT/Apache-2.0).
+//! This is a clean-room implementation designed to be non-GPL (MIT).
 //! No Praat source code was used in the implementation.
 //!
 //! # Supported Analysis Types
 //!
-//! - **Sound**: Audio loading and basic operations (mono WAV only)
+//! - **Sound**: Audio loading (WAV, FLAC, MP3, OGG/Vorbis, NIST SPHERE; one
+//!   channel, chosen with `from_file_channel` for multi-channel files)
 //! - **Spectrum**: Single-frame FFT and spectral moments
 //! - **Intensity**: RMS energy contour in dB
 //! - **Pitch**: F0 detection using AC and CC methods
@@ -57,8 +58,8 @@
 //! # Validation
 //!
 //! All algorithms have been validated against parselmouth (Python bindings for Praat).
-//! See the project's `scripts/` directory for comparison tools and the `PROGRESS.md`
-//! file for detailed accuracy statistics.
+//! See the project's `scripts/` directory for comparison tools and the
+//! "Accuracy" section of the repository README for current figures.
 
 // Module declarations
 pub mod error;

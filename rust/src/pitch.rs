@@ -109,7 +109,7 @@ pub struct PitchFrame {
     ///
     /// Maximum of the normalized autocorrelation (AC) or cross-correlation (CC)
     /// across all peaks in the [pitch_floor, pitch_ceiling] lag range, computed
-    /// before any intensity adjustment, octave cost, or Viterbi selection.
+    /// before octave cost or Viterbi selection.
     ///
     /// Purely local (one analysis window), file-length independent, pre-threshold.
     /// Higher values indicate stronger periodicity.
@@ -281,7 +281,7 @@ impl Pitch {
     /// Get array of raw autocorrelation peak strengths (0-1, purely local).
     ///
     /// Returns the maximum normalized autocorrelation value among all peaks
-    /// in each frame, before any intensity adjustment, octave cost, or Viterbi
+    /// in each frame, before octave cost or Viterbi
     /// selection. Higher = stronger periodicity. File-length independent.
     pub fn raw_ac_strengths(&self) -> Array1<f64> {
         Array1::from_iter(

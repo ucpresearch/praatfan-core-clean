@@ -606,8 +606,9 @@ impl Sound {
         crate::spectrum::sound_to_spectrum(self, fast)
     }
 
-    /// Return a new Sound resampled to `new_rate` (Hz) using FFT-based sinc
-    /// interpolation (matches Praat's Sound_resample behavior).
+    /// Return a new Sound resampled to `new_rate` (Hz) with the two-stage
+    /// resampler (FFT brick-wall low-pass when downsampling, then
+    /// Hann-windowed sinc interpolation), the one formant analysis uses.
     ///
     /// Resamples in either direction; the same rate returns a clone. (Until
     /// 0.1.14 a higher rate also returned a clone at the old rate.) Praat
@@ -833,7 +834,7 @@ impl Sound {
     /// * `max_num_formants` - Maximum number of formants to find. Typical: 5.
     /// * `max_formant_hz` - Maximum formant frequency in Hz. This determines
     ///   the resampling rate: signal is resampled to 2× this frequency.
-    ///   Typical: 5500 Hz for male, 5000 Hz for female.
+    ///   Typical: 5000 Hz for a male speaker, 5500 Hz for a female speaker.
     /// * `window_length` - Window length parameter in seconds. The actual
     ///   window used is 2× this value (Praat convention). Typical: 0.025s.
     /// * `pre_emphasis_from` - Apply pre-emphasis starting from this frequency.
@@ -842,7 +843,7 @@ impl Sound {
     ///
     /// # Algorithm
     ///
-    /// 1. Resample to 2× max_formant_hz using FFT-based sinc interpolation
+    /// 1. Resample to 2× max_formant_hz (two-stage resampler, either direction)
     /// 2. Apply pre-emphasis filter
     /// 3. For each frame:
     ///    a. Apply Gaussian window

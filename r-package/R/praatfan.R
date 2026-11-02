@@ -14,7 +14,7 @@
 #'   fmt <- pf_formants("audio.wav")
 #'
 #' All analysis functions accept audio in any format the engine reads
-#' (WAV, FLAC, MP3, OGG, AIFF, NIST SPHERE incl. shorten).  Mono only;
+#' (WAV, FLAC, MP3, OGG/Vorbis, NIST SPHERE incl. shorten; not AIFF).  Mono only;
 #' pass \code{channel} to select one channel of a multi-channel file.
 #'
 #' @author praatfan contributors

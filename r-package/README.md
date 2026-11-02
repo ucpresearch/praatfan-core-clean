@@ -33,8 +33,8 @@ both. Point the package at an existing binary instead with `PRAATFAN_PIPE=/path/
 
 ## Use
 
-Every function takes an audio file (WAV, FLAC, MP3, OGG, AIFF, NIST SPHERE
-incl. shorten) and returns a tidy data.frame. Mono only; pass `channel` to
+Every function takes an audio file (WAV, FLAC, MP3, OGG/Vorbis, NIST SPHERE
+incl. shorten; not AIFF) and returns a tidy data.frame. Mono only; pass `channel` to
 pick one channel of a multi-channel file.
 
 ```r

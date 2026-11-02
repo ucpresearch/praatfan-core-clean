@@ -175,7 +175,11 @@ export class Harmonicity {
         return v1;
     }
     /**
-     * Get HNR values for all frames in dB. Returns -200 for silent/unvoiced frames.
+     * Get HNR values for all frames in dB.
+     *
+     * Two markers are not measurements: -200 for frames with no periodicity
+     * (silence, DC, unvoiced), and NaN where the correlation is not
+     * resolvable from 1. Filter with `Number.isFinite(v) && v > -200`.
      * @returns {Float64Array}
      */
     values() {
@@ -353,6 +357,20 @@ export class Pitch {
         return ret;
     }
     /**
+     * Get per-frame raw autocorrelation peak strengths (range 0-1).
+     *
+     * Returns the maximum normalized autocorrelation value among all peaks
+     * in each frame, before any adjustments. Higher = stronger periodicity.
+     * Purely local and file-length independent.
+     * @returns {Float64Array}
+     */
+    raw_ac_strengths() {
+        const ret = wasm.pitch_raw_ac_strengths(this.__wbg_ptr);
+        var v1 = getArrayF64FromWasm0(ret[0], ret[1]).slice();
+        wasm.__wbindgen_free(ret[0], ret[1] * 8, 8);
+        return v1;
+    }
+    /**
      * Get strength (correlation) values for all frames.
      * @returns {Float64Array}
      */
@@ -428,17 +446,19 @@ export class Sound {
         return ret;
     }
     /**
-     * Create a Sound from WAV file bytes.
+     * Create a Sound from WAV or NIST SPHERE file bytes.
      *
-     * Supports mono WAV files. For stereo files, use `from_wav_channel()`.
+     * Reads mono WAV directly; NIST SPHERE (including shorten-compressed) is
+     * transcoded in-memory via the statically-linked desphere decoder. For
+     * multi-channel files, use `from_wav_channel()`.
      *
      * # Arguments
      *
-     * * `wav_bytes` - WAV file contents as Uint8Array
+     * * `wav_bytes` - WAV or `.sph` file contents as Uint8Array
      *
      * # Errors
      *
-     * Throws if the WAV file is invalid or has multiple channels.
+     * Throws if the file is not a supported audio file or has multiple channels.
      * @param {Uint8Array} wav_bytes
      * @returns {Sound}
      */
@@ -452,11 +472,11 @@ export class Sound {
         return Sound.__wrap(ret[0]);
     }
     /**
-     * Create a Sound from a specific channel of a WAV file.
+     * Create a Sound from a specific channel of a WAV or NIST SPHERE file.
      *
      * # Arguments
      *
-     * * `wav_bytes` - WAV file contents as Uint8Array
+     * * `wav_bytes` - WAV or `.sph` file contents as Uint8Array
      * * `channel` - Channel index (0 = left, 1 = right, etc.)
      * @param {Uint8Array} wav_bytes
      * @param {number} channel
@@ -505,6 +525,18 @@ export class Sound {
         return this;
     }
     /**
+     * Return a new Sound resampled to `new_sample_rate` (Hz).
+     *
+     * Two-stage windowed-sinc resampler (the one formant analysis uses),
+     * in either direction; the same rate returns a copy.
+     * @param {number} new_sample_rate
+     * @returns {Sound}
+     */
+    resample(new_sample_rate) {
+        const ret = wasm.sound_resample(this.__wbg_ptr, new_sample_rate);
+        return Sound.__wrap(ret);
+    }
+    /**
      * Get the sample rate in Hz.
      * @returns {number}
      */
@@ -529,7 +561,7 @@ export class Sound {
      *
      * * `time_step` - Time step in seconds (0 = auto)
      * * `max_num_formants` - Maximum number of formants (typically 5)
-     * * `max_formant_hz` - Maximum formant frequency (5500 for male, 5000 for female)
+     * * `max_formant_hz` - Maximum formant frequency (5000 for a male speaker, 5500 for a female speaker)
      * * `window_length` - Window length in seconds (typically 0.025)
      * * `pre_emphasis_from` - Pre-emphasis frequency in Hz (typically 50)
      * @param {number} time_step
@@ -727,6 +759,7 @@ export class Spectrogram {
     }
     /**
      * Get power value at a specific time frame and frequency bin.
+     * Returns NaN if indices are out of bounds.
      * @param {number} time_frame
      * @param {number} freq_bin
      * @returns {number}
@@ -931,17 +964,85 @@ export function init() {
     wasm.init();
 }
 
+/**
+ * One pipe request against an audio file's bytes (Uint8Array).
+ *
+ * Decoded exactly as the binary decodes the file from disk (every format it
+ * reads, SPHERE included). `wav_path`, if present in the request, only names
+ * the file: its extension is the format hint, its name appears in errors.
+ * @param {Uint8Array} bytes
+ * @param {string} request_json
+ * @returns {string}
+ */
+export function pipe_request_bytes(bytes, request_json) {
+    let deferred3_0;
+    let deferred3_1;
+    try {
+        const ptr0 = passArray8ToWasm0(bytes, wasm.__wbindgen_malloc);
+        const len0 = WASM_VECTOR_LEN;
+        const ptr1 = passStringToWasm0(request_json, wasm.__wbindgen_malloc, wasm.__wbindgen_realloc);
+        const len1 = WASM_VECTOR_LEN;
+        const ret = wasm.pipe_request_bytes(ptr0, len0, ptr1, len1);
+        deferred3_0 = ret[0];
+        deferred3_1 = ret[1];
+        return getStringFromWasm0(ret[0], ret[1]);
+    } finally {
+        wasm.__wbindgen_free(deferred3_0, deferred3_1, 1);
+    }
+}
+
+/**
+ * One pipe request against decoded mono samples (Float64Array) at
+ * `sample_rate` Hz. The request must not carry `wav_path` or `channel`.
+ * @param {Float64Array} samples
+ * @param {number} sample_rate
+ * @param {string} request_json
+ * @returns {string}
+ */
+export function pipe_request_samples(samples, sample_rate, request_json) {
+    let deferred3_0;
+    let deferred3_1;
+    try {
+        const ptr0 = passArrayF64ToWasm0(samples, wasm.__wbindgen_malloc);
+        const len0 = WASM_VECTOR_LEN;
+        const ptr1 = passStringToWasm0(request_json, wasm.__wbindgen_malloc, wasm.__wbindgen_realloc);
+        const len1 = WASM_VECTOR_LEN;
+        const ret = wasm.pipe_request_samples(ptr0, len0, sample_rate, ptr1, len1);
+        deferred3_0 = ret[0];
+        deferred3_1 = ret[1];
+        return getStringFromWasm0(ret[0], ret[1]);
+    } finally {
+        wasm.__wbindgen_free(deferred3_0, deferred3_1, 1);
+    }
+}
+
+/**
+ * The crate version (the pipe response's `"version"`).
+ * @returns {string}
+ */
+export function version() {
+    let deferred1_0;
+    let deferred1_1;
+    try {
+        const ret = wasm.version();
+        deferred1_0 = ret[0];
+        deferred1_1 = ret[1];
+        return getStringFromWasm0(ret[0], ret[1]);
+    } finally {
+        wasm.__wbindgen_free(deferred1_0, deferred1_1, 1);
+    }
+}
 function __wbg_get_imports() {
     const import0 = {
         __proto__: null,
-        __wbg_Error_8c4e43fe74559d73: function(arg0, arg1) {
+        __wbg_Error_960c155d3d49e4c2: function(arg0, arg1) {
             const ret = Error(getStringFromWasm0(arg0, arg1));
             return ret;
         },
-        __wbg___wbindgen_throw_be289d5034ed271b: function(arg0, arg1) {
+        __wbg___wbindgen_throw_6b64449b9b9ed33c: function(arg0, arg1) {
             throw new Error(getStringFromWasm0(arg0, arg1));
         },
-        __wbg_error_7534b8e9a36f1ab4: function(arg0, arg1) {
+        __wbg_error_a6fa202b58aa1cd3: function(arg0, arg1) {
             let deferred0_0;
             let deferred0_1;
             try {
@@ -952,11 +1053,11 @@ function __wbg_get_imports() {
                 wasm.__wbindgen_free(deferred0_0, deferred0_1, 1);
             }
         },
-        __wbg_new_8a6f238a6ece86ea: function() {
+        __wbg_new_227d7c05414eb861: function() {
             const ret = new Error();
             return ret;
         },
-        __wbg_stack_0ed75d68575b0f3c: function(arg0, arg1) {
+        __wbg_stack_3b0d974bbf31e44f: function(arg0, arg1) {
             const ret = arg1.stack;
             const ptr1 = passStringToWasm0(ret, wasm.__wbindgen_malloc, wasm.__wbindgen_realloc);
             const len1 = WASM_VECTOR_LEN;

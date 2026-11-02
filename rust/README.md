@@ -28,7 +28,7 @@ automatically through that package's unified API.
 | Spectrogram | STFT |
 
 Audio is read via [Symphonia](https://github.com/pdeljanov/symphonia) (WAV,
-FLAC, MP3, OGG, AIFF, CAF and more). NIST SPHERE, including
+FLAC, MP3, OGG/Vorbis and ADTS AAC; not AIFF or CAF). NIST SPHERE, including
 shorten-compressed, decodes through a statically linked
 [desphere](https://github.com/ucpresearch/desphere) — no extra dependency and
 no external binary. Mono only; multi-channel files require an explicit channel

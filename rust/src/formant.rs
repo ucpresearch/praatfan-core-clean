@@ -1199,7 +1199,7 @@ fn resample_two_stage(
 /// * `sound` - Input Sound object (must be mono)
 /// * `time_step` - Time step between frames in seconds (0 = auto: 25% of window)
 /// * `max_num_formants` - Maximum number of formants to track (typically 5)
-/// * `max_formant_hz` - Maximum formant frequency to consider (e.g., 5500 Hz for male, 5000 Hz for female)
+/// * `max_formant_hz` - Maximum formant frequency to consider (e.g., 5000 Hz for a male speaker, 5500 Hz for a female speaker)
 /// * `window_length` - Effective window length in seconds (actual = 2× this value)
 /// * `pre_emphasis_from` - Pre-emphasis starts at this frequency (typically 50 Hz)
 ///

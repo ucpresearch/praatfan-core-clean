@@ -74,7 +74,7 @@ Add to your `Cargo.toml`:
 
 ```toml
 [dependencies]
-praatfan = { path = "../praatfan-core-clean/rust" }
+praatfan_rust = { path = "../praatfan-core-clean/rust" }
 ```
 
 ### R
@@ -121,232 +121,172 @@ echo '{"wav_path":"audio.wav","analyses":[{"type":"pitch_ac"}]}' \
 
 ## Python Usage
 
+All examples use the unified `praatfan.Sound`, which works the same on every
+backend (see [Backends and auto-selection](#backends-and-auto-selection-python)).
+Result objects return whole contours as numpy arrays; per-frame and per-time
+queries go through the parselmouth-style `call()`.
+
 ### Creating Sound Objects
 
 ```python
-import praatfan
 import numpy as np
+import praatfan
+from praatfan import Sound, call
 
-# From a WAV file
-sound = praatfan.Sound("path/to/audio.wav")
+# From an audio file (WAV, FLAC, MP3, OGG, ...)
+sound = Sound("path/to/audio.wav")
 
 # From a numpy array
 samples = np.sin(2 * np.pi * 440 * np.arange(44100) / 44100)
-sound = praatfan.Sound(samples, sampling_frequency=44100)
+sound = Sound(samples, sampling_frequency=44100)
 
-# From a specific channel of a multi-channel file
-sound = praatfan.Sound.from_file_channel("stereo.wav", channel=0)  # left channel
+# One channel of a multi-channel file: read it yourself, pass the channel
+import soundfile as sf
+data, sr = sf.read("stereo.wav")
+sound = Sound(data[:, 0], sampling_frequency=sr)   # left channel
 ```
 
 **Sound properties:**
 
 ```python
-sound.n_samples          # Number of samples
-sound.sampling_frequency # Sample rate in Hz
-sound.duration           # Duration in seconds
-sound.values()           # Samples as numpy array
-sound.xs()               # Time values for each sample
+sound.n_samples           # Number of samples
+sound.sampling_frequency  # Sample rate in Hz
+sound.duration            # Duration in seconds
+sound.values              # Samples as a numpy array (a property, not a method)
+sound.backend             # Which backend this Sound uses
+```
+
+**Resampling and excerpts:**
+
+```python
+s16 = sound.resample(16000)        # up or down; the same rate returns a copy
+part = sound.extract_part(0.1, 0.4)
 ```
 
 ### Pitch Analysis
 
-Detect fundamental frequency (F0) using autocorrelation or cross-correlation methods.
+Detect fundamental frequency (F0) with the autocorrelation (AC) or
+cross-correlation (CC) method.
 
 ```python
-# Autocorrelation method (default, more accurate for clean speech)
 pitch = sound.to_pitch_ac(
     time_step=0.0,        # 0 = auto (0.75 / pitch_floor)
     pitch_floor=75.0,     # Minimum pitch in Hz
-    pitch_ceiling=600.0   # Maximum pitch in Hz
+    pitch_ceiling=600.0,  # Maximum pitch in Hz
 )
-
-# Cross-correlation method (better for noisy speech)
 pitch = sound.to_pitch_cc(time_step=0.0, pitch_floor=75.0, pitch_ceiling=600.0)
-
-# Alias for to_pitch_ac
-pitch = sound.to_pitch()
+# Optional Boersma (1993) tuning: voicing_threshold, silence_threshold,
+# octave_cost, octave_jump_cost, voiced_unvoiced_cost
 ```
 
-**Pitch properties and methods:**
+**Pitch results:**
 
 ```python
-pitch.n_frames                    # Number of analysis frames
-pitch.time_step                   # Time step between frames
+pitch.n_frames            # Number of frames
+pitch.time_step           # Time step between frames
+times = pitch.xs()        # Frame times
+f0 = pitch.values()       # F0 in Hz; NaN for unvoiced frames
+strength = pitch.strengths()  # Strength of the selected candidate per frame
 
-# Get all values as numpy arrays
-times = pitch.xs()                # Time points for all frames
-frequencies = pitch.values()      # F0 values (NaN for unvoiced frames)
-frequencies = pitch.to_array()    # Same as values()
-
-# Parselmouth-compatible selected_array property
-data = pitch.selected_array       # Dict with 'frequency' and 'strength' keys
-f0 = data['frequency']            # numpy array of F0 values
-strength = data['strength']       # numpy array of correlation strengths
-
-# Access individual frames (0-indexed)
-f0 = pitch.get_value_in_frame(10)         # F0 at frame 10
-f0 = pitch.get_value_at_time(0.5)         # F0 at t=0.5s (interpolated)
-strength = pitch.get_strength_at_time(0.5) # Strength at t=0.5s
+# Per-frame and per-time queries (frame numbers are 1-based, as in Praat)
+f0_10 = call(pitch, "Get value in frame", 10, "Hertz")
+f0_t = call(pitch, "Get value at time", 0.5, "Hertz", "Linear")
 ```
 
 ### Formant Analysis
 
-Extract formant frequencies and bandwidths using Burg's LPC method.
+Formant frequencies and bandwidths by Burg's LPC method.
 
 ```python
 formant = sound.to_formant_burg(
-    time_step=0.0,              # 0 = auto
-    max_number_of_formants=5,   # Maximum formants to track
-    maximum_formant=5500.0,     # Max formant frequency (5500 for male, 5000 for female)
-    window_length=0.025,        # Window length in seconds
-    pre_emphasis_from=50.0      # Pre-emphasis frequency in Hz
+    time_step=0.0,              # 0 = auto (window_length / 4)
+    max_number_of_formants=5,
+    maximum_formant=5500.0,     # 5000 Hz for a male speaker, 5500 Hz for a female speaker
+    window_length=0.025,        # seconds
+    pre_emphasis_from=50.0,     # Hz
 )
 ```
 
-**Formant properties and methods:**
+**Formant results:**
 
 ```python
-formant.n_frames                  # Number of analysis frames
-formant.time_step                 # Time step between frames
+times = formant.xs()
+f1 = formant.formant_values(1)    # F1 per frame (NaN where absent)
+f2 = formant.formant_values(2)
+b1 = formant.bandwidth_values(1)  # Bandwidth of F1
 
-# Get formant values as numpy arrays (formant_number: 1=F1, 2=F2, etc.)
-times = formant.xs()              # Time points
-f1 = formant.to_array(1)          # F1 values for all frames
-f2 = formant.to_array(2)          # F2 values
-b1 = formant.to_bandwidth_array(1) # B1 (bandwidth of F1)
-
-# Access individual frames
-f1 = formant.get_value_in_frame(1, 10)      # F1 at frame 10
-f1 = formant.get_value_at_time(1, 0.5)      # F1 at t=0.5s
-b1 = formant.get_bandwidth_in_frame(1, 10)  # B1 at frame 10
-b1 = formant.get_bandwidth_at_time(1, 0.5)  # B1 at t=0.5s
-n = formant.get_number_of_formants(10)      # Number of formants at frame 10
+f1_t = call(formant, "Get value at time", 1, 0.5, "Hertz", "Linear")
+b1_t = call(formant, "Get bandwidth at time", 1, 0.5, "Hertz", "Linear")
+n_10 = call(formant, "Get number of formants", 10)
 ```
 
 ### Intensity Analysis
 
-Compute RMS energy contour in dB.
-
 ```python
 intensity = sound.to_intensity(
-    minimum_pitch=100.0,  # Determines window size
-    time_step=0.0         # 0 = auto
+    minimum_pitch=100.0,  # Sets the window length (3.2 / minimum_pitch effective)
+    time_step=0.0,        # 0 = auto (0.8 / minimum_pitch)
 )
-```
-
-**Intensity properties and methods:**
-
-```python
-intensity.n_frames                # Number of frames
-intensity.time_step               # Time step
-
-times = intensity.xs()            # Time points
-values = intensity.values()       # Intensity in dB
-values = intensity.to_array()     # Same as values()
-
-# Statistics
-intensity.get_minimum()           # Min intensity in dB
-intensity.get_maximum()           # Max intensity in dB
-intensity.get_mean()              # Mean intensity in dB
-
-# Access at specific time
-db = intensity.get_value_at_time(0.5)
+times = intensity.xs()
+db = intensity.values()   # dB; -inf for digital silence
+db_t = call(intensity, "Get value at time", 0.5, "Cubic")
 ```
 
 ### Harmonicity Analysis
 
-Compute harmonics-to-noise ratio (HNR).
+Harmonics-to-noise ratio (HNR).
 
 ```python
-# Autocorrelation method
-harmonicity = sound.to_harmonicity_ac(
-    time_step=0.01,           # Time step in seconds
-    minimum_pitch=75.0,       # Minimum pitch in Hz
-    silence_threshold=0.1,    # Silence threshold (0-1)
-    periods_per_window=4.5    # Periods per analysis window (AC minimum: 3.0)
-)
-
-# Cross-correlation method
-harmonicity = sound.to_harmonicity_cc(
+hnr = sound.to_harmonicity_ac(
     time_step=0.01,
     minimum_pitch=75.0,
     silence_threshold=0.1,
-    periods_per_window=1.0
+    periods_per_window=4.5,   # AC needs at least 3.0
 )
+hnr = sound.to_harmonicity_cc(time_step=0.01, minimum_pitch=75.0,
+                              silence_threshold=0.1, periods_per_window=1.0)
 
-# Alias for to_harmonicity_ac
-harmonicity = sound.to_harmonicity()
-```
-
-**Harmonicity properties and methods:**
-
-```python
-harmonicity.n_frames              # Number of frames
-harmonicity.time_step             # Time step
-
-times = harmonicity.xs()          # Time points
-values = harmonicity.values()     # HNR in dB (-200 = no periodicity; nan = correlation unresolvable from 1)
-values = harmonicity.to_array()   # Same as values()
-
-hnr = harmonicity.get_value_at_time(0.5)
+times = hnr.xs()
+values = hnr.values()   # dB; -200 = no periodicity; NaN = correlation not resolvable from 1
 ```
 
 ### Spectrum Analysis
 
-Compute single-frame FFT with spectral moments.
+A single FFT over the whole sound, with spectral moments.
 
 ```python
-spectrum = sound.to_spectrum(fast=True)  # fast=True uses power-of-2 FFT
+spectrum = sound.to_spectrum(fast=True)   # fast=True pads to a power of two
+spectrum.n_bins                 # Number of bins
+spectrum.df                     # Bin spacing in Hz
+freqs = spectrum.xs()
+
+cog = spectrum.get_center_of_gravity(power=2.0)
+sd = spectrum.get_standard_deviation(power=2.0)
+skew = spectrum.get_skewness(power=2.0)
+kurt = spectrum.get_kurtosis(power=2.0)
+energy = spectrum.get_band_energy(f_min=0.0, f_max=1000.0)
 ```
 
-**Spectrum properties and methods:**
-
-```python
-spectrum.n_bins                   # Number of frequency bins
-spectrum.df                       # Frequency resolution (Hz)
-spectrum.maximum_frequency        # Maximum frequency (Nyquist)
-
-freqs = spectrum.xs()             # Frequency values for all bins
-real_part = spectrum.real()       # Real parts
-imag_part = spectrum.imag()       # Imaginary parts
-
-# Spectral moments
-cog = spectrum.get_center_of_gravity(power=2.0)  # Centroid in Hz
-std = spectrum.get_standard_deviation(power=2.0) # Spread in Hz
-skew = spectrum.get_skewness(power=2.0)          # Skewness
-kurt = spectrum.get_kurtosis(power=2.0)          # Kurtosis
-
-# Band energy
-energy = spectrum.get_band_energy(band_floor=0.0, band_ceiling=1000.0)
-```
+For moments or band energy at many time points, use
+`sound.get_spectral_moments_at_times(times)` and
+`sound.get_band_energy_at_times(times, f_min, f_max)`.
 
 ### Spectrogram Analysis
 
-Compute time-frequency representation (STFT).
+A standard short-time Fourier transform (not Praat's exact grid).
 
 ```python
 spectrogram = sound.to_spectrogram(
-    window_length=0.005,      # Window length in seconds
-    maximum_frequency=5000.0, # Maximum frequency in Hz
-    time_step=0.002,          # Time step in seconds
-    frequency_step=20.0       # Frequency step in Hz
+    window_length=0.005,       # seconds
+    maximum_frequency=5000.0,  # Hz; clamped to the Nyquist frequency
+    time_step=0.002,           # seconds
+    frequency_step=20.0,       # Hz
 )
-```
-
-**Spectrogram properties and methods:**
-
-```python
-spectrogram.n_times               # Number of time frames
-spectrogram.n_freqs               # Number of frequency bins
-spectrogram.time_step             # Time step
-spectrogram.frequency_step        # Frequency step
-
-times = spectrogram.xs()          # Time values
-freqs = spectrogram.ys()          # Frequency values
-power = spectrogram.values()      # Power values (flat array, freq × time)
-
-# Access at specific location
-power = spectrogram.get_power_at(time=0.5, frequency=1000.0)
+spectrogram.n_times, spectrogram.n_freqs
+times = spectrogram.xs()
+freqs = spectrogram.ys()
+power = spectrogram.values()   # 2-D array, shape (n_freqs, n_times)
+p = call(spectrogram, "Get power at", 0.5, 1000.0)
 ```
 
 ---
@@ -357,7 +297,7 @@ power = spectrogram.get_power_at(time=0.5, frequency=1000.0)
 
 ```javascript
 // ES modules (web)
-import init, { Sound } from './pkg/praatfan.js';
+import init, { Sound } from './pkg/praatfan_rust.js';
 
 async function main() {
     await init();  // Initialize WASM module
@@ -366,7 +306,7 @@ async function main() {
 }
 
 // Node.js
-const { Sound } = require('./pkg/praatfan.js');
+const { Sound } = require('./pkg/praatfan_rust.js');
 ```
 
 ### Creating Sound Objects
@@ -577,10 +517,10 @@ const power = spectrogram.get_value_at(10, 50);  // time_frame, freq_bin
 |---------|--------|------------|
 | Create from samples | `Sound(samples, sampling_frequency=sr)` | `new Sound(samples, sr)` |
 | Create from WAV file | `Sound("path.wav")` | `Sound.from_wav(bytes)` |
-| Get samples | `sound.values()` | `sound.samples()` |
+| Get samples | `sound.values` (property) | `sound.samples()` |
 | Sample rate | `sound.sampling_frequency` | `sound.sample_rate()` |
-| Pitch F0 values | `pitch.values()` or `pitch.selected_array['frequency']` | `pitch.values()` |
-| Formant values | `formant.to_array(n)` | `formant.formant_values(n)` |
+| Pitch F0 values | `pitch.values()` | `pitch.values()` |
+| Formant values | `formant.formant_values(n)` | `formant.formant_values(n)` |
 | Time points | `.xs()` | `.times()` |
 
 ---
@@ -650,8 +590,8 @@ sound = praatfan.Sound("vowel.wav")
 formant = sound.to_formant_burg(max_number_of_formants=5, maximum_formant=5500)
 
 # Get F1 and F2 trajectories
-f1 = formant.to_array(1)
-f2 = formant.to_array(2)
+f1 = formant.formant_values(1)
+f2 = formant.formant_values(2)
 times = formant.xs()
 
 # Filter out undefined values
@@ -685,10 +625,13 @@ console.log(`Mean F2: ${(sumF2/count).toFixed(0)} Hz`);
 
 **Python:**
 ```python
+import numpy as np
+import praatfan
+
 sound = praatfan.Sound("speech.wav")
 pitch = sound.to_pitch_ac(pitch_floor=75, pitch_ceiling=300)
 
-f0 = pitch.selected_array['frequency']
+f0 = pitch.values()
 times = pitch.xs()
 
 # Find voiced regions
@@ -724,7 +667,7 @@ console.log(`Mean F0 (voiced): ${(sum/voicedCount).toFixed(1)} Hz`);
 |----------|-----------|---------------|-------|
 | Pitch | `pitch_floor` | 75 Hz | Lower for male voices |
 | Pitch | `pitch_ceiling` | 300-600 Hz | Higher for female/child voices |
-| Formant | `maximum_formant` | 5500 Hz (male), 5000 Hz (female) | Adjust for speaker |
+| Formant | `maximum_formant` | 5000 Hz (male), 5500 Hz (female) | Adjust for speaker |
 | Formant | `max_number_of_formants` | 5 | Standard for vowel analysis |
 | Formant | `window_length` | 0.025 s | 25 ms is typical |
 | Intensity | `minimum_pitch` | 100 Hz | Determines window size |

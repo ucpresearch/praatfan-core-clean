@@ -1,4 +1,9 @@
-# API Specification
+# API Specification (original design target)
+
+> **Historical document.** This was the design target written before the
+> implementation. The shipped API differs in many details (names, argument
+> order, return types). For the current API see [USAGE.md](../USAGE.md) and
+> the [README](../README.md); for Rust, the crate docs (`cargo doc`).
 
 Target API for praatfan-core-clean. This defines the public interface that implementations should provide.
 

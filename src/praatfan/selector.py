@@ -184,7 +184,7 @@ class UnifiedPitch:
         """Raw autocorrelation peak strengths (0-1, purely local, pre-threshold).
 
         Returns the maximum normalized autocorrelation value among all peaks
-        in each frame, before any intensity adjustment, octave cost, or Viterbi
+        in each frame, before octave cost or Viterbi
         selection. Higher = stronger periodicity. File-length independent.
         """
         if self._backend in _PY_RESULT_BACKENDS:
@@ -594,14 +594,16 @@ class UnifiedSpectrogram:
 
     @property
     def n_times(self) -> int:
-        if self._backend == "praatfan_gpl":
+        if self._backend == "parselmouth":
+            return self._inner.n_frames
+        elif self._backend == "praatfan_gpl":
             return self._inner.num_frames
         return self._inner.n_times
 
     @property
     def n_freqs(self) -> int:
         if self._backend == "parselmouth":
-            return self._inner.n_frequencies
+            return self._inner.ny
         elif self._backend == "praatfan_gpl":
             return self._inner.num_freq_bins
         return self._inner.n_freqs
@@ -2113,6 +2115,9 @@ class Sound:
 
     @staticmethod
     def _load_from_samples(backend: str, samples: np.ndarray, sampling_frequency: float) -> BaseSound:
+        # Backends that hand the buffer to native code need contiguous float64
+        # (a column slice such as data[:, 0] is strided).
+        samples = np.ascontiguousarray(samples, dtype=np.float64)
         if backend == "parselmouth":
             return ParselmouthSound.from_samples(samples, sampling_frequency)
         elif backend == "praatfan":
@@ -2341,9 +2346,9 @@ class Sound:
         """
         Return a new Sound resampled to *sample_rate* (Hz).
 
-        Uses the backend's FFT-based Sound_resample (Praat-compatible) when
-        available; otherwise falls back to scipy.signal.resample on the samples
-        and rebuilds via the backend.
+        Uses the backend's own resample when it has one; otherwise the
+        built-in two-stage resampler (FFT brick-wall low-pass when
+        downsampling, then Hann-windowed sinc interpolation).
 
         Resamples in either direction; the same rate returns a copy. (Until
         0.1.14 a higher rate also returned a copy at the old rate.) If a
