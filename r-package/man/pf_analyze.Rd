@@ -52,7 +52,7 @@ All analysis functions accept audio in any format the engine reads
 pass \code{channel} to select one channel of a multi-channel file.
 }
 \author{
-praatfan contributors
+Uriel Cohen Priva
 Run a batch of analyses against one audio file.
 
 The audio file is loaded once and every analysis in \code{analyses} runs

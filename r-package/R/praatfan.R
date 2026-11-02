@@ -17,7 +17,7 @@
 #' (WAV, FLAC, MP3, OGG/Vorbis, NIST SPHERE incl. shorten; not AIFF).  Mono only;
 #' pass \code{channel} to select one channel of a multi-channel file.
 #'
-#' @author praatfan contributors
+#' @author Uriel Cohen Priva
 
 # ---------------------------------------------------------------------------
 # Batch interface

@@ -1,8 +1,8 @@
 Package: praatfan
 Title: Praat-Compatible Acoustic Analysis
 Version: 0.1.15
-Authors@R: person("praatfan contributors", role = c("aut", "cre"),
-                   email = "noreply@example.com")
+Authors@R: person("Uriel", "Cohen Priva", role = c("aut", "cre"),
+                   email = "uriel_cohen_priva@brown.edu")
 Description: R interface to praatfan, a clean-room reimplementation of
     Praat's core acoustic analysis algorithms. Computes pitch (F0),
     formants (Burg LPC), intensity, harmonicity (HNR), spectral moments
