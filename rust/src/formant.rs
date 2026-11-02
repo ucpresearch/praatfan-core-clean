@@ -1230,9 +1230,10 @@ pub fn sound_to_formant_burg(
     // =========================================================================
     // The Nyquist frequency of the resampled signal will be max_formant_hz,
     // ensuring we can accurately represent formants up to that frequency.
-    // Only downsample if the original rate is higher than needed.
+    // Resample in either direction: Praat upsamples too (black-box: on 8 kHz
+    // input with a 5500 Hz ceiling its result equals analysing at 11 kHz).
     let target_rate = 2.0 * max_formant_hz;
-    let (samples, sample_rate) = if target_rate < original_rate {
+    let (samples, sample_rate) = if target_rate != original_rate {
         let resampled = resample(original_samples.as_slice().unwrap(), original_rate, target_rate);
         (resampled, target_rate)
     } else {

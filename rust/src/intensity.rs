@@ -232,51 +232,39 @@ impl Intensity {
     }
 }
 
-/// Generate Gaussian window matching Praat's intensity analysis.
-///
-/// The Gaussian window is defined as:
-/// ```text
-/// w(x) = (exp(-α × x²) - exp(-α)) / (1 - exp(-α))
-/// ```
-///
-/// where x ranges from -1 to 1 across the window.
-///
-/// The subtraction of exp(-α) and division by (1 - exp(-α)) ensures that:
-/// - The window value is exactly 0 at the edges (x = ±1)
-/// - The window value is exactly 1 at the center (x = 0)
-///
-/// # Arguments
-///
-/// * `n` - Number of samples in the window
-/// * `alpha` - Shape parameter controlling the window width
-///   - Higher α = narrower main lobe, lower sidelobes
-///   - α = 13.2 was determined via black-box testing to match Praat
-///
-/// # Returns
-///
-/// Vector of window coefficients
-fn gauss_window(n: usize, alpha: f64) -> Vec<f64> {
+/// Modified Bessel function of the first kind, order 0, by its power series
+/// I0(x) = sum_k ((x/2)^k / k!)^2 (standard numerical analysis). Mirrors
+/// `_bessel_i0` in `src/praatfan/intensity.py` term for term.
+fn bessel_i0(x: f64) -> f64 {
+    let half = 0.5 * x;
+    let mut term = 1.0;
+    let mut sum = 1.0;
+    let mut k = 1.0;
+    loop {
+        let r = half / k;
+        term *= r * r;
+        sum += term;
+        if term < sum * 1e-17 {
+            return sum;
+        }
+        k += 1.0;
+    }
+}
+
+/// Kaiser window with shape parameter `beta` over `n` samples:
+/// `w[i] = I0(beta * sqrt(1 - x^2)) / I0(beta)`, x from -1 to 1.
+/// Praat's manual names the intensity window "Kaiser-20" (beta = 20).
+fn kaiser_window(n: usize, beta: f64) -> Vec<f64> {
     if n <= 1 {
         return vec![1.0];
     }
-
-    // Mid-point of window (center)
     let mid = (n - 1) as f64 / 2.0;
-
-    // Edge value: exp(-α) at x = ±1
-    let exp_edge = libm::exp(-alpha);
-
-    // Normalization factor: 1 - exp(-α)
-    let norm = 1.0 - exp_edge;
-
+    let norm = bessel_i0(beta);
     (0..n)
         .map(|i| {
-            // Map sample index to range [-1, 1]
             let x = (i as f64 - mid) / mid;
-
-            // Gaussian with edge subtraction and normalization
-            let exp_term = libm::exp(-alpha * x * x);
-            (exp_term - exp_edge) / norm
+            let arg = (1.0 - x * x).max(0.0).sqrt();
+            bessel_i0(beta * arg) / norm
         })
         .collect()
 }
@@ -329,7 +317,6 @@ fn gauss_window(n: usize, alpha: f64) -> Vec<f64> {
 pub fn sound_to_intensity(sound: &Sound, min_pitch: f64, time_step: f64) -> Intensity {
     let samples = sound.samples();
     let sample_rate = sound.sample_rate();
-    let duration = sound.duration();
 
     // Default time step (documented: 0.8 / min_pitch = 1/4 of effective duration)
     // For 75 Hz min_pitch: 0.8/75 ≈ 10.7 ms
@@ -339,12 +326,11 @@ pub fn sound_to_intensity(sound: &Sound, min_pitch: f64, time_step: f64) -> Inte
         time_step
     };
 
-    // Physical window duration
-    // Documented effective duration is 3.2 / min_pitch
-    // Physical/effective ratio of 2.25 was determined via black-box testing
-    // Physical = 3.2 × 2.25 = 7.2 / min_pitch
-    let physical_window_duration = 7.2 / min_pitch;
-    let half_window_duration = physical_window_duration / 2.0;
+    // Window (2026-11-02): the documented Kaiser-20 window over a physical
+    // duration of 2x the documented effective duration (3.2 / min_pitch).
+    // Earlier versions used a Gaussian (alpha 13.2) over 7.2 / min_pitch,
+    // fitted against a grid that was 4 ms off. See src/praatfan/intensity.py.
+    let physical_window_duration = 6.4 / min_pitch;
 
     // Convert window duration to samples
     let mut window_samples = (physical_window_duration * sample_rate).round() as usize;
@@ -356,19 +342,17 @@ pub fn sound_to_intensity(sound: &Sound, min_pitch: f64, time_step: f64) -> Inte
 
     let half_window_samples = window_samples / 2;
 
-    // Generate Gaussian window
-    // α = 13.2 was determined via black-box testing to match Praat's output
-    let window = gauss_window(window_samples, 13.2);
+    let window = kaiser_window(window_samples, 20.0);
 
-    // Frame timing: left-aligned, starting at half window duration
-    // First frame centered at t1 = half_window_duration
-    // Last possible frame at t_max = duration - half_window_duration
-    let t1 = half_window_duration;
-    let t_max = duration - half_window_duration;
-
-    // Calculate number of frames (at least 1)
-    let n_frames = ((t_max - t1) / time_step + 1e-9).floor() as usize + 1;
-    let n_frames = n_frames.max(1);
+    // Frame timing (black-box, 2026-11-02): frames are centred in the sound,
+    // their count set by a span of 6.4 / min_pitch. The duration is taken as
+    // n_samples * (1 / sample_rate): at exact frame boundaries only that form
+    // reproduced Praat's count.
+    let duration = samples.len() as f64 * (1.0 / sample_rate);
+    let frame_span = 6.4 / min_pitch;
+    let n_frames = ((duration - frame_span) / time_step).floor();
+    let n_frames = if n_frames >= 0.0 { n_frames as usize + 1 } else { 1 };
+    let t1 = (duration - (n_frames - 1) as f64 * time_step) / 2.0;
 
     // Reference pressure squared: (2×10⁻⁵ Pa)² = 4×10⁻¹⁰ Pa²
     // This is the standard reference for sound pressure level (SPL) in air
@@ -386,8 +370,8 @@ pub fn sound_to_intensity(sound: &Sound, min_pitch: f64, time_step: f64) -> Inte
         // Frame center time
         let t = t1 + i as f64 * time_step;
 
-        // Find center sample index
-        let center_sample = (t * sample_rate).round() as isize;
+        // Centre on the sample nearest t; sample i sits at (i + 0.5) / sr.
+        let center_sample = (t * sample_rate - 0.5).round() as isize;
 
         // Calculate start of window region
         let start_sample = center_sample - half_window_samples as isize;
@@ -422,8 +406,8 @@ pub fn sound_to_intensity(sound: &Sound, min_pitch: f64, time_step: f64) -> Inte
             .sum::<f64>()
             / window_sum;
 
-        // Convert to dB: 10 × log₁₀(mean_square / p_ref²)
-        // NEG_INFINITY for silent frames (avoids log(0) = -∞)
+        // Convert to dB: 10 × log₁₀(mean_square / p_ref²). Digital silence is
+        // -inf (Praat floors at -300 dB; we keep -inf, which callers rely on).
         let intensity_db = if mean_square <= 0.0 {
             f64::NEG_INFINITY
         } else {

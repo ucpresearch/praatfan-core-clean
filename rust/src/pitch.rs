@@ -651,18 +651,11 @@ fn find_cc_peaks(
 /// * `max_candidates` - Maximum number of candidates to return
 /// * `local_intensity` - Frame intensity relative to global peak (0-1)
 ///
-/// # Note on strength adjustment
-///
-/// The returned strength is adjusted by local_intensity to handle an edge case
-/// where low-intensity frames (silence, DC offset) can have spuriously high
-/// r_norm values (~1.0) that cause false voicing detections.
-///
-/// The adjustment formula is: strength = 0.5 * r_norm + 0.5 * local_intensity
-///
-/// This is an empirically-derived approximation found via black-box testing.
-/// The actual formula used by Praat is unknown and could be different (possibly
-/// a nonlinear function like GLM/GAM). The coefficients (0.5, 0.5) were tuned
-/// on limited test data and may not be optimal for all audio types.
+/// The returned strength is the normalized autocorrelation r at the peak.
+/// `local_intensity` and `apply_intensity_adjustment` are unused since
+/// 2026-11-02: the empirical blend `0.5 * r + 0.5 * local_intensity` they
+/// switched was removed (it compensated for the missing local-average
+/// subtraction and voiced steady white noise).
 fn find_autocorrelation_peaks(
     r: &[f64],
     r_w: &[f64],
@@ -713,16 +706,9 @@ fn find_autocorrelation_peaks(
         if r_norm[lag] > r_norm[lag - 1] && r_norm[lag] > r_norm[lag + 1] {
             let r_curr = r_norm[lag];
 
-            // Apply intensity-periodicity interaction to adjust strength.
-            // This handles the case where low-intensity frames have spuriously
-            // high r_norm values (e.g., DC offset gives r_norm ≈ 1.0).
-            // Skip for harmonicity (apply_intensity_adjustment=false) to get
-            // raw correlation strength for the HNR formula.
-            let adjusted_strength = if apply_intensity_adjustment {
-                0.5 * r_curr + 0.5 * local_intensity
-            } else {
-                r_curr
-            };
+            // Strength is r itself (Boersma 1993, eq. 24 before octave cost).
+            let _ = (apply_intensity_adjustment, local_intensity);
+            let adjusted_strength = r_curr;
 
             // Parabolic interpolation for sub-sample precision on frequency only
             let r_prev = r_norm[lag - 1];
@@ -1080,7 +1066,10 @@ pub fn sound_to_pitch_internal(
 ) -> Pitch {
     let samples = sound.samples();
     let sample_rate = sound.sample_rate();
-    let duration = sound.duration();
+    // Duration as n_samples * (1 / sample_rate): at exact frame boundaries
+    // this is the form that reproduces Praat's frame count (black-box,
+    // 2026-11-02), and the frame-count floors below take no epsilon.
+    let duration = sound.samples().len() as f64 * (1.0 / sample_rate);
 
     // Default time step: AC uses 0.75/floor, CC uses 0.25/floor
     let time_step = if time_step <= 0.0 {
@@ -1134,7 +1123,7 @@ pub fn sound_to_pitch_internal(
         FrameTiming::Left => {
             // Left-aligned with centering: used for Harmonicity
             // Frames start window_duration into signal and end window_duration before end
-            let n = ((duration - 2.0 * window_duration) / time_step + 1e-9).floor() as usize + 1;
+            let n = ((duration - 2.0 * window_duration) / time_step).floor() as usize + 1;
             let n = n.max(1);
             // Center frames in available region
             let remaining = duration - 2.0 * window_duration - (n - 1) as f64 * time_step;
@@ -1144,7 +1133,7 @@ pub fn sound_to_pitch_internal(
         FrameTiming::Centered => {
             // Centered: frames centered in signal, used for Pitch
             // Need half window on each side, so valid region is [window_duration/2, duration - window_duration/2]
-            let n = ((duration - window_duration) / time_step + 1e-9).floor() as usize + 1;
+            let n = ((duration - window_duration) / time_step).floor() as usize + 1;
             let n = n.max(1);
             // Center frames symmetrically
             let t1 = (duration - (n - 1) as f64 * time_step) / 2.0;
@@ -1222,6 +1211,13 @@ pub fn sound_to_pitch_internal(
             let start = start_sample as usize;
             let end = end_sample as usize;
             frame_samples.copy_from_slice(&samples[start..end]);
+        }
+
+        // Boersma (1993) step 3.2: subtract the local average. Without it a
+        // DC offset or a slow drift correlates with itself at every lag.
+        let frame_mean = frame_samples.iter().sum::<f64>() / frame_samples.len() as f64;
+        for x in frame_samples.iter_mut() {
+            *x -= frame_mean;
         }
 
         // Compute local peak for silence detection

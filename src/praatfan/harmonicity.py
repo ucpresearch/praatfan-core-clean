@@ -396,8 +396,16 @@ def sound_to_harmonicity_ac(
         sound,
         time_step=time_step,
         pitch_floor=min_pitch,
-        pitch_ceiling=600.0,  # Standard ceiling
+        # Boersma (1993, sec. 4): for HNR the path finder is off, OctaveCost
+        # and VoicingThreshold are zero and MaximumPitch is the Nyquist
+        # frequency. Black-box (2026-11-02): this took p90 |dHNR| on the
+        # Hebrew fixture from 8.5 to 1.0 dB and gives white noise a finite
+        # HNR (about -7 dB in Praat) instead of -200.
+        pitch_ceiling=0.5 * sound.sample_rate,
         method="ac",
+        voicing_threshold=0.0,
+        octave_jump_cost=0.0,
+        voiced_unvoiced_cost=0.0,
         silence_threshold=silence_threshold,
         periods_per_window=periods_per_window,
         frame_timing="left",
@@ -461,8 +469,14 @@ def sound_to_harmonicity_cc(
         sound,
         time_step=time_step,
         pitch_floor=min_pitch,
-        pitch_ceiling=600.0,  # Standard ceiling
+        # Boersma (1993, sec. 4) HNR settings: path finder off, VoicingThreshold
+        # zero. The ceiling stays at 600 Hz: a Nyquist ceiling matched Praat
+        # worse for CC (black-box, 2026-11-02).
+        pitch_ceiling=600.0,
         method="cc",
+        voicing_threshold=0.0,
+        octave_jump_cost=0.0,
+        voiced_unvoiced_cost=0.0,
         silence_threshold=silence_threshold,
         periods_per_window=periods_per_window + 1.0,  # +1 for forward CC
         frame_timing="centered",

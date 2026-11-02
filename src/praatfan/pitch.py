@@ -527,24 +527,13 @@ def _find_autocorrelation_peaks(r: np.ndarray, r_w: np.ndarray,
         max_candidates: Maximum number of candidates
         use_interpolation: Use parabolic interpolation for frequency (default True)
             Note: For strength, we always use raw peak to avoid overshoot
-        local_intensity: Frame intensity relative to global peak (0-1), used for
-            voicing strength adjustment
+        local_intensity: Unused (kept for call compatibility).
+        apply_intensity_adjustment: Unused (kept for call compatibility).
 
     Returns (candidates, max_raw) where candidates is a list of (frequency,
-    adjusted_strength) tuples sorted by strength, and max_raw is the maximum
-    raw r_norm value across all peaks (before any adjustments).
-
-    Note on strength adjustment:
-        The returned strength is adjusted by local_intensity to handle a edge case
-        where low-intensity frames (silence, DC offset) can have spuriously high
-        r_norm values (~1.0) that cause false voicing detections.
-
-        The adjustment formula is: strength = 0.5 * r_norm + 0.5 * local_intensity
-
-        This is an empirically-derived approximation found via black-box testing.
-        The actual formula used by Praat is unknown and could be different (possibly
-        a nonlinear function like GLM/GAM). The coefficients (0.5, 0.5) were tuned
-        on limited test data and may not be optimal for all audio types.
+    strength) tuples sorted by strength, strength being the normalized
+    autocorrelation r at the peak, and max_raw is the maximum raw r_norm
+    value over the lag range.
     """
     if max_lag >= len(r) or max_lag >= len(r_w):
         return [], 0.0
@@ -575,13 +564,11 @@ def _find_autocorrelation_peaks(r: np.ndarray, r_w: np.ndarray,
         if r_norm[lag] > r_norm[lag-1] and r_norm[lag] > r_norm[lag+1]:
             r_curr = r_norm[lag]
 
-            # Apply intensity-periodicity interaction to adjust strength
-            # This handles the case where low-intensity frames have spuriously
-            # high r_norm values (e.g., DC offset gives r_norm ≈ 1.0)
-            if apply_intensity_adjustment:
-                adjusted_strength = 0.5 * r_curr + 0.5 * local_intensity
-            else:
-                adjusted_strength = r_curr
+            # The strength is r itself (Boersma 1993, eq. 24 before octave
+            # cost). An earlier empirical blend 0.5 * r + 0.5 * local_intensity
+            # compensated for the missing local-average subtraction (step 3.2)
+            # and voiced steady white noise; it was removed 2026-11-02.
+            adjusted_strength = r_curr
 
             if use_interpolation:
                 # Parabolic interpolation for sub-sample precision on frequency only
@@ -731,9 +718,8 @@ def sound_to_pitch(
         frame_timing: Frame timing mode ("centered" for Pitch, "left" for Harmonicity)
         apply_octave_cost: Whether to apply octave cost to strength (default True).
             Set to False for Harmonicity to get raw correlation strength.
-        apply_intensity_adjustment: Whether to apply intensity-periodicity
-            interaction to strength (default True). Set to False for Harmonicity
-            to get raw correlation strength for HNR formula.
+        apply_intensity_adjustment: Ignored since 2026-11-02 (the empirical
+            intensity blend it switched was removed); kept for compatibility.
         reference_peak: Amplitude reference substituted for the internal
             whole-file statistic (global_peak) in the local_intensity
             computation. None (default) keeps the legacy whole-file
@@ -754,7 +740,10 @@ def sound_to_pitch(
 
     samples = sound.samples
     sample_rate = sound.sample_rate
-    duration = sound.duration
+    # Duration as n_samples * (1 / sample_rate): at exact frame boundaries
+    # this is the form that reproduces Praat's frame count (black-box,
+    # 2026-11-02), and the frame-count floors below take no epsilon.
+    duration = len(samples) * (1.0 / sample_rate)
 
     # Default time step: AC uses 0.75/floor, CC uses 0.25/floor
     if time_step <= 0:
@@ -787,14 +776,14 @@ def sound_to_pitch(
         # Left-aligned with centering: used for Harmonicity
         # Frames are constrained to [window_duration, duration - window_duration]
         # and centered within that valid range
-        n_frames = int(np.floor((duration - 2 * window_duration) / time_step + 1e-9)) + 1
+        n_frames = int(np.floor((duration - 2 * window_duration) / time_step)) + 1
         if n_frames < 1:
             n_frames = 1
         remaining = duration - 2 * window_duration - (n_frames - 1) * time_step
         t1 = window_duration + remaining / 2.0
     else:
         # Centered: frames centered in signal, used for Pitch
-        n_frames = int(np.floor((duration - window_duration) / time_step + 1e-9)) + 1
+        n_frames = int(np.floor((duration - window_duration) / time_step)) + 1
         if n_frames < 1:
             n_frames = 1
         t1 = (duration - (n_frames - 1) * time_step) / 2.0
@@ -833,6 +822,10 @@ def sound_to_pitch(
             frame_samples[dst_start:dst_end] = samples[src_start:src_end]
         else:
             frame_samples = samples[start_sample:end_sample].copy()
+
+        # Boersma (1993) step 3.2: subtract the local average. Without it a DC
+        # offset or a slow drift correlates with itself at every lag.
+        frame_samples = frame_samples - np.mean(frame_samples)
 
         # Compute local peak (for silence detection)
         local_peak = np.max(np.abs(frame_samples))

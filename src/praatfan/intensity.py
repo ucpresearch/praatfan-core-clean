@@ -143,34 +143,41 @@ class Intensity:
             raise ValueError(f"Unknown interpolation method: {interpolation}")
 
 
+def _bessel_i0(x: float) -> float:
+    """Modified Bessel function I0 by its power series sum ((x/2)^k / k!)^2.
+
+    Standard numerical analysis; mirrors ``bessel_i0`` in
+    ``rust/src/intensity.rs`` term for term.
+    """
+    half = 0.5 * x
+    term = 1.0
+    total = 1.0
+    k = 1.0
+    while True:
+        r = half / k
+        term *= r * r
+        total += term
+        if term < total * 1e-17:
+            return total
+        k += 1.0
+
+
 def _kaiser_window(n: int, beta: float = 20.0) -> np.ndarray:
     """
-    Generate Kaiser window.
+    Kaiser window: w[i] = I0(beta * sqrt(1 - x^2)) / I0(beta), x in [-1, 1].
 
-    The Kaiser window achieves a specified sidelobe attenuation.
-    Kaiser-20 means beta ≈ 20, giving approximately -155 dB sidelobes.
-
-    Args:
-        n: Window length
-        beta: Kaiser beta parameter (higher = narrower main lobe, lower sidelobes)
-
-    Returns:
-        Window array normalized to [0, 1]
+    Praat's manual names the intensity window "Kaiser-20" (beta = 20).
     """
     if n <= 1:
         return np.array([1.0])
 
-    from scipy import special
-
-    m = n - 1
-    alpha = m / 2.0
-    i0_beta = special.i0(beta)
-
+    mid = (n - 1) / 2.0
+    norm = _bessel_i0(beta)
     window = np.zeros(n)
     for i in range(n):
-        x = beta * np.sqrt(1.0 - ((i - alpha) / alpha) ** 2)
-        window[i] = special.i0(x) / i0_beta
-
+        x = (i - mid) / mid
+        arg = np.sqrt(max(0.0, 1.0 - x * x))
+        window[i] = _bessel_i0(beta * arg) / norm
     return window
 
 
@@ -219,12 +226,12 @@ def sound_to_intensity(
 
     Algorithm (from Praat manual):
     1. Square the signal values
-    2. Convolve with Gaussian window (after DC removal if enabled)
+    2. Weight with a Kaiser-20 window (after DC removal if enabled)
     3. Convert to dB
 
     Documented parameters:
     - Effective duration: 3.2 / min_pitch
-    - Physical duration: 7.2 / min_pitch (2.25× effective, determined via testing)
+    - Physical duration: 6.4 / min_pitch (2x effective), Kaiser-20 window
     - Time step: 0.8 / min_pitch (default)
 
     Args:
@@ -238,17 +245,19 @@ def sound_to_intensity(
     """
     samples = sound.samples
     sample_rate = sound.sample_rate
-    duration = sound.duration
     dt = 1.0 / sample_rate
 
     # Default time step (documented)
     if time_step <= 0:
         time_step = 0.8 / min_pitch
 
-    # Window duration (determined via black-box testing: ratio = 2.25)
-    # physical_duration = 7.2 / min_pitch
-    physical_window_duration = 7.2 / min_pitch
-    half_window_duration = physical_window_duration / 2.0
+    # Window (2026-11-02): the documented Kaiser-20 window over a physical
+    # duration of 2x the documented effective duration (3.2 / min_pitch).
+    # Earlier versions used a Gaussian (alpha 13.2) over 7.2 / min_pitch,
+    # fitted against a grid that was 4 ms off; on the correct grid the
+    # documented window is ~10x closer to Praat (median 0.002 dB, max
+    # 0.2-0.3 dB on the fixtures resampled to 8/16/24 kHz, vs 2-7 dB).
+    physical_window_duration = 6.4 / min_pitch
 
     # Number of samples in window
     window_samples = int(round(physical_window_duration * sample_rate))
@@ -257,21 +266,25 @@ def sound_to_intensity(
 
     half_window_samples = window_samples // 2
 
-    # Generate window
-    # Alpha = 13.2 determined via black-box testing (DP3)
-    window = _gauss_window(window_samples, alpha=13.2)
+    window = _kaiser_window(window_samples, beta=20.0)
 
-    # Frame timing (left-aligned, determined via testing DP1)
-    # t1 = half_window_duration
-    # Last frame at t_max = duration - half_window_duration
-    # n_frames = floor((t_max - t1) / time_step) + 1
-    t1 = half_window_duration
-    t_max = duration - half_window_duration
-
-    # Use small epsilon for floating point precision
-    n_frames = int(np.floor((t_max - t1) / time_step + 1e-9)) + 1
+    # Frame timing (black-box, 2026-11-02): frames are centred in the sound,
+    # and their count is set by a span of 6.4 / min_pitch (not the 7.2 /
+    # min_pitch physical window):
+    #   n_frames = floor((duration - 6.4 / min_pitch) / time_step) + 1
+    #   t1 = (duration - (n_frames - 1) * time_step) / 2
+    # Matched Praat's frame count and first time on 300/300 random
+    # durations, sample rates, minimum pitches and time steps.
+    # The duration is taken as n_samples * (1 / sample_rate), not
+    # n_samples / sample_rate: at exact frame boundaries the two round
+    # differently, and only the former reproduced Praat's count (130/130
+    # boundary cases).
+    frame_span = 6.4 / min_pitch
+    duration = len(samples) * dt
+    n_frames = int(np.floor((duration - frame_span) / time_step)) + 1
     if n_frames < 1:
         n_frames = 1
+    t1 = (duration - (n_frames - 1) * time_step) / 2.0
 
     # Compute intensity for each frame
     times = np.zeros(n_frames)
@@ -284,8 +297,8 @@ def sound_to_intensity(
         t = t1 + i * time_step
         times[i] = t
 
-        # Find center sample index
-        center_sample = int(round(t * sample_rate))
+        # Centre on the sample nearest t; sample i sits at (i + 0.5) / sr.
+        center_sample = int(round(t * sample_rate - 0.5))
 
         # Extract window region
         start_sample = center_sample - half_window_samples
@@ -313,6 +326,8 @@ def sound_to_intensity(
         mean_square = np.sum(frame_samples * frame_samples * window) / window_sum
 
         # Convert to dB
+        # Digital silence is -inf. (Praat floors at -300 dB; we keep -inf,
+        # which existing callers rely on.)
         if mean_square <= 0:
             intensity_db = -np.inf
         else:

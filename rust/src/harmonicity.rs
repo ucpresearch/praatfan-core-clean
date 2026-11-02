@@ -491,13 +491,16 @@ fn harmonicity_ac_internal(
         sound,
         time_step,
         min_pitch,
-        600.0,             // Standard pitch ceiling
+        // Boersma (1993, sec. 4): for HNR the path finder is off, OctaveCost
+        // and VoicingThreshold are zero and MaximumPitch is the Nyquist
+        // frequency. See src/praatfan/harmonicity.py for the black-box numbers.
+        0.5 * sound.sample_rate(), // pitch ceiling = Nyquist
         PitchMethod::Ac,
-        0.45,              // voicing_threshold (Boersma default)
+        0.0,               // voicing_threshold
         silence_threshold, // User-specified silence threshold
-        0.01,              // octave_cost
-        0.35,              // octave_jump_cost
-        0.14,              // voiced_unvoiced_cost
+        0.01,              // octave_cost (not applied: apply_octave_cost = false)
+        0.0,               // octave_jump_cost (path finder off)
+        0.0,               // voiced_unvoiced_cost (path finder off)
         periods_per_window,
         FrameTiming::Left, // Left-aligned for harmonicity
         false,             // apply_octave_cost = false for raw correlation
@@ -612,13 +615,16 @@ fn harmonicity_cc_internal(
         sound,
         time_step,
         min_pitch,
-        600.0,                     // Standard pitch ceiling
+        // Boersma (1993, sec. 4) HNR settings: path finder off,
+        // VoicingThreshold zero. Ceiling stays 600 Hz (a Nyquist ceiling
+        // matched Praat worse for CC, black-box 2026-11-02).
+        600.0,                     // pitch ceiling
         PitchMethod::Cc,
-        0.45,                      // voicing_threshold (Boersma default)
+        0.0,                       // voicing_threshold
         silence_threshold,         // User-specified silence threshold
-        0.01,                      // octave_cost
-        0.35,                      // octave_jump_cost
-        0.14,                      // voiced_unvoiced_cost
+        0.01,                      // octave_cost (not applied)
+        0.0,                       // octave_jump_cost (path finder off)
+        0.0,                       // voiced_unvoiced_cost (path finder off)
         periods_per_window + 1.0,  // +1 for forward CC (DP29)
         FrameTiming::Centered,     // Centered for CC harmonicity
         false,                     // apply_octave_cost = false for raw correlation

@@ -688,7 +688,9 @@ def sound_to_formant_burg(
 
     # Step 1: Resample to 2 × max_formant_hz
     target_rate = 2.0 * max_formant_hz
-    if target_rate < original_rate:
+    # Resample in either direction: Praat upsamples too (black-box: on 8 kHz
+    # input with a 5500 Hz ceiling its result equals analysing at 11 kHz).
+    if target_rate != original_rate:
         samples = _resample(original_samples, original_rate, target_rate)
         sample_rate = target_rate
     else:

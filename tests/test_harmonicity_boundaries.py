@@ -277,24 +277,29 @@ class TestWarningReachesTheCaller:
 
 class TestDegenerateSignalsAreUndefined:
     """
-    Deliberate divergence from Praat, recorded so it is not mistaken for a bug.
+    Degenerate signals.
 
     A noiseless periodic signal has a normalized correlation of exactly 1, so
-    HNR is 10*log10(1/0) — genuinely undefined. praatfan reports nan for both
-    DC and a pure tone. Praat reports -200 for DC and a large finite value for
-    a pure tone (its own correlation lands just short of 1). Any noise at all
-    puts the correlation back in range: 1% noise gives r = 0.9998.
+    HNR is 10*log10(1/0) — genuinely undefined; praatfan reports nan for a
+    pure tone (deliberate divergence: Praat reports a large finite value, its
+    own correlation landing just short of 1). Any noise at all puts the
+    correlation back in range: 1% noise gives r = 0.9998.
+
+    DC is different: each frame's local average is subtracted first (Boersma
+    1993, step 3.2), which leaves nothing periodic, so DC reads -200 (no
+    periodicity), as in Praat. Before 2026-11-02 the subtraction was missing
+    and DC read nan.
     """
 
     @staticmethod
     def _sound(x, sr=16000):
         return Sound(np.asarray(x, dtype=np.float64), sr)
 
-    def test_dc_is_undefined(self):
+    def test_dc_has_no_periodicity(self):
         v = sound_to_harmonicity_cc(self._sound(np.ones(16000) * 0.5),
                                     time_step=0.01, min_pitch=75.0,
                                     periods_per_window=1.0).values
-        assert np.all(np.isnan(v))
+        assert np.all(v == -200.0)
 
     def test_noiseless_tone_carries_no_trustworthy_reading(self):
         """

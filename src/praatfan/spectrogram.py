@@ -192,6 +192,12 @@ def sound_to_spectrogram(
     sample_rate = sound.sample_rate
     duration = sound.duration
 
+    # A maximum frequency above Nyquist is clamped to Nyquist (black-box:
+    # Praat reports ymax = 4000 for a 5000 Hz request on 8 kHz audio).
+    nyquist = 0.5 * sample_rate
+    if max_frequency > nyquist:
+        max_frequency = nyquist
+
     # For Gaussian window, physical window is 2x effective window
     if window_shape.lower() == "gaussian":
         physical_window_duration = 2.0 * window_length

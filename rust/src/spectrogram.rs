@@ -385,6 +385,10 @@ pub fn sound_to_spectrogram_with_shape(
     let sample_rate = sound.sample_rate();
     let duration = sound.duration();
 
+    // A maximum frequency above Nyquist is clamped to Nyquist (black-box:
+    // Praat reports ymax = 4000 for a 5000 Hz request on 8 kHz audio).
+    let max_frequency = max_frequency.min(0.5 * sample_rate);
+
     // Physical window duration
     // For Gaussian: physical = 2× effective (documented in Praat manual)
     // For Hanning: physical = effective
