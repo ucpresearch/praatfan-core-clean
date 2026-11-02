@@ -609,10 +609,12 @@ impl Sound {
     /// Return a new Sound resampled to `new_rate` (Hz) using FFT-based sinc
     /// interpolation (matches Praat's Sound_resample behavior).
     ///
-    /// If `new_rate` is greater than or equal to the current rate, returns a
-    /// clone without upsampling (matches Praat's short-circuit).
+    /// Resamples in either direction; the same rate returns a clone. (Until
+    /// 0.1.14 a higher rate also returned a clone at the old rate.) Praat
+    /// upsamples too; its integer-factor-2 upsampling is inaccurate, so we
+    /// don't follow it there (see `src/praatfan/sound.py`).
     pub fn resample(&self, new_rate: f64) -> Sound {
-        if new_rate >= self.sample_rate {
+        if new_rate == self.sample_rate {
             return self.clone();
         }
         let resampled = crate::formant::resample(

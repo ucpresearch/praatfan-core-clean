@@ -2021,7 +2021,7 @@ class PraatfanCoreSound(BaseSound):
         import praatfan_gpl
         from .formant import _resample
         current_rate = self._inner.sample_rate
-        if sample_rate >= current_rate:
+        if sample_rate == current_rate:
             return self
         new_samples = _resample(
             np.asarray(self._inner.samples()), current_rate, sample_rate
@@ -2345,15 +2345,17 @@ class Sound:
         available; otherwise falls back to scipy.signal.resample on the samples
         and rebuilds via the backend.
 
-        If *sample_rate* is greater than or equal to the current rate, returns
-        a copy without upsampling (matches Praat's Sound_resample behavior).
+        Resamples in either direction; the same rate returns a copy. (Until
+        0.1.14 a higher rate also returned a copy at the old rate.) If a
+        backend's native resample does not reach the requested rate, the
+        built-in resampler is used instead.
         Pre-resampling to exactly ``2 * maximum_formant`` before to_formant_burg
         makes its internal resample a no-op, enabling caching across repeated
         Burg calls at the same ceiling.
         """
         current_rate = self.sampling_frequency
 
-        if sample_rate >= current_rate:
+        if sample_rate == current_rate:
             new_sound = Sound.__new__(Sound)
             new_sound._inner = self._load_from_samples(
                 self._backend, np.asarray(self.values).copy(), current_rate
@@ -2361,7 +2363,9 @@ class Sound:
             new_sound._backend = self._backend
             return new_sound
 
-        # Native path: delegate to backend when available.
+        # Native path: delegate to backend when available. A backend that
+        # declines (returns its input rate) falls through to the built-in
+        # resampler below.
         if hasattr(self._inner, "resample"):
             inner_resampled = self._inner.resample(sample_rate)
             inner_values = (
@@ -2374,12 +2378,13 @@ class Sound:
                 if hasattr(inner_resampled, "sampling_frequency")
                 else inner_resampled.sample_rate
             )
-            new_sound = Sound.__new__(Sound)
-            new_sound._inner = self._load_from_samples(
-                self._backend, np.asarray(inner_values), inner_sr
-            )
-            new_sound._backend = self._backend
-            return new_sound
+            if abs(inner_sr - sample_rate) <= 1e-6:
+                new_sound = Sound.__new__(Sound)
+                new_sound._inner = self._load_from_samples(
+                    self._backend, np.asarray(inner_values), inner_sr
+                )
+                new_sound._backend = self._backend
+                return new_sound
 
         # Fallback: resample samples here, rebuild via backend.
         from .formant import _resample

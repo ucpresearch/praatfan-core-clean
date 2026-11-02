@@ -568,11 +568,13 @@ class Sound:
         Uses FFT-based sinc interpolation (scipy.signal.resample with 5x
         zero-padding), matching the internal resampler used by to_formant_burg.
 
-        If *sample_rate* is greater than or equal to the current sample rate,
-        returns a copy without upsampling (matches Praat's Sound_resample
-        short-circuit).
+        Resamples in either direction; the same rate returns a copy. (Until
+        0.1.14 a higher rate also returned a copy at the old rate.) Praat
+        upsamples too; its integer-factor-2 upsampling is inaccurate
+        (black-box vs an analytic band-limited signal: max error 0.12 vs
+        8e-6 for ours), so we don't follow it there.
         """
-        if sample_rate >= self._sample_rate:
+        if sample_rate == self._sample_rate:
             return Sound(self._samples.copy(), self._sample_rate)
         from .formant import _resample
         new_samples = _resample(self._samples, self._sample_rate, sample_rate)

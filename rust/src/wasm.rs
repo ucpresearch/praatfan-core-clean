@@ -370,6 +370,16 @@ impl Sound {
         }
     }
 
+    /// Return a new Sound resampled to `new_sample_rate` (Hz).
+    ///
+    /// Two-stage windowed-sinc resampler (the one formant analysis uses),
+    /// in either direction; the same rate returns a copy.
+    pub fn resample(&self, new_sample_rate: f64) -> Sound {
+        Sound {
+            inner: self.inner.resample(new_sample_rate),
+        }
+    }
+
     /// Compute spectrum (single-frame FFT).
     ///
     /// # Arguments

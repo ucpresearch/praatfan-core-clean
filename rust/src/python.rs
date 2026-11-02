@@ -198,8 +198,8 @@ impl PySound {
     /// Return a new Sound resampled to `sample_rate` (Hz).
     ///
     /// Uses FFT-based sinc interpolation (Praat's Sound_resample algorithm).
-    /// If `sample_rate` is greater than or equal to the current rate, returns
-    /// a copy without upsampling (matches Praat's short-circuit).
+    /// Resamples in either direction; the same rate returns a copy (until
+    /// 0.1.14 a higher rate also returned a copy at the old rate).
     fn resample(&self, py: Python<'_>, sample_rate: f64) -> PySound {
         PySound {
             inner: py.allow_threads(|| self.inner.resample(sample_rate)),
