@@ -543,15 +543,13 @@ Please also cite **Praat**. praatfan shares no code with Praat: it
 implements Praat's analyses (with their parameters and defaults) from
 Praat's public documentation only, that is the Praat manual and the papers
 it cites, and was validated by black-box comparison with Praat's output.
-Praat's authors ask for this form (fill in the version and date, see
-[praat.org](https://www.praat.org)):
+No Praat version is involved in running praatfan, so cite Praat without one:
 
 ```bibtex
-@misc{boersma2026praat,
+@misc{boersma-weenink-praat,
   author       = {Boersma, Paul and Weenink, David},
   title        = {{Praat}: Doing phonetics by computer},
-  year         = {2026},
-  note         = {Computer program, version X.Y.Z, retrieved DD Month YYYY},
+  note         = {Computer program},
   howpublished = {\url{https://www.praat.org}}
 }
 ```
