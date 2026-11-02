@@ -569,7 +569,7 @@ let wasm_bindgen = (function(exports) {
          *
          * * `time_step` - Time step in seconds (0 = auto)
          * * `max_num_formants` - Maximum number of formants (typically 5)
-         * * `max_formant_hz` - Maximum formant frequency (5500 for male, 5000 for female)
+         * * `max_formant_hz` - Maximum formant frequency (5000 for a male speaker, 5500 for a female speaker)
          * * `window_length` - Window length in seconds (typically 0.025)
          * * `pre_emphasis_from` - Pre-emphasis frequency in Hz (typically 50)
          * @param {number} time_step
