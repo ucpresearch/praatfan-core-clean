@@ -283,3 +283,40 @@ migrated and verified here (2026-06-12):
 
 A sibling repo may differ in internal mechanism but must match the
 observable contract (§1–§5) and the method names in §3.2.
+
+## 8. Robustness limits — two contamination cliffs (2026-06-11; measured 2026-11-02)
+
+The estimator has two independent contamination cliffs; the tighter one
+governs.
+
+1. **Reference percentile cliff** (§1.4): `reference_peak` breaks when loud
+   non-speech exceeds `(100 − reference_percentile)%` of speech-masked
+   frames (p=75 ⇒ 25%).
+2. **Mask ceiling cliff** (§1.3, the binding one): `p95_db` is taken over
+   *all* frames. When loud non-speech exceeds ~5% of total frames *and* sits
+   more than `speech_floor_db` (30 dB) above the speech level, the ceiling
+   jumps to the burst level and ordinary speech drops out of the mask; the
+   standards are then computed over the burst frames alone.
+
+Net guarantee: cumulative loud non-speech is safe up to **~5% of total
+frames** (about 30 s per 10-minute recording), not the 25% the reference
+percentile alone suggests. That is still well above the retired v1's 2%,
+and failure needs the contamination to be *both* over 5% of frames *and*
+over 30 dB above speech.
+
+Measured (2026-11-02; 10 s of the 16 kHz fixture with a Gaussian-noise
+burst at the end; `reference_peak` relative to the clean signal):
+
+| Burst share of frames | +20 dB | +40 dB |
+|---|---|---|
+| 2% | ×1.04 | ×1.04 |
+| 4% | ×1.08 | ×1.08 |
+| 6% | ×1.14 | ×123 |
+| 8% | ×1.16 | ×120 |
+| 15% | ×1.38 | ×118 |
+
+Possible future hardening (not in the current contract; do not implement
+unilaterally): iterate the mask once (compute the ceiling, mask, recompute
+the ceiling within the mask), or take the ceiling as a percentile over
+frames below a robust upper bound. Either changes `reference_peak` values,
+so it needs a coordinated spec bump across all packages (§6).
