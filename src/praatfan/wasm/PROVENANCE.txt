@@ -1,11 +1,11 @@
 praatfan_rust 0.1.15, wasm32 --target no-modules (embedded V8)
-commit: eb8b17f48f945bc1b3a31ed979c6cd97f9ad0d67
+commit: d8757a4c5544135b26d32d1e25081817d7966c20
 build: wasm-pack build --release --target no-modules --features wasm --out-name praatfan
 remap: <crate>=/src, <cargo home>=/cargo, $HOME=/~
 simd128 instructions: 1482; relaxed SIMD: 0
 toolchain: rustc 1.94.1 (e408947bf 2026-03-25)
 wasm-pack: wasm-pack 0.14.0
 sha256:
-  125a26e6c116ba89b593d6f6af5adf07e524b66d86834d379523d181ebb75276  praatfan.js
-  2a477fd50b6c93e9e4b94c7ce3ac45f2ab959f4447e5048fdd2aa9315c6730ff  praatfan_bg.wasm
+  afccfcb26669076ef45cd5af8c6fa00c628ce52c156f9f12859fa57c70f06da4  praatfan.js
+  a1d2bad6b79645cd3aebc5522ed9e1d2835c8195fac3fd775778c6af5ac56329  praatfan_bg.wasm
   1fa8faa2bfaf81e860dbd88b7afd92ded87870559e567325ae943af87b0748ea  shim.js

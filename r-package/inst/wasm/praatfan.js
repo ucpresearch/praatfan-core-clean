@@ -533,6 +533,18 @@ let wasm_bindgen = (function(exports) {
             return this;
         }
         /**
+         * Return a new Sound resampled to `new_sample_rate` (Hz).
+         *
+         * Two-stage windowed-sinc resampler (the one formant analysis uses),
+         * in either direction; the same rate returns a copy.
+         * @param {number} new_sample_rate
+         * @returns {Sound}
+         */
+        resample(new_sample_rate) {
+            const ret = wasm.sound_resample(this.__wbg_ptr, new_sample_rate);
+            return Sound.__wrap(ret);
+        }
+        /**
          * Get the sample rate in Hz.
          * @returns {number}
          */
