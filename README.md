@@ -5,6 +5,25 @@ A clean-room reimplementation of Praat's acoustic analysis algorithms, with a un
 > **Note:** Latest release **v0.1.14**. The API is stabilizing but may still
 > change.
 >
+> **v0.1.15 (unreleased) changes analysis values — read before upgrading.**
+> Every backend (pure Python, Rust, WASM) changes the same way:
+> - **Intensity:** frames are now centred, with Praat's frame count (often
+>   one more frame than before), and use the documented Kaiser-20 window.
+>   Per-frame values move by up to a few dB, toward Praat's. Silence is
+>   still `-inf`.
+> - **Pitch:** each frame's local average is subtracted before
+>   autocorrelation (Boersma 1993). White noise and DC offsets are no longer
+>   reported as voiced, and voicing decisions on speech change in a few frames.
+>   Pitch and harmonicity frame counts can differ by one at exact boundaries.
+> - **Harmonicity:** the pitch tracker runs with Boersma's HNR settings
+>   (voicing threshold 0, no path finder). Noise now gets a finite HNR instead
+>   of -200, and a DC signal reads -200 instead of `nan`.
+> - **Formant:** audio below twice the formant ceiling (e.g. 8 kHz with
+>   5500 Hz) is now resampled up to twice the ceiling, as Praat does.
+>   Previously it was analysed as if the ceiling were its Nyquist frequency.
+> - **Spectrogram:** a maximum frequency above Nyquist is clamped to
+>   Nyquist (pure Python used to raise an error).
+>
 > **v0.1.14** makes the Rust backend give the same numbers on every machine:
 > its maths functions and FFTs no longer depend on the host's maths library or
 > on which CPU features it detects at run time. Values move from v0.1.13 only

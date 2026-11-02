@@ -18,17 +18,24 @@
 //!
 //! # Decision Points Determined via Testing
 //!
-//! These values were found through black-box testing against parselmouth:
-//! - **DP3**: Window type - Gaussian with α=13.2 gave best match
-//! - **DP4**: Physical vs effective window ratio = 2.25×
+//! These values were found through black-box testing against parselmouth
+//! (revised 2026-11-02, v0.1.15):
+//! - **DP1**: Frames are centred in the sound; their count is
+//!   floor((n·dx − 6.4/min_pitch) / time_step) + 1, with the duration taken
+//!   as n_samples · (1/sample_rate)
+//! - **DP3**: Window type - the documented Kaiser-20 (β = 20). (Until 0.1.14:
+//!   a Gaussian with α = 13.2, fitted against a grid that was 4 ms off.)
+//! - **DP4**: Physical window = 2× the effective duration = 6.4 / min_pitch
+//!   (until 0.1.14: 7.2 / min_pitch)
 //! - **DP5**: DC removal = unweighted mean subtraction before windowing
+//! - Digital silence is −∞ dB (Praat reports −300; we keep −∞)
 //!
 //! # Algorithm Overview
 //!
 //! For each analysis frame:
 //! 1. Extract samples centered at frame time
 //! 2. Subtract DC (mean) from the samples
-//! 3. Apply Gaussian window
+//! 3. Apply the Kaiser-20 window
 //! 4. Compute weighted mean square (RMS squared)
 //! 5. Convert to dB relative to reference pressure
 
@@ -278,16 +285,16 @@ fn kaiser_window(n: usize, beta: f64) -> Vec<f64> {
 ///
 /// From Praat manual documentation:
 ///
-/// 1. **Frame Timing**: Frames are placed at regular intervals starting
-///    from half the window duration into the signal.
+/// 1. **Frame Timing**: Frames are centred in the sound (see DP1 in the
+///    module docs).
 ///
-/// 2. **Sample Extraction**: For each frame, extract samples centered
-///    at the frame time.
+/// 2. **Sample Extraction**: For each frame, extract samples centred on the
+///    sample nearest the frame time (sample i sits at (i + 0.5) / sr).
 ///
 /// 3. **DC Removal**: Subtract the mean (DC component) from the samples.
 ///    This prevents DC offset from inflating the intensity measurement.
 ///
-/// 4. **Windowing**: Apply a Gaussian window to the samples. The window
+/// 4. **Windowing**: Apply a Kaiser-20 window to the samples. The window
 ///    smoothly tapers the signal to zero at the edges, reducing spectral
 ///    leakage and ensuring the measurement reflects the frame center.
 ///
@@ -307,7 +314,7 @@ fn kaiser_window(n: usize, beta: f64) -> Vec<f64> {
 /// * `sound` - Sound object to analyze
 /// * `min_pitch` - Minimum pitch in Hz. This determines the window size:
 ///   - Effective duration = 3.2 / min_pitch
-///   - Physical duration = 7.2 / min_pitch (ratio 2.25× determined via testing)
+///   - Physical duration = 6.4 / min_pitch (2× effective)
 ///   Lower min_pitch = longer windows = smoother but less time-precise contour.
 /// * `time_step` - Time step in seconds. Use 0 for automatic (0.8 / min_pitch).
 ///

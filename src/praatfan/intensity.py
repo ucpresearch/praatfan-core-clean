@@ -14,12 +14,16 @@ Key documented facts:
 - Default time step: 0.8 / min_pitch (1/4 of effective duration)
 - DC removal: "subtracting the mean... then applying the window"
 
-Decision points determined via testing:
-- DP3: Window type - Gaussian α=13.2 gave best results in testing. Documentation says
-  "Gaussian (Kaiser-20)" which is under-specified. Kaiser might work with different
-  parameterization; current implementation uses Gaussian for practical accuracy.
-- DP4: Physical vs effective window ratio = 2.25× (empirically determined)
-- DP5: DC removal = unweighted mean subtraction before windowing
+Decision points determined via testing (revised 2026-11-02, v0.1.15):
+- DP1: Frames are centred in the sound; their count is
+  floor((n*dx - 6.4/min_pitch) / time_step) + 1, with the duration taken as
+  n_samples * (1/sample_rate).
+- DP3: Window type - the documented Kaiser-20 (beta = 20). Until 0.1.14 this
+  was a Gaussian with alpha = 13.2, fitted against a grid that was 4 ms off.
+- DP4: Physical window = 2x the effective duration = 6.4 / min_pitch (until
+  0.1.14: 7.2 / min_pitch).
+- DP5: DC removal = unweighted mean subtraction before windowing.
+- Digital silence is -inf dB (Praat reports -300; we keep -inf).
 """
 
 import numpy as np

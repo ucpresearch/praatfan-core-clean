@@ -487,6 +487,7 @@ fn harmonicity_ac_internal(
     // - periods_per_window: user-specified (typically 4.5 for smoother HNR)
     // - frame_timing: Left (not Centered)
     // - apply_octave_cost: false (we want raw correlation for HNR formula)
+    // - voicing threshold 0, path finder off, ceiling at Nyquist (below)
     let pitch = sound_to_pitch_internal(
         sound,
         time_step,
@@ -534,15 +535,16 @@ fn harmonicity_ac_internal(
 
 /// Compute harmonicity using cross-correlation method.
 ///
-/// Uses the same approach as AC: compute Pitch CC internally with full
-/// Viterbi voicing decisions, then extract the correlation strength from
-/// voiced frames and apply the HNR formula.
+/// Uses the same approach as AC: compute Pitch CC internally with the
+/// Boersma (1993) HNR settings (path finder off, voicing threshold zero),
+/// then extract the correlation strength from voiced frames and apply the
+/// HNR formula.
 ///
 /// Key differences from standard Pitch CC:
 /// - `periods_per_window`: user-specified + 1 (for forward CC, DP29)
 /// - `frame_timing`: Centered
 /// - `apply_octave_cost`: false (raw correlation for HNR)
-/// - `apply_intensity_adjustment`: false (raw correlation for HNR)
+/// - voicing threshold 0, octave-jump and voiced/unvoiced costs 0
 ///
 /// # Arguments
 ///

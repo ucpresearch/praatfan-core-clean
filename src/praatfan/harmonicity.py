@@ -27,6 +27,12 @@ Decision points:
   confirmed black-box (Praat reports exactly -200 for silence and for DC).
 - DP34: Minimum periods_per_window for the AC method — RESOLVED, see
   AC_MIN_PERIODS_PER_WINDOW (3.0).
+- DP35: Pitch settings under HNR — RESOLVED 2026-11-02 (v0.1.15): Boersma
+  (1993, sec. 4) — path finder off, VoicingThreshold and OctaveCost zero,
+  MaximumPitch = Nyquist (AC; CC keeps 600 Hz, which matched Praat better).
+  Each pitch frame also has its local average subtracted (paper step 3.2),
+  so DC reads -200 (it read nan until 0.1.14) and white noise gets a finite
+  HNR (it read -200).
 """
 
 import inspect
@@ -376,8 +382,6 @@ def sound_to_harmonicity_ac(
 
     Returns:
         Harmonicity object. Values are dB; ``-200`` marks frames with no
-        periodicity and ``nan`` marks frames whose correlation is not
-        resolvable from 1 (see ``strength_to_hnr``).. Values are dB; ``-200`` marks frames with no
         periodicity and ``nan`` marks frames whose correlation is not
         resolvable from 1 (see ``strength_to_hnr``).
 

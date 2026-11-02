@@ -10,7 +10,7 @@
 //!
 //! The formant extraction algorithm consists of these steps:
 //!
-//! 1. **Resampling**: Downsample to 2× max_formant_hz (Nyquist criterion)
+//! 1. **Resampling**: Resample to 2× max_formant_hz, up or down (Praat manual)
 //! 2. **Pre-emphasis**: High-pass filter to compensate for lip radiation
 //! 3. **Windowing**: Apply Gaussian window to each analysis frame
 //! 4. **LPC analysis**: Compute LPC coefficients using Burg's algorithm
