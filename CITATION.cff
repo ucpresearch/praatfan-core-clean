@@ -1,0 +1,18 @@
+cff-version: 1.2.0
+message: "If you use praatfan, please cite it as below, and state the version you used."
+type: software
+title: "Praatfan: A clean-room reimplementation of Praat's acoustic analyses"
+authors:
+  - family-names: "Cohen Priva"
+    given-names: "Uriel"
+repository-code: "https://github.com/ucpresearch/praatfan-core-clean"
+url: "https://github.com/ucpresearch/praatfan-core-clean"
+license: MIT
+keywords:
+  - phonetics
+  - acoustic analysis
+  - Praat
+  - pitch
+  - formants
+  - harmonics-to-noise ratio
+  - clean-room reimplementation

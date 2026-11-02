@@ -523,6 +523,26 @@ The clean-room implementation (`praatfan`) matches parselmouth closely:
 | Intensity | < 0.3 dB |
 | HNR | < 0.5 dB |
 
+## Citing praatfan
+
+If you use praatfan in published work, please cite it and state the version
+you used (`praatfan.__version__` in Python, `packageVersion("praatfan")` in
+R):
+
+```bibtex
+@misc{cohenpriva2026praatfan,
+  author       = {Cohen Priva, Uriel},
+  title        = {{Praatfan}: A clean-room reimplementation of {Praat}'s acoustic analyses},
+  year         = {2026},
+  note         = {Software, version X.Y.Z},
+  howpublished = {\url{https://github.com/ucpresearch/praatfan-core-clean}}
+}
+```
+
+In R, `citation("praatfan")` prints the same entry with the installed
+version filled in. GitHub's "Cite this repository" button (from
+`CITATION.cff`) gives a `@software` variant for biblatex users.
+
 ## License
 
 MIT License - see LICENSE file.

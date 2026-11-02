@@ -1,0 +1,14 @@
+bibentry(
+  bibtype = "Misc",
+  key = "cohenpriva2026praatfan",
+  title = "{Praatfan}: A clean-room reimplementation of {Praat}'s acoustic analyses",
+  author = person("Uriel", "Cohen Priva"),
+  year = "2026",
+  note = paste("Software, version", meta$Version),
+  howpublished = "\\url{https://github.com/ucpresearch/praatfan-core-clean}",
+  textVersion = paste0(
+    "Cohen Priva, U. (2026). Praatfan: A clean-room reimplementation of ",
+    "Praat's acoustic analyses (version ", meta$Version, "). ",
+    "https://github.com/ucpresearch/praatfan-core-clean"
+  )
+)
