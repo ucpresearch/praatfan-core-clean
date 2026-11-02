@@ -514,14 +514,24 @@ single-threaded run at any thread count.
 
 ## Accuracy
 
-The clean-room implementation (`praatfan`) matches parselmouth closely:
+praatfan was validated against **Praat 6.1.38, as bundled in parselmouth
+0.4.7**, by black-box comparison of outputs. Frame counts and frame times
+match Praat exactly. Values, frame by frame on the three test fixtures with
+default settings (v0.1.15, frames defined in both):
 
-| Analysis | Typical Difference |
-|----------|-------------------|
-| Pitch (F0) | < 0.01 Hz |
-| Formants | < 1 Hz (high-energy frames) |
-| Intensity | < 0.3 dB |
-| HNR | < 0.5 dB |
+| Analysis | Median difference | 90th percentile |
+|----------|-------------------|-----------------|
+| Pitch F0 (frames voiced in both) | 0.016 Hz | 0.11 Hz |
+| Formants F1 / F2 / F3 (all frames, silence included) | 0.6 / 1.1 / 1.1 Hz | 8 / 16 / 35 Hz |
+| Intensity | 0.002 dB | 0.02 dB |
+| HNR, AC method | 0.23 dB | 0.94 dB |
+| HNR, CC method | 1.8 dB | 6.6 dB |
+
+The largest differences are in low-energy frames (silence, pauses), where
+the analyses are least stable. The spectrogram is a standard STFT and is
+not meant to match Praat's grid. Where Praat's output is demonstrably
+wrong (for example its exact-doubling upsampler), praatfan does not follow
+it.
 
 ## Citing praatfan
 
