@@ -23,6 +23,8 @@ A clean-room reimplementation of Praat's acoustic analysis algorithms, with a un
 >   Previously it was analysed as if the ceiling were its Nyquist frequency.
 > - **Spectrogram:** a maximum frequency above Nyquist is clamped to
 >   Nyquist (pure Python used to raise an error).
+> - **`Sound.resample`:** now resamples up as well as down; a higher rate
+>   used to return a copy at the old rate. Also available in the WASM build.
 >
 > **v0.1.14** makes the Rust backend give the same numbers on every machine:
 > its maths functions and FFTs no longer depend on the host's maths library or
