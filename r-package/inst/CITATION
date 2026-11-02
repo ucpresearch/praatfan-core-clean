@@ -1,6 +1,7 @@
 bibentry(
   bibtype = "Misc",
   key = "cohenpriva2026praatfan",
+  header = "To cite praatfan in publications, please use:",
   title = "{Praatfan}: A clean-room reimplementation of {Praat}'s acoustic analyses",
   author = person("Uriel", "Cohen Priva"),
   year = "2026",
@@ -11,4 +12,38 @@ bibentry(
     "Praat's acoustic analyses (version ", meta$Version, "). ",
     "https://github.com/ucpresearch/praatfan-core-clean"
   )
+)
+
+bibentry(
+  bibtype = "Misc",
+  key = "boersma2026praat",
+  header = paste(
+    "Please also cite Praat: praatfan shares no code with it, but implements",
+    "its analyses and was validated against its output (fill in the Praat",
+    "version and retrieval date, as praat.org asks):"
+  ),
+  title = "{Praat}: Doing phonetics by computer",
+  author = c(person("Paul", "Boersma"), person("David", "Weenink")),
+  year = "2026",
+  note = "Computer program, version X.Y.Z, retrieved DD Month YYYY",
+  howpublished = "\\url{https://www.praat.org}",
+  textVersion = paste(
+    "Boersma, P. & Weenink, D. (2026). Praat: doing phonetics by computer",
+    "[Computer program]. Version X.Y.Z, retrieved DD Month YYYY from",
+    "https://www.praat.org"
+  )
+)
+
+bibentry(
+  bibtype = "InProceedings",
+  key = "boersma1993",
+  header = "For pitch or harmonicity results, also the algorithm's paper:",
+  title = paste("Accurate short-term analysis of the fundamental frequency",
+                "and the harmonics-to-noise ratio of a sampled sound"),
+  author = person("Paul", "Boersma"),
+  booktitle = "Proceedings of the Institute of Phonetic Sciences",
+  volume = "17",
+  pages = "97--110",
+  year = "1993",
+  address = "University of Amsterdam"
 )

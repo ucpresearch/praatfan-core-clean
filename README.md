@@ -539,8 +539,29 @@ R):
 }
 ```
 
-In R, `citation("praatfan")` prints the same entry with the installed
-version filled in. GitHub's "Cite this repository" button (from
+Please also cite **Praat**. praatfan's code shares nothing with Praat's,
+but the analyses it implements, their parameters and their defaults are
+Praat's, and praatfan was validated against Praat's output. Praat's
+authors ask for this form (fill in the version and date, see
+[praat.org](https://www.praat.org)):
+
+```bibtex
+@misc{boersma2026praat,
+  author       = {Boersma, Paul and Weenink, David},
+  title        = {{Praat}: Doing phonetics by computer},
+  year         = {2026},
+  note         = {Computer program, version X.Y.Z, retrieved DD Month YYYY},
+  howpublished = {\url{https://www.praat.org}}
+}
+```
+
+If you report pitch or harmonicity, the algorithm's own paper is
+Boersma (1993), "Accurate short-term analysis of the fundamental frequency
+and the harmonics-to-noise ratio of a sampled sound", *Proceedings of the
+Institute of Phonetic Sciences* 17: 97-110.
+
+In R, `citation("praatfan")` prints these entries, with praatfan's
+installed version filled in. GitHub's "Cite this repository" button (from
 `CITATION.cff`) gives a `@software` variant for biblatex users.
 
 ## License

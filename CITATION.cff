@@ -1,5 +1,5 @@
 cff-version: 1.2.0
-message: "If you use praatfan, please cite it as below, and state the version you used."
+message: "If you use praatfan, please cite it as below and state the version you used. Please also cite Praat (see references)."
 type: software
 title: "Praatfan: A clean-room reimplementation of Praat's acoustic analyses"
 authors:
@@ -16,3 +16,23 @@ keywords:
   - formants
   - harmonics-to-noise ratio
   - clean-room reimplementation
+references:
+  - type: software
+    title: "Praat: Doing phonetics by computer"
+    authors:
+      - family-names: "Boersma"
+        given-names: "Paul"
+      - family-names: "Weenink"
+        given-names: "David"
+    url: "https://www.praat.org"
+    notes: "praatfan implements Praat's analyses and was validated against its output; please cite Praat too."
+  - type: conference-paper
+    title: "Accurate short-term analysis of the fundamental frequency and the harmonics-to-noise ratio of a sampled sound"
+    authors:
+      - family-names: "Boersma"
+        given-names: "Paul"
+    collection-title: "Proceedings of the Institute of Phonetic Sciences"
+    volume: 17
+    start: 97
+    end: 110
+    year: 1993
