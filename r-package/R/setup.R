@@ -27,6 +27,77 @@ NULL
 .pf_bin_dir <- function() file.path(.pf_home(), "bin")
 .pf_src_dir <- function() file.path(.pf_home(), "src")
 
+# The shared location: inside the installed package, so the account that
+# owns a site library can install one engine for every user of it.
+# Reinstalling the package replaces the package directory, and with it
+# anything installed there.
+.pf_pkg_dir <- function() system.file(package = "praatfan")
+.pf_pkg_bin_dir <- function() file.path(.pf_pkg_dir(), "bin")
+
+# Engine binary directories in lookup order: the caller's own first, so a
+# per-user install keeps winning over a shared one.
+.pf_bin_dirs <- function() c(.pf_bin_dir(), .pf_pkg_bin_dir())
+
+# Is `path` inside the caller's home directory?
+.pf_under_home <- function(path) {
+  homes <- unique(c(Sys.getenv("HOME"), Sys.getenv("USERPROFILE"),
+                    path.expand("~")))
+  homes <- homes[nzchar(homes)]
+  p <- normalizePath(path, winslash = "/", mustWork = FALSE)
+  for (h in homes) {
+    h <- normalizePath(h, winslash = "/", mustWork = FALSE)
+    if (identical(p, h) || startsWith(p, paste0(sub("/$", "", h), "/"))) {
+      return(TRUE)
+    }
+  }
+  FALSE
+}
+
+#' Resolve \code{pf_setup(where = )} to \code{"user"} or \code{"package"}.
+#'
+#' \code{"auto"} picks \code{"package"} when the package sits in a library
+#' outside the caller's home that the caller can write to (an admin, or the
+#' account that owns a site library), and \code{"user"} otherwise.
+#' @keywords internal
+.pf_resolve_where <- function(where) {
+  if (where != "auto") return(where)
+  pkg <- .pf_pkg_dir()
+  if (nzchar(pkg) && !.pf_under_home(pkg) && file.access(pkg, 2L) == 0L) {
+    "package"
+  } else {
+    "user"
+  }
+}
+
+# Where the running pf_setup() installs binaries (set for its duration).
+.pf_state <- new.env(parent = emptyenv())
+.pf_install_bin_dir <- function() .pf_state$install_bin %||% .pf_bin_dir()
+
+#' An explicitly pinned engine binary: \code{options(praatfan.pipe)}, then
+#' \code{PRAATFAN_PIPE}.  \code{NULL} when neither is set.  A pin that names a
+#' missing file is an error, so a pinned build is never silently replaced by
+#' another one.
+#' @keywords internal
+.pf_pinned_pipe <- function() {
+  opt <- getOption("praatfan.pipe")
+  if (!is.null(opt) && nzchar(opt)) {
+    if (!file.exists(opt)) {
+      stop("options(praatfan.pipe) names ", opt, ", which does not exist.",
+           call. = FALSE)
+    }
+    return(opt)
+  }
+  env <- Sys.getenv("PRAATFAN_PIPE", "")
+  if (nzchar(env)) {
+    if (!file.exists(env)) {
+      stop("PRAATFAN_PIPE names ", env, ", which does not exist.",
+           call. = FALSE)
+    }
+    return(env)
+  }
+  NULL
+}
+
 # HTTPS is tried first (works anonymously for a public repo, and with a
 # credential helper for a private one); SSH is the fallback.
 .pf_repo_urls <- function(slug) {
@@ -78,11 +149,29 @@ NULL
 #' @param method  Which install route to take: \code{"auto"} (default), or one
 #'   of \code{"binary"}, \code{"git"}, \code{"source"} to force a single route.
 #' @param force   Re-install even if already present.
+#' @param where   Where to install: \code{"user"} (the caller's data
+#'   directory: \code{$XDG_DATA_HOME/praatfan}, default
+#'   \code{~/.local/share/praatfan}; \code{\%LOCALAPPDATA\%\\praatfan} on Windows),
+#'   \code{"package"} (inside the installed package, shared by every user
+#'   of its library; reinstalling the package removes it, so run
+#'   \code{pf_setup()} again after an update), or \code{"auto"} (default):
+#'   \code{"package"} when the package sits in a writable library outside
+#'   the caller's home, otherwise \code{"user"}.  Lookup checks the user
+#'   directory first, then the package directory.
 #' @export
 pf_setup <- function(engine = NULL, source = NULL, repo = NULL, ref = NULL,
                      method = c("auto", "binary", "git", "source"),
-                     force = FALSE) {
+                     force = FALSE, where = c("auto", "user", "package")) {
   method <- match.arg(method)
+  where <- .pf_resolve_where(match.arg(where))
+  install_bin <- if (where == "package") .pf_pkg_bin_dir() else .pf_bin_dir()
+  old_bin <- .pf_state$install_bin
+  .pf_state$install_bin <- install_bin
+  .pf_state$where <- where
+  on.exit({
+    .pf_state$install_bin <- old_bin
+    .pf_state$where <- NULL
+  }, add = TRUE)
   # the auto engine may be "wasm" exactly because nothing is installed yet:
   # with no explicit request, install the open binary
   eng <- .pf_engine_of(engine %||% .pf_engine_requested() %||% "open")
@@ -95,13 +184,20 @@ pf_setup <- function(engine = NULL, source = NULL, repo = NULL, ref = NULL,
     return(.pf_install_gpl_wasm(eng, ref = ref, zip = source, force = force))
   }
 
-  if (!force && .pf_is_ready(eng)) {
+  # Already there?  A shared install looks only at the package directory,
+  # so a per-user binary does not stop an admin from installing for all.
+  present <- if (where == "package") {
+    any(file.exists(file.path(install_bin, c(eng$bin, paste0(eng$bin, ".exe")))))
+  } else {
+    .pf_is_ready(eng)
+  }
+  if (!force && present) {
     bin <- tryCatch(.pf_pipe_bin(eng), error = function(e) "")
     message(eng$bin, " already available: ", bin)
     return(invisible(TRUE))
   }
 
-  dir.create(.pf_bin_dir(), showWarnings = FALSE, recursive = TRUE)
+  dir.create(install_bin, showWarnings = FALSE, recursive = TRUE)
 
   if (!is.null(source)) {
     # Explicit source tree: use it, and let its errors surface directly.
@@ -143,7 +239,7 @@ pf_setup <- function(engine = NULL, source = NULL, repo = NULL, ref = NULL,
   }
 
   if (.pf_is_ready(eng)) {
-    message(eng$bin, " ready at ", .pf_bin_dir())
+    message(eng$bin, " ready at ", install_bin)
   } else {
     stop("Installation failed. Check the output above for errors.",
          call. = FALSE)
@@ -164,11 +260,22 @@ pf_uninstall <- function(sources = TRUE) {
   } else {
     message("Nothing to remove at ", .pf_bin_dir())
   }
-  if (dir.exists(dirname(.pf_gpl_wasm_dir()))) {
-    message("Removing: ", dirname(.pf_gpl_wasm_dir()))
-    unlink(dirname(.pf_gpl_wasm_dir()), recursive = TRUE)
-    .pf_wasm_reset("gpl")
+  if (dir.exists(dirname(.pf_user_gpl_wasm_dir()))) {
+    message("Removing: ", dirname(.pf_user_gpl_wasm_dir()))
+    unlink(dirname(.pf_user_gpl_wasm_dir()), recursive = TRUE)
   }
+  # the shared, in-package installs, when this account may remove them
+  for (d in c(.pf_pkg_bin_dir(), .pf_pkg_gpl_wasm_dir())) {
+    if (dir.exists(d)) {
+      if (file.access(d, 2L) == 0L) {
+        message("Removing: ", d)
+        unlink(d, recursive = TRUE)
+      } else {
+        message("Shared install left in place (not writable here): ", d)
+      }
+    }
+  }
+  .pf_wasm_reset("gpl")
   if (sources && dir.exists(.pf_src_dir())) {
     message("Removing: ", .pf_src_dir())
     unlink(.pf_src_dir(), recursive = TRUE)
@@ -237,7 +344,7 @@ pf_uninstall <- function(sources = TRUE) {
 #' Copy a binary into the install directory and make it executable.
 #' @keywords internal
 .pf_install_file <- function(src, plat) {
-  dest <- file.path(.pf_bin_dir(), plat$exe)
+  dest <- file.path(.pf_install_bin_dir(), plat$exe)
   if (!file.copy(src, dest, overwrite = TRUE)) {
     stop("could not copy ", src, " to ", dest, call. = FALSE)
   }
@@ -459,7 +566,13 @@ pf_uninstall <- function(sources = TRUE) {
 .pf_install_gpl_wasm <- function(eng, ref = NULL, zip = NULL, force = FALSE) {
   why <- .pf_wasm_unavailable("open")
   if (!is.null(why) && grepl("V8", why)) stop("praatfan: ", why, call. = FALSE)
-  if (!force && is.null(zip) && .pf_is_ready(eng)) {
+  shared <- identical(.pf_state$where, "package")
+  present <- if (shared) {
+    file.exists(file.path(.pf_pkg_gpl_wasm_dir(), "praatfan_gpl_bg.wasm"))
+  } else {
+    .pf_is_ready(eng)
+  }
+  if (!force && is.null(zip) && present) {
     message("The GPL WASM engine is already installed: ", .pf_gpl_wasm_dir())
     return(invisible(TRUE))
   }
@@ -501,7 +614,7 @@ pf_uninstall <- function(sources = TRUE) {
          call. = FALSE)
   })
 
-  dest <- .pf_gpl_wasm_dir()
+  dest <- if (shared) .pf_pkg_gpl_wasm_dir() else .pf_user_gpl_wasm_dir()
   unlink(dest, recursive = TRUE)
   dir.create(dest, recursive = TRUE, showWarnings = FALSE)
   files <- list.files(unpacked, full.names = TRUE)
@@ -587,13 +700,50 @@ pf_uninstall <- function(sources = TRUE) {
 
 .pf_is_ready <- function(eng = .pf_engine_of()) {
   if (!is.null(eng$wasm)) return(is.null(.pf_wasm_unavailable(eng$wasm)))
-  env <- Sys.getenv("PRAATFAN_PIPE", "")
-  if (nzchar(env) && file.exists(env)) return(TRUE)
-  candidate <- file.path(.pf_bin_dir(), eng$bin)
-  if (file.exists(candidate) || file.exists(paste0(candidate, ".exe"))) {
-    return(TRUE)
+  if (!is.null(.pf_pinned_pipe())) return(TRUE)   # errors on a missing pin
+  !is.null(.pf_find_installed_bin(eng)) || Sys.which(eng$bin) != ""
+}
+
+#' The installed binary of an engine: user directory, then package
+#' directory.  \code{NULL} when neither has it.
+#' @keywords internal
+.pf_find_installed_bin <- function(eng) {
+  found <- character()
+  for (d in .pf_bin_dirs()) {
+    candidate <- file.path(d, eng$bin)
+    if (file.exists(candidate)) {
+      found <- c(found, candidate)
+    } else if (file.exists(paste0(candidate, ".exe"))) {
+      found <- c(found, paste0(candidate, ".exe"))
+    }
   }
-  Sys.which(eng$bin) != ""
+  if (length(found) == 0L) return(NULL)
+  if (length(found) > 1L) .pf_check_shadowing(eng, found)
+  found[[1]]
+}
+
+#' Warn once when a per-user binary shadows a shared one of another version
+#' (the per-user directory wins the lookup, so a stale copy there would hide
+#' a newer shared install).
+#' @keywords internal
+.pf_check_shadowing <- function(eng, paths) {
+  key <- paste("shadow", paste(paths, collapse = "|"))
+  if (isTRUE(.pf_version_warned[[key]])) return(invisible())
+  assign(key, TRUE, envir = .pf_version_warned)
+  ver <- vapply(paths, function(p) {
+    out <- tryCatch(suppressWarnings(system2(p, "--version", stdout = TRUE,
+                                             stderr = FALSE)),
+                    error = function(e) character())
+    if (length(out)) out[[1]] else NA_character_
+  }, character(1))
+  if (!anyNA(ver) && !identical(ver[[1]], ver[[2]])) {
+    warning("praatfan: ", paths[[1]], " (", ver[[1]], ") is used, and it ",
+            "shadows the shared ", paths[[2]], " (", ver[[2]], "). ",
+            "Delete the per-user copy to use the shared one, or update it ",
+            "with pf_setup(where = \"user\", force = TRUE).",
+            call. = FALSE)
+  }
+  invisible()
 }
 
 #' Ensure the engine binary is available, bootstrapping it if needed.

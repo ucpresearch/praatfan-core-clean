@@ -10,7 +10,8 @@ pf_setup(
   repo = NULL,
   ref = NULL,
   method = c("auto", "binary", "git", "source"),
-  force = FALSE
+  force = FALSE,
+  where = c("auto", "user", "package")
 )
 }
 \arguments{
@@ -40,6 +41,16 @@ the latest release, and the repository's default branch.}
 of \code{"binary"}, \code{"git"}, \code{"source"} to force a single route.}
 
 \item{force}{Re-install even if already present.}
+
+\item{where}{Where to install: \code{"user"} (the caller's data
+directory: \code{$XDG_DATA_HOME/praatfan}, default
+\code{~/.local/share/praatfan}; \code{\%LOCALAPPDATA\%\\praatfan} on Windows),
+\code{"package"} (inside the installed package, shared by every user
+of its library; reinstalling the package removes it, so run
+\code{pf_setup()} again after an update), or \code{"auto"} (default):
+\code{"package"} when the package sits in a writable library outside
+the caller's home, otherwise \code{"user"}.  Lookup checks the user
+directory first, then the package directory.}
 }
 \description{
 Fetches a pre-built engine binary; compiling is a last resort.  No

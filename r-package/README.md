@@ -29,7 +29,25 @@ checked against the release's `SHA256SUMS` and refused if it does not match
 consistency check — it catches a corrupt, truncated or mismatched download —
 not protection against a compromised release: the checksum file comes from
 the same release as the binary, so whoever could replace one could replace
-both. Point the package at an existing binary instead with `PRAATFAN_PIPE=/path/to/praatfan-open-pipe`.
+both. Point the package at an existing binary instead with
+`options(praatfan.pipe = "/path/to/praatfan-open-pipe")` or
+`PRAATFAN_PIPE=/path/to/praatfan-open-pipe`; either one naming a missing
+file is an error, not a fallback to another binary.
+
+Where binaries go, `pf_setup(where = "auto" | "user" | "package")`:
+- `"user"`: your own data directory, `$XDG_DATA_HOME/praatfan` (default
+  `~/.local/share/praatfan`; `%LOCALAPPDATA%\praatfan` on Windows).
+- `"package"`: inside the installed package, shared by everyone who uses
+  that library. Reinstalling or updating the package removes it, so run
+  `pf_setup()` again afterwards.
+- `"auto"` (default): `"package"` when the package sits in a library outside
+  your home that you can write to (an admin, or the account that owns a site
+  library), otherwise `"user"`.
+
+Lookup checks your own directory first, then the package's, then `PATH`. A
+per-user binary that shadows a shared one of another version prints a
+warning, as does an open engine whose version differs from the package's,
+or a `"gpl"` binary and `"gpl_wasm"` bundle of different versions.
 
 ## Use
 
@@ -127,8 +145,9 @@ b <- pf_analyze("audio.wav", list(list(type = "formant_burg")), engine = "gpl")
 
 Selection precedence: `pf_engine(...)` / `pf_analyze(engine = ...)` >
 `PRAATFAN_ENGINE` environment variable > `"open"` if its binary is available,
-else `"wasm"`. `PRAATFAN_PIPE` (an explicit binary path) always wins for the
-native engines and makes the open binary available. The engine choice affects only
+else `"wasm"`. `options(praatfan.pipe)`, then `PRAATFAN_PIPE` (an explicit
+binary path) always win for the native engines and make the open binary
+available. The engine choice affects only
 which subprocess runs; this package itself remains MIT either way.
 
 ## Notes

@@ -42,7 +42,15 @@ NULL
 
 #' Where the downloaded GPL bundle lives.
 #' @keywords internal
-.pf_gpl_wasm_dir <- function() file.path(.pf_home(), "wasm", "gpl")
+.pf_user_gpl_wasm_dir <- function() file.path(.pf_home(), "wasm", "gpl")
+.pf_pkg_gpl_wasm_dir <- function() file.path(.pf_pkg_dir(), "gpl-wasm")
+# the per-user install wins over a shared one, as for the binaries
+.pf_gpl_wasm_dir <- function() {
+  for (d in c(.pf_user_gpl_wasm_dir(), .pf_pkg_gpl_wasm_dir())) {
+    if (file.exists(file.path(d, "praatfan_gpl_bg.wasm"))) return(d)
+  }
+  .pf_user_gpl_wasm_dir()
+}
 
 #' The glue script and module of a bundle: \code{"open"} (shipped) or
 #' \code{"gpl"} (downloaded by \code{pf_setup(engine = "gpl_wasm")}).

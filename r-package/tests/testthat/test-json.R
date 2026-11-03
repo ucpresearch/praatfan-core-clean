@@ -25,3 +25,32 @@ test_that("an open engine of another version warns once per session", {
   expect_silent(praatfan:::.pf_check_engine_version(eng, "0.0.1"))
   expect_silent(praatfan:::.pf_check_engine_version(praatfan:::.pf_engines$gpl, "0.0.1"))
 })
+
+test_that("gpl and gpl_wasm of different versions warn once", {
+  rm(list = ls(praatfan:::.pf_version_warned), envir = praatfan:::.pf_version_warned)
+  rm(list = ls(praatfan:::.pf_gpl_seen), envir = praatfan:::.pf_gpl_seen)
+  g <- praatfan:::.pf_engines
+  expect_silent(praatfan:::.pf_check_engine_version(g$gpl, "0.1.16"))
+  expect_silent(praatfan:::.pf_check_engine_version(g$gpl_wasm, "0.1.16"))
+  expect_warning(praatfan:::.pf_check_engine_version(g$gpl_wasm, "0.1.15"), "gpl_wasm")
+  expect_silent(praatfan:::.pf_check_engine_version(g$gpl_wasm, "0.1.15"))
+})
+
+test_that("a pinned binary that does not exist is an error, not a fallback", {
+  withr_env <- Sys.getenv("PRAATFAN_PIPE", unset = NA)
+  on.exit(if (is.na(withr_env)) Sys.unsetenv("PRAATFAN_PIPE") else Sys.setenv(PRAATFAN_PIPE = withr_env))
+  Sys.setenv(PRAATFAN_PIPE = file.path(tempdir(), "no-such-binary"))
+  expect_error(praatfan:::.pf_pipe_bin(praatfan:::.pf_engines$open), "does not exist")
+  Sys.unsetenv("PRAATFAN_PIPE")
+  old <- options(praatfan.pipe = file.path(tempdir(), "no-such-binary"))
+  on.exit(options(old), add = TRUE)
+  expect_error(praatfan:::.pf_is_ready(praatfan:::.pf_engines$open), "does not exist")
+})
+
+test_that("where = 'auto' tells home from elsewhere", {
+  expect_equal(praatfan:::.pf_resolve_where("user"), "user")
+  expect_equal(praatfan:::.pf_resolve_where("package"), "package")
+  expect_true(praatfan:::.pf_under_home(file.path(path.expand("~"), "x")))
+  skip_on_os("windows")
+  expect_false(praatfan:::.pf_under_home("/opt/site-library/praatfan"))
+})

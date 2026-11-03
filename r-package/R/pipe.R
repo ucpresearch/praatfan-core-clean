@@ -70,9 +70,13 @@ NULL
 #' \code{"open"} when its native binary is available (installed by
 #' \code{\link{pf_setup}}, on PATH, or named by \code{PRAATFAN_PIPE}), and
 #' otherwise \code{"wasm"} — the same engine running inside R, so analysis
-#' works with nothing installed.  Independently of the engine choice, the
-#' \code{PRAATFAN_PIPE} environment variable — a path to a specific binary
-#' — always wins for the native engines.
+#' works with nothing installed.  Independently of the engine choice,
+#' \code{options(praatfan.pipe = )} and then the \code{PRAATFAN_PIPE}
+#' environment variable — a path to a specific binary — always win for the
+#' native engines; one that names a missing file is an error.  Otherwise a
+#' native engine is looked up in the caller's directory, then in the
+#' installed package (a shared install, see \code{\link{pf_setup}}), then
+#' on PATH.
 #'
 #' The GPL engine also comes as WebAssembly (\code{"gpl_wasm"}, downloaded
 #' by \code{pf_setup(engine = "gpl_wasm")}).  Choosing \code{"gpl"} uses
@@ -196,14 +200,19 @@ pf_engine <- function(engine = NULL) {
 #' The GPL engines have their own version numbers and are not checked.
 #' @keywords internal
 .pf_check_engine_version <- function(eng, version) {
-  if (!eng$name %in% c("open", "wasm") || is.null(version)) return(invisible())
+  if (is.null(version)) return(invisible())
+  if (eng$name %in% c("gpl", "gpl_wasm")) {
+    return(.pf_check_gpl_pair(eng$name, as.character(version)))
+  }
+  if (!eng$name %in% c("open", "wasm")) return(invisible())
   pkg <- as.character(utils::packageVersion("praatfan"))
   if (identical(as.character(version), pkg)) return(invisible())
   key <- paste(eng$name, version)
   if (isTRUE(.pf_version_warned[[key]])) return(invisible())
   assign(key, TRUE, envir = .pf_version_warned)
   fix <- if (eng$name == "open") {
-    "Run pf_setup() to install the matching binary (or point PRAATFAN_PIPE at one)."
+    paste("Run pf_setup() (as the library's owner for a shared install),",
+          "or set PRAATFAN_PIPE to a matching binary.")
   } else {
     "Reinstall the praatfan R package."
   }
@@ -214,6 +223,30 @@ pf_engine <- function(engine = NULL) {
 }
 
 .pf_version_warned <- new.env(parent = emptyenv())
+
+#' The GPL engines have their own version line, so the binary
+#' (\code{"gpl"}) and the WASM build (\code{"gpl_wasm"}) are compared with
+#' each other, not with the package: warn once when this session has seen
+#' both and they differ.
+#' @keywords internal
+.pf_check_gpl_pair <- function(name, version) {
+  assign(name, version, envir = .pf_gpl_seen)
+  other <- if (name == "gpl") "gpl_wasm" else "gpl"
+  if (!exists(other, envir = .pf_gpl_seen, inherits = FALSE)) return(invisible())
+  v <- c(gpl = get("gpl", envir = .pf_gpl_seen),
+         gpl_wasm = get("gpl_wasm", envir = .pf_gpl_seen))
+  if (identical(v[[1]], v[[2]])) return(invisible())
+  key <- paste("gpl-pair", v[[1]], v[[2]])
+  if (isTRUE(.pf_version_warned[[key]])) return(invisible())
+  assign(key, TRUE, envir = .pf_version_warned)
+  warning("praatfan: the \"gpl\" engine is version ", v[["gpl"]],
+          " but \"gpl_wasm\" is ", v[["gpl_wasm"]], ", so their results can ",
+          "differ. pf_setup(engine = \"gpl\") and pf_setup(engine = ",
+          "\"gpl_wasm\") install the latest of each.", call. = FALSE)
+  invisible()
+}
+
+.pf_gpl_seen <- new.env(parent = emptyenv())
 
 .pf_parse_response <- function(txt, who) {
   resp <- jsonlite::fromJSON(txt, simplifyVector = TRUE, simplifyDataFrame = FALSE)
@@ -226,14 +259,14 @@ pf_engine <- function(engine = NULL) {
 # --- Binary location ---------------------------------------------------------
 
 .pf_pipe_bin <- function(eng = .pf_engine_of()) {
-  # 1. Environment variable override (any engine)
-  env <- Sys.getenv("PRAATFAN_PIPE", "")
-  if (nzchar(env) && file.exists(env)) return(env)
+  # 1. options(praatfan.pipe), then PRAATFAN_PIPE (any engine); a pin naming
+  #    a missing file stops rather than falling through to another binary
+  pinned <- .pf_pinned_pipe()
+  if (!is.null(pinned)) return(pinned)
 
-  # 2. Installed location
-  candidate <- file.path(.pf_bin_dir(), eng$bin)
-  if (file.exists(candidate)) return(candidate)
-  if (file.exists(paste0(candidate, ".exe"))) return(paste0(candidate, ".exe"))
+  # 2. Installed: the caller's directory, then the shared in-package one
+  installed <- .pf_find_installed_bin(eng)
+  if (!is.null(installed)) return(installed)
 
   # 3. PATH
   found <- Sys.which(eng$bin)

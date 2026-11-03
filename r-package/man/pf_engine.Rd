@@ -24,9 +24,13 @@ An explicit \code{pf_engine(...)} call wins, then the
 \code{"open"} when its native binary is available (installed by
 \code{\link{pf_setup}}, on PATH, or named by \code{PRAATFAN_PIPE}), and
 otherwise \code{"wasm"} — the same engine running inside R, so analysis
-works with nothing installed.  Independently of the engine choice, the
-\code{PRAATFAN_PIPE} environment variable — a path to a specific binary
-— always wins for the native engines.
+works with nothing installed.  Independently of the engine choice,
+\code{options(praatfan.pipe = )} and then the \code{PRAATFAN_PIPE}
+environment variable — a path to a specific binary — always win for the
+native engines; one that names a missing file is an error.  Otherwise a
+native engine is looked up in the caller's directory, then in the
+installed package (a shared install, see \code{\link{pf_setup}}), then
+on PATH.
 
 The GPL engine also comes as WebAssembly (\code{"gpl_wasm"}, downloaded
 by \code{pf_setup(engine = "gpl_wasm")}).  Choosing \code{"gpl"} uses
