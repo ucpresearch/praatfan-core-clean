@@ -320,3 +320,37 @@ unilaterally): iterate the mask once (compute the ceiling, mask, recompute
 the ceiling within the mask), or take the ceiling as a percentile over
 frames below a robust upper bound. Either changes `reference_peak` values,
 so it needs a coordinated spec bump across all packages (§6).
+
+## 9. Over-voicing of non-speech, and the whole-file alternatives (measured 2026-11-02)
+
+Informative, not a contract change. Measured with the praatfan_rust AC
+pitch (75–600 Hz, 10 ms, defaults otherwise) against the Buckeye phone
+labels: the share of 10 ms frames voiced, by label class. `IVER` is the
+interviewer, who is barely audible on these channels (Praat voices ~0% of
+those frames).
+
+| File | Reference | Vowels | Voiceless C | Silence | IVER |
+|------|-----------|-------:|------------:|--------:|-----:|
+| s0101a | whole-file p99.99 | 87.8 | 6.5 | 0.1 | 0.2 |
+| s0101a | speech reference (§1) | 95.2 | 34.1 | 94.7 | 96.2 |
+| s2501b | whole-file p99.99 | 91.1 | 10.4 | 0.2 | 0.1 |
+| s2501b | speech reference | 93.2 | 15.5 | 2.8 | 2.4 |
+| s3801b | whole-file p99.99 | 81.7 | 7.6 | 1.2 | 2.4 |
+| s3801b | speech reference | 84.9 | 18.1 | 3.8 | 21.7 |
+
+The speech reference behaves the same in 0.1.15 and 0.1.16 on s0101a, so
+this is a property of the estimator, not of the 0.1.16 pitch fixes: where
+the speech mask admits low-level non-speech, the typical-speech peak is low
+enough that quiet periodic background passes the silence test.
+
+What it buys is chunk stability. Voiced frames that change between a
+whole-file run and 60 s chunks: speech reference 1.6–4.4%; whole-file
+p99.99 3.1–6.8% on three files but 58% on s0101a, whose loud transients
+dominate whichever chunk holds them. The whole-file maximum (Praat's
+reference) is worse on every count: it leaves 24–60% of vowel frames
+unvoiced on these files, and 181% of its voiced-frame count changes when
+s0101a is chunked.
+
+Callers of the referenced variants should check voicing on vowels and
+nasals (how often vowels come back unvoiced) and on silence, not only F0
+values.

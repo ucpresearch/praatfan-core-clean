@@ -339,8 +339,13 @@ voicingThreshold, as the printed form predicts for r ≈ 1.)
 central ±half period of the pitch floor counts, Hann-weighted for AC (the
 analysis window) and unweighted for CC. Measured by sweeping single unit
 impulses across frames and reading Praat's per-frame intensity. The global
-peak in Praat is the single largest |sample|; praatfan deliberately uses the
-99.99th percentile instead (robust to clicks).
+peak in Praat is the single largest |sample| (one click moves Praat's voicing
+cutoff); praatfan deliberately uses the 99.99th percentile instead, the
+element at rank floor(0.9999·(n−1)). Checked against Buckeye phone labels
+(2026-11-02): the maximum leaves 24–60% of vowel frames unvoiced on files with
+loud transients; p99.999 loses a quarter of the vowels on the worst file;
+p99.99 voices 82–91% of vowel frames with near-zero voicing in silence. See
+DECISIONS-speech-reference-normalization.md §9.
 
 ✅ **DOCUMENTED (Eq. 24) - Voiced:**
 ```
