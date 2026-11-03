@@ -1,8 +1,11 @@
 {
   "name": "praatfan_rust",
   "type": "module",
+  "collaborators": [
+    "Uriel Cohen Priva <uriel_cohen_priva@brown.edu>"
+  ],
   "description": "Clean-room reimplementation of Praat's acoustic analysis algorithms",
-  "version": "0.1.15",
+  "version": "0.1.16",
   "license": "MIT",
   "files": [
     "praatfan_bg.wasm",

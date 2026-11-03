@@ -560,10 +560,10 @@ export interface InitOutput {
     readonly intensity_get_value_in_frame: (a: number, b: number) => number;
     readonly __wbg_intensity_free: (a: number, b: number) => void;
     readonly __wbg_spectrum_free: (a: number, b: number) => void;
+    readonly spectrum_imag: (a: number) => [number, number];
+    readonly spectrum_real: (a: number) => [number, number];
     readonly intensity_values: (a: number) => [number, number];
     readonly intensity_times: (a: number) => [number, number];
-    readonly spectrum_real: (a: number) => [number, number];
-    readonly spectrum_imag: (a: number) => [number, number];
     readonly __wbindgen_free: (a: number, b: number, c: number) => void;
     readonly __wbindgen_malloc: (a: number, b: number) => number;
     readonly __wbindgen_realloc: (a: number, b: number, c: number, d: number) => number;
