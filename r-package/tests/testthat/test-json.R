@@ -15,3 +15,13 @@ test_that("scalars stay scalars and integers stay plain", {
   expect_match(j, '"max_number_of_formants":5[,}]')
   expect_identical(jsonlite::fromJSON(j)$window_length, 0.025)
 })
+
+test_that("an open engine of another version warns once per session", {
+  eng <- praatfan:::.pf_engines$open
+  rm(list = ls(praatfan:::.pf_version_warned), envir = praatfan:::.pf_version_warned)
+  pkg <- as.character(utils::packageVersion("praatfan"))
+  expect_silent(praatfan:::.pf_check_engine_version(eng, pkg))
+  expect_warning(praatfan:::.pf_check_engine_version(eng, "0.0.1"), "version 0.0.1")
+  expect_silent(praatfan:::.pf_check_engine_version(eng, "0.0.1"))
+  expect_silent(praatfan:::.pf_check_engine_version(praatfan:::.pf_engines$gpl, "0.0.1"))
+})

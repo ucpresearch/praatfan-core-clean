@@ -158,6 +158,7 @@ pf_engine <- function(engine = NULL) {
     resp <- .pf_parse_response(.pf_wasm_text(request, eng$wasm), who)
     # the binary prints these to stderr, which a WASM engine has none of
     for (w in resp$warnings) warning(who, ": ", w, call. = FALSE)
+    .pf_check_engine_version(eng, resp$version)
     return(resp)
   }
   bin <- .pf_pipe_bin(eng)
@@ -180,8 +181,39 @@ pf_engine <- function(engine = NULL) {
     warning(eng$bin, ": ", err_msg, call. = FALSE)
   }
 
-  .pf_parse_response(paste(json_out, collapse = "\n"), eng$bin)
+  resp <- .pf_parse_response(paste(json_out, collapse = "\n"), eng$bin)
+  .pf_check_engine_version(eng, resp$version)
+  resp
 }
+
+#' Warn (once per session) when an open engine's version differs from the
+#' package's
+#'
+#' The \code{"wasm"} engine ships inside the package, but the
+#' \code{"open"} binary is installed separately by \code{pf_setup()} (or
+#' named by \code{PRAATFAN_PIPE}). After an upgrade of either, the two
+#' open engines can be different versions and give different numbers.
+#' The GPL engines have their own version numbers and are not checked.
+#' @keywords internal
+.pf_check_engine_version <- function(eng, version) {
+  if (!eng$name %in% c("open", "wasm") || is.null(version)) return(invisible())
+  pkg <- as.character(utils::packageVersion("praatfan"))
+  if (identical(as.character(version), pkg)) return(invisible())
+  key <- paste(eng$name, version)
+  if (isTRUE(.pf_version_warned[[key]])) return(invisible())
+  assign(key, TRUE, envir = .pf_version_warned)
+  fix <- if (eng$name == "open") {
+    "Run pf_setup() to install the matching binary (or point PRAATFAN_PIPE at one)."
+  } else {
+    "Reinstall the praatfan R package."
+  }
+  warning("praatfan: the \"", eng$name, "\" engine is version ", version,
+          " but the R package is ", pkg, ", so its results can differ from ",
+          "the other open engine. ", fix, call. = FALSE)
+  invisible()
+}
+
+.pf_version_warned <- new.env(parent = emptyenv())
 
 .pf_parse_response <- function(txt, who) {
   resp <- jsonlite::fromJSON(txt, simplifyVector = TRUE, simplifyDataFrame = FALSE)
