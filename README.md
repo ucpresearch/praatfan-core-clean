@@ -2,10 +2,10 @@
 
 A clean-room reimplementation of Praat's acoustic analysis algorithms, with a unified API that supports multiple backends.
 
-> **Note:** Latest release **v0.1.15**. The API is stabilizing but may still
+> **Note:** Latest release **v0.1.16**. The API is stabilizing but may still
 > change.
 >
-> **v0.1.16 (unreleased) changes pitch and harmonicity values — read before
+> **v0.1.16 changes pitch and harmonicity values — read before
 > upgrading.** Every backend changes the same way:
 > - **Pitch voicing:** the silence test now follows Boersma (1993, eq. 23) as
 >   printed, and measures each frame's peak only around the frame centre
