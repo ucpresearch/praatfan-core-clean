@@ -208,8 +208,22 @@ fn decode_audio_source(
         .make(&track.codec_params, &decoder_opts)
         .map_err(|e| Error::AudioDecodeError(format!("Failed to create decoder: {}", e)))?;
 
-    // Decode all packets
+    // Decode all packets. When the container states its length (WAV, FLAC,
+    // ...), allocate the buffer once at that size: growing by doubling holds
+    // up to twice the samples and, on wasm32, fails outright once the next
+    // doubling passes the 2 GiB allocation limit (> 2^27 samples).
+    let per_frame = if channel.is_some() { 1 } else { n_channels };
     let mut all_samples: Vec<f64> = Vec::new();
+    if let Some(n_frames) = track.codec_params.n_frames {
+        let n = usize::try_from(n_frames)
+            .ok()
+            .and_then(|n| n.checked_mul(per_frame));
+        // A header can lie; a failed reservation here just falls back to
+        // growing as packets arrive.
+        if let Some(n) = n {
+            let _ = all_samples.try_reserve_exact(n);
+        }
+    }
 
     loop {
         let packet = match format.next_packet() {
@@ -240,9 +254,23 @@ fn decode_audio_source(
             }
         };
 
+        // Make room first so running out of memory is an error, not a panic.
+        // A no-op while the up-front reservation lasts.
+        let needed = decoded.frames().saturating_mul(per_frame);
+        all_samples.try_reserve(needed).map_err(|_| {
+            Error::AudioDecodeError(format!(
+                "Out of memory: cannot hold {} decoded samples ({} MB as f64)",
+                all_samples.len().saturating_add(needed),
+                all_samples.len().saturating_add(needed) / (1 << 17)
+            ))
+        })?;
+
         // Convert samples to f64
         append_samples(&decoded, &mut all_samples, channel, n_channels);
     }
+
+    // Unknown or overstated length: drop the unused capacity.
+    all_samples.shrink_to_fit();
 
     Ok((all_samples, sample_rate, n_channels))
 }
