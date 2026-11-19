@@ -26,6 +26,7 @@
 #' energies, spectrograms, HNR and intensity change.
 #'
 #' @author Uriel Cohen Priva
+"_PACKAGE"
 
 # ---------------------------------------------------------------------------
 # Batch interface

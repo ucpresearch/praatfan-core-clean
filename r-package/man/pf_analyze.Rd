@@ -2,7 +2,7 @@
 % Please edit documentation in R/praatfan.R
 \name{pf_analyze}
 \alias{pf_analyze}
-\title{praatfan — Praat-compatible acoustic analysis in R}
+\title{Run a batch of analyses against one audio file.}
 \usage{
 pf_analyze(wav, analyses, channel = NULL, engine = NULL)
 }
@@ -33,36 +33,6 @@ The parsed response: a list with \code{duration},
 analysis, in request order, each a list of parallel vectors.
 }
 \description{
-R wrapper around the praatfan Rust engine, a clean-room reimplementation
-of Praat's core acoustic analysis algorithms validated frame-by-frame
-against Praat.  Analysis runs in the \code{praatfan-open-pipe} binary
-(JSON stdin/stdout) when it is installed, and otherwise in the same engine
-compiled to WebAssembly and run inside R (see \code{\link{pf_engine}});
-no Python required.
-}
-\details{
-Quick start:
-library(praatfan)
-pf_setup()                          # optional: native binary, faster
-f0  <- pf_pitch("audio.wav")
-fmt <- pf_formants("audio.wav")
-
-All analysis functions accept audio in any format the engine reads
-(WAV, FLAC, MP3, OGG/Vorbis, NIST SPHERE incl. shorten; not AIFF).  Mono only;
-pass \code{channel} to select one channel of a multi-channel file.
-
-Long recordings need memory: an hour of 44.1 kHz audio takes several GB,
-most with the \code{"wasm"} engine.  Use a 16 GB machine for hour-long
-files in one piece; on 8 GB machines, split recordings into pieces of
-about 10 minutes (frames next to a cut lose context: cut at pauses, or
-overlap the pieces and drop the overlap).  Downsampling first is safe for
-formants only: it removes high frequencies, so spectral moments, band
-energies, spectrograms, HNR and intensity change.
-}
-\author{
-Uriel Cohen Priva
-Run a batch of analyses against one audio file.
-
 The audio file is loaded once and every analysis in \code{analyses} runs
 against it — the cheapest way to compute several measures per file.  Most
 users want the typed wrappers (\code{\link{pf_pitch}},
