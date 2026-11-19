@@ -574,15 +574,17 @@ the browser's extra copies of the audio.
   frames within a few tens of milliseconds of a cut lose context and can
   differ from an unsplit run: cut at pauses, or overlap the pieces by about
   a second and drop the overlap.
-- **Downsampling first (e.g. `sox in.wav -r 16000 out.wav`) changes the
-  measurements.** It is safe for formants only: formant analysis resamples
-  to twice the formant ceiling anyway (11 kHz for the default 5500 Hz), so
-  16 kHz input loses nothing it uses, and values move only slightly (a
-  different resampler). Everything above the new Nyquist (8 kHz at 16 kHz)
-  is gone, though, so spectral centre of gravity and the other spectral
-  moments (fricatives such as /s/ can drop by kHz), band energies above
-  8 kHz, spectrograms, HNR and intensity all change. Never mix downsampled
-  and original-rate files in one study for those measures.
+- **Downsampling first (e.g. `sox in.wav -r 24000 out.wav`, about half the
+  memory of 44.1 kHz) changes the measurements.** It is safe for praatfan's
+  formants only: formant analysis resamples to twice the formant ceiling
+  anyway (11 kHz for the default 5500 Hz), so any rate of 11 kHz or more
+  loses nothing it uses, and values move only slightly (a different
+  resampler). Everything above the new Nyquist (12 kHz at 24 kHz) is gone,
+  though, so spectral centre of gravity and the other spectral moments
+  (fricatives such as /s/ can shift by kHz), band energies near or above
+  it, spectrograms, HNR and intensity all change. Tools built on praatfan
+  may use the full spectrum too; check their minimum rate. Never mix
+  downsampled and original-rate files in one study for those measures.
 
 ### Backends and auto-selection (Python)
 

@@ -165,7 +165,7 @@ which subprocess runs; this package itself remains MIT either way.
   piece. On 8 GB machines, **split recordings into ~10-minute pieces**: cut
   at pauses, or overlap by a second and drop the overlap, since frames next
   to a cut lose context. Downsampling first (e.g.
-  `sox in.wav -r 16000 out.wav`) is safe only for formants. It removes
+  `sox in.wav -r 24000 out.wav`) is safe only for formants. It removes
   everything above the new Nyquist, so spectral moments (e.g. /s/ centre of
   gravity), band energies, spectrograms, HNR and intensity change; never mix
   downsampled and original-rate files in one study for those.
