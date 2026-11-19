@@ -992,6 +992,72 @@ fn next_pow2(n: usize) -> usize {
     p
 }
 
+/// Largest FFT the stage-1 lowpass runs over a whole signal. Longer signals
+/// are resampled in overlapping chunks instead (see [`resample_two_stage_with`]).
+/// 2^25 is the largest that wasm32 handles (~1 GB with the FFT tables); a
+/// 2^26-point FFT (signals past 2^25 samples, ~12.7 min at 44.1 kHz, ~35 min
+/// at 16 kHz) overflows it. Kept that high on purpose: every input that
+/// worked before chunking existed keeps byte-identical output, on every
+/// platform, and native and wasm32 still agree. Chunking moves samples by
+/// ~2e-6 but flips formants in quiet frames, so it is only for inputs that
+/// could not be processed otherwise (user decision, 2026-11-18).
+const STAGE1_MAX_WHOLE_NFFT: usize = 1 << 25;
+/// Samples each stage-1 chunk keeps (its "core").
+const STAGE1_CHUNK_CORE: usize = 1 << 20;
+/// Context filtered on each side of a chunk's core and then discarded.
+const STAGE1_CHUNK_OVERLAP: usize = 1 << 16;
+
+/// Brick-wall lowpass of `samples` in one FFT of length `nfft`
+/// (≥ `samples.len() + 2·anti_turn_around`), with the signal placed after
+/// `anti_turn_around` zeros.
+///
+/// FFT backend: vendored smallft (Xiph/Vorbis FFTPACK port at f64,
+/// see `rust/src/smallft/`). Returns spectrum in packed-real layout:
+///   [DC, Re_1, Im_1, Re_2, Im_2, ..., Re_{N/2-1}, Im_{N/2-1}, Nyquist]
+/// Brick-wall LPF: for each bin k in [cutoff_bin .. N/2-1] zero
+/// packed[2k-1] (Re) and packed[2k] (Im); also zero packed[N-1]
+/// (Nyquist). Equivalent to `spectrum[cutoff_bin:] = 0` on the
+/// rfft-half spectrum.
+fn lowpass_block(
+    samples: &[f64],
+    upfactor: f64,
+    anti_turn_around: usize,
+    nfft: usize,
+    lookup: &mut crate::smallft::DrftLookup,
+) -> Vec<f64> {
+    let n = samples.len();
+    let mut buf: Vec<f64> = vec![0.0; nfft];
+    buf[anti_turn_around..anti_turn_around + n].copy_from_slice(samples);
+
+    lookup.spx_drft_forward(&mut buf);
+
+    let half = nfft / 2;
+    let cutoff_bin = (upfactor * (nfft as f64) / 2.0).floor() as usize;
+    // Zero packed bins for k in [cutoff_bin, half-1].
+    for k in cutoff_bin..half {
+        // k=0 is DC at index 0; cutoff_bin >= 1 in practice (upfactor < 1).
+        if k == 0 {
+            buf[0] = 0.0;
+        } else {
+            buf[2 * k - 1] = 0.0;
+            buf[2 * k] = 0.0;
+        }
+    }
+    // Zero Nyquist bin (k = half) at packed index nfft - 1.
+    if cutoff_bin <= half {
+        buf[nfft - 1] = 0.0;
+    }
+
+    lookup.spx_drft_backward(&mut buf);
+
+    let inv_n = 1.0 / (nfft as f64);
+    let mut filt = vec![0.0f64; n];
+    for i in 0..n {
+        filt[i] = buf[anti_turn_around + i] * inv_n;
+    }
+    filt
+}
+
 /// Two-stage resampler matching Praat's `Sound: Resample` (precision=50).
 ///
 /// Stage 1: FFT brick-wall lowpass at the source rate (cutoff at the new
@@ -1024,6 +1090,47 @@ fn resample_two_stage(
     precision: usize,
     anti_turn_around: usize,
 ) -> Vec<f64> {
+    resample_two_stage_with(
+        samples,
+        old_rate,
+        new_rate,
+        precision,
+        anti_turn_around,
+        STAGE1_MAX_WHOLE_NFFT,
+        STAGE1_CHUNK_CORE,
+        STAGE1_CHUNK_OVERLAP,
+    )
+}
+
+/// [`resample_two_stage`] with the chunking parameters exposed (tests force
+/// small chunks through it).
+///
+/// Downsampling whose padded stage-1 FFT fits in `max_whole_nfft` filters the
+/// whole signal in one FFT and interpolates from it (output unchanged from
+/// before chunking existed). Longer signals are processed in blocks: each
+/// block lowpasses `core` samples plus `overlap` samples of real context per
+/// side, then interpolates the outputs whose positions fall in its core,
+/// straight from that block. No full-length filtered copy is ever held, so
+/// peak memory is the input, the output and one block's FFT (2^21 points
+/// with the default sizes), whatever the length. wasm32 could not hold a
+/// 2^26-point whole-signal FFT (inputs past 2^25 samples).
+///
+/// The brick wall's impulse response decays as 1/d, and for content at the
+/// cutoff frequency its tail sum diverges logarithmically, so every output
+/// depends weakly on the whole file and no overlap reproduces the
+/// whole-signal FFT exactly: on speech (623 s, 16 kHz -> 11 kHz) chunked
+/// samples differ from it by ~2e-6, below one 16-bit LSB (3.05e-5).
+#[allow(clippy::too_many_arguments)]
+fn resample_two_stage_with(
+    samples: &[f64],
+    old_rate: f64,
+    new_rate: f64,
+    precision: usize,
+    anti_turn_around: usize,
+    max_whole_nfft: usize,
+    core: usize,
+    overlap: usize,
+) -> Vec<f64> {
     if (old_rate - new_rate).abs() < 1e-6 {
         return samples.to_vec();
     }
@@ -1031,84 +1138,7 @@ fn resample_two_stage(
     if n == 0 {
         return Vec::new();
     }
-
-    // Stage 1: FFT brick-wall lowpass at source rate (downsample only).
-    // Mirrors the Python implementation's `np.fft.rfft / irfft` path: pad
-    // input with anti_turn_around zeros on each side, FFT, zero bins
-    // above the new-Nyquist cutoff (i.e. `spectrum[cutoff_bin:] = 0` on
-    // the rfft-half spectrum), inverse FFT, read back the signal slot.
-    //
-    // FFT backend: vendored smallft (Xiph/Vorbis FFTPACK port at f64,
-    // see `rust/src/smallft/`). Returns spectrum in packed-real layout:
-    //   [DC, Re_1, Im_1, Re_2, Im_2, ..., Re_{N/2-1}, Im_{N/2-1}, Nyquist]
-    // Brick-wall LPF: for each bin k in [cutoff_bin .. N/2-1] zero
-    // packed[2k-1] (Re) and packed[2k] (Im); also zero packed[N-1]
-    // (Nyquist). Equivalent to `spectrum[cutoff_bin:] = 0` on the
-    // rfft-half spectrum.
-    let filtered: Vec<f64> = if new_rate < old_rate {
-        let upfactor = new_rate / old_rate;
-        let nfft = next_pow2(n + 2 * anti_turn_around);
-
-        // Pack signal into nfft-length real buffer at anti_turn_around offset.
-        let mut buf: Vec<f64> = vec![0.0; nfft];
-        for (i, &x) in samples.iter().enumerate() {
-            buf[anti_turn_around + i] = x;
-        }
-
-        let mut lookup = crate::smallft::DrftLookup::new(nfft);
-        lookup.spx_drft_forward(&mut buf);
-
-        let half = nfft / 2;
-        let cutoff_bin = (upfactor * (nfft as f64) / 2.0).floor() as usize;
-        // Zero packed bins for k in [cutoff_bin, half-1].
-        for k in cutoff_bin..half {
-            // k=0 is DC at index 0; cutoff_bin >= 1 in practice (upfactor < 1).
-            if k == 0 {
-                buf[0] = 0.0;
-            } else {
-                buf[2 * k - 1] = 0.0;
-                buf[2 * k] = 0.0;
-            }
-        }
-        // Zero Nyquist bin (k = half) at packed index nfft - 1.
-        if cutoff_bin <= half {
-            buf[nfft - 1] = 0.0;
-        }
-
-        lookup.spx_drft_backward(&mut buf);
-
-        let inv_n = 1.0 / (nfft as f64);
-        let mut filt = vec![0.0f64; n];
-        for i in 0..n {
-            filt[i] = buf[anti_turn_around + i] * inv_n;
-        }
-        filt
-    } else {
-        samples.to_vec()
-    };
-
-    // Stage 2: windowed-sinc interpolation of the bandlimited signal.
-    //
-    // The kernel `k(phi) = sinc(phi) · Hann(phi/n_half)` depends only on
-    // the fractional phase `phi = k − x ∈ [-n_half, +n_half]`. The
-    // straightforward implementation evaluates `sin` and `cos` for every
-    // (output × tap) pair — at precision=50 that's `(2·precision+1) =
-    // 101` trig calls per output sample, ≈ 3.3 M per resample for our
-    // fixture. Standard sigproc fix (e.g. Smith, Digital Audio Resampling
-    // Home Page; Crochiere & Rabiner 1983 §3): precompute the kernel on a
-    // fine fractional-phase grid once and look it up with linear
-    // interpolation in the inner loop.
-    //
-    // Table layout: `kernel[j]` for `j ∈ [0, table_len)` covers
-    // `phi_j = j / OVERSAMPLE - n_half`, i.e. `OVERSAMPLE` table entries
-    // per integer `phi` step. Linear-interp error is bounded by
-    // `O((1/OVERSAMPLE)² · max|k''|)`. With OVERSAMPLE=2048 the spacing
-    // is ~5e-4 input-samples and `max|k''| ≲ π² ≈ 10`, so worst-case
-    // sample-level error is ~2.5e-6 — well below the Burg-LPC noise
-    // floor and below the parselmouth-comparison tolerance the original
-    // two-stage was verified against (mean diff 2.7e-8, p99 1.3e-7).
-    let n_in = filtered.len();
-    let n_out = ((n_in as f64) * new_rate / old_rate).floor() as usize;
+    let n_out = ((n as f64) * new_rate / old_rate).floor() as usize;
     let ratio = old_rate / new_rate;
     let n_half = (precision as f64) + 0.5;
 
@@ -1122,6 +1152,92 @@ fn resample_two_stage(
         owned_table = Some(ResampleTable::new(precision));
         owned_table.as_ref().unwrap()
     };
+
+    // Upsampling: no stage 1; interpolate the input directly.
+    if new_rate > old_rate {
+        return interpolate(samples, 0, n, 0, n_out, ratio, n_half, table);
+    }
+
+    // Stage 1: FFT brick-wall lowpass at source rate (cutoff at the new
+    // Nyquist). Mirrors the Python implementation's `np.fft.rfft / irfft`.
+    let upfactor = new_rate / old_rate;
+    let whole_nfft = next_pow2(n + 2 * anti_turn_around);
+    if whole_nfft <= max_whole_nfft {
+        let mut lookup = crate::smallft::DrftLookup::new(whole_nfft);
+        let filtered = lowpass_block(samples, upfactor, anti_turn_around, whole_nfft, &mut lookup);
+        return interpolate(&filtered, 0, n, 0, n_out, ratio, n_half, table);
+    }
+
+    // Chunked: one FFT size (and one set of tables) for every block; the
+    // last block is just padded with more zeros. Every tap of an output whose
+    // position lies in a block's core is inside that block, because the
+    // overlap exceeds the kernel half-width.
+    assert!(
+        (overlap as f64) > n_half + 1.0,
+        "resample overlap must exceed the kernel half-width"
+    );
+    let nfft = next_pow2(core + 2 * overlap + 2 * anti_turn_around);
+    let mut lookup = crate::smallft::DrftLookup::new(nfft);
+    let mut out = Vec::with_capacity(n_out);
+    let mut start = 0;
+    let mut m0 = 0;
+    while start < n {
+        let end = (start + core).min(n);
+        let a = start.saturating_sub(overlap);
+        let b = (end + overlap).min(n);
+        // Outputs whose position x(m) = (m + 0.5)·ratio − 0.5 is < end.
+        let mut m1 = m0;
+        if end == n {
+            m1 = n_out;
+        } else {
+            while m1 < n_out && (m1 as f64 + 0.5) * ratio - 0.5 < end as f64 {
+                m1 += 1;
+            }
+        }
+        if m1 > m0 {
+            let block = lowpass_block(&samples[a..b], upfactor, anti_turn_around, nfft, &mut lookup);
+            out.extend(interpolate(&block, a, n, m0, m1, ratio, n_half, table));
+        }
+        m0 = m1;
+        start = end;
+    }
+    out
+}
+
+/// Stage 2 of the resampler for outputs `m0..m1`: windowed-sinc
+/// interpolation of the bandlimited signal. `src` holds input samples
+/// `src_off .. src_off + src.len()` of a signal of `n_in` samples, and must
+/// cover every tap of every requested output.
+///
+/// The kernel `k(phi) = sinc(phi) · Hann(phi/n_half)` depends only on
+/// the fractional phase `phi = k − x ∈ [-n_half, +n_half]`. The
+/// straightforward implementation evaluates `sin` and `cos` for every
+/// (output × tap) pair — at precision=50 that's `(2·precision+1) =
+/// 101` trig calls per output sample, ≈ 3.3 M per resample for our
+/// fixture. Standard sigproc fix (e.g. Smith, Digital Audio Resampling
+/// Home Page; Crochiere & Rabiner 1983 §3): precompute the kernel on a
+/// fine fractional-phase grid once and look it up with linear
+/// interpolation in the inner loop.
+///
+/// Table layout: `kernel[j]` for `j ∈ [0, table_len)` covers
+/// `phi_j = j / OVERSAMPLE - n_half`, i.e. `OVERSAMPLE` table entries
+/// per integer `phi` step. Linear-interp error is bounded by
+/// `O((1/OVERSAMPLE)² · max|k''|)`. With OVERSAMPLE=2048 the spacing
+/// is ~5e-4 input-samples and `max|k''| ≲ π² ≈ 10`, so worst-case
+/// sample-level error is ~2.5e-6 — well below the Burg-LPC noise
+/// floor and below the parselmouth-comparison tolerance the original
+/// two-stage was verified against (mean diff 2.7e-8, p99 1.3e-7).
+#[allow(clippy::too_many_arguments)]
+fn interpolate(
+    src: &[f64],
+    src_off: usize,
+    n_in: usize,
+    m0: usize,
+    m1: usize,
+    ratio: f64,
+    n_half: f64,
+    table: &ResampleTable,
+) -> Vec<f64> {
     let os_f = RESAMPLE_OVERSAMPLE as f64;
     // Each output sample depends only on `filtered` and the table, so outputs
     // are computed in parallel chunks (order-preserving; bit-identical).
@@ -1160,15 +1276,15 @@ fn resample_two_stage(
             // (precomputed per ti in `ResampleTable`)
             let &[k0, a, b, c] = table.at(ti);
             let kern_val = 0.5 * (2.0 * k0 + frac * (a + frac * (b + frac * c)));
-            acc += filtered[k as usize] * kern_val;
+            acc += src[k as usize - src_off] * kern_val;
             t += os_f;
         }
         acc
     };
     const CHUNK: usize = 16384;
-    let n_chunks = n_out.div_ceil(CHUNK);
+    let n_chunks = (m1 - m0).div_ceil(CHUNK);
     let chunks = crate::parallel::map_frames(n_chunks, || (), |_, c| {
-        (c * CHUNK..((c + 1) * CHUNK).min(n_out)).map(sample_at).collect::<Vec<f64>>()
+        (m0 + c * CHUNK..(m0 + (c + 1) * CHUNK).min(m1)).map(sample_at).collect::<Vec<f64>>()
     });
     chunks.concat()
 }
@@ -1396,4 +1512,68 @@ pub fn sound_to_formant_burg_multi(
             pre_emphasis_from,
         )
     })
+}
+
+#[cfg(test)]
+mod stage1_chunk_tests {
+    use super::*;
+
+    /// Deterministic speech-like test signal: a few partials below and near
+    /// the cutoff plus low-level LCG noise, with silent stretches.
+    fn signal(n: usize, sr: f64) -> Vec<f64> {
+        let mut state: u64 = 0x2545_f491_4f6c_dd1d;
+        (0..n)
+            .map(|i| {
+                state = state.wrapping_mul(6364136223846793005).wrapping_add(1442695040888963407);
+                let noise = ((state >> 11) as f64 / (1u64 << 53) as f64 - 0.5) * 1e-3;
+                let t = i as f64 / sr;
+                let gate = if (i / 7000) % 3 == 2 { 0.0 } else { 1.0 };
+                let tone = 0.3 * libm::sin(2.0 * std::f64::consts::PI * 220.0 * t)
+                    + 0.1 * libm::sin(2.0 * std::f64::consts::PI * 1700.0 * t)
+                    + 0.02 * libm::sin(2.0 * std::f64::consts::PI * 5400.0 * t);
+                gate * tone + noise
+            })
+            .collect()
+    }
+
+    fn max_diff(a: &[f64], b: &[f64]) -> f64 {
+        a.iter().zip(b).map(|(x, y)| (x - y).abs()).fold(0.0, f64::max)
+    }
+
+    fn rs(x: &[f64], max_whole: usize, core: usize, overlap: usize) -> Vec<f64> {
+        resample_two_stage_with(x, 16_000.0, 11_000.0, 50, 1000, max_whole, core, overlap)
+    }
+
+    /// Forced chunking (small blocks, ragged last block) gives the same
+    /// length and stays close to the whole-signal FFT; longer overlap gets
+    /// closer.
+    #[test]
+    fn chunked_matches_whole() {
+        let x = signal(100_003, 16_000.0);
+        let whole = rs(&x, usize::MAX, 0, 0);
+        assert_eq!(whole, resample(&x, 16_000.0, 11_000.0));
+        let short = rs(&x, 1, 8192, 256);
+        let long = rs(&x, 1, 8192, 4096);
+        assert_eq!(short.len(), whole.len());
+        assert_eq!(long.len(), whole.len());
+        let d_short = max_diff(&short, &whole);
+        let d_long = max_diff(&long, &whole);
+        eprintln!("chunked vs whole: overlap 256 {d_short:.2e}, overlap 4096 {d_long:.2e}");
+        assert!(d_long < d_short, "{d_long} !< {d_short}");
+        assert!(d_long < 1e-4, "{d_long}");
+    }
+
+    /// Block boundaries land on every output-position phase without a
+    /// missing or duplicated output.
+    #[test]
+    fn chunked_lengths() {
+        for n in [8191usize, 8192, 8193, 20_000, 33_333] {
+            let x = signal(n, 16_000.0);
+            for (old, new) in [(16_000.0, 11_000.0), (44_100.0, 16_000.0), (48_000.0, 11_025.0)] {
+                let a = resample_two_stage_with(&x, old, new, 50, 1000, usize::MAX, 0, 0);
+                let b = resample_two_stage_with(&x, old, new, 50, 1000, 1, 4096, 256);
+                assert_eq!(a.len(), b.len(), "n {n} {old}->{new}");
+            }
+        }
+    }
 }

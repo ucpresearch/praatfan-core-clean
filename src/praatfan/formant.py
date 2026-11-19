@@ -546,10 +546,60 @@ def _next_pow2(n: int) -> int:
     return p
 
 
+# Largest FFT the stage-1 lowpass runs over a whole signal; longer signals are
+# resampled in overlapping chunks. Same constants as rust/src/formant.rs, where
+# the choice of 2^25 is explained (only inputs that overflow wasm32 change).
+_STAGE1_MAX_WHOLE_NFFT = 1 << 25
+_STAGE1_CHUNK_CORE = 1 << 20
+_STAGE1_CHUNK_OVERLAP = 1 << 16
+
+
+def _lowpass_block(samples: np.ndarray, upfactor: float, anti_turn_around: int,
+                   nfft: int) -> np.ndarray:
+    """Brick-wall lowpass in one FFT of length ``nfft``, signal after
+    ``anti_turn_around`` zeros."""
+    n = len(samples)
+    padded = np.zeros(nfft, dtype=np.float64)
+    padded[anti_turn_around:anti_turn_around + n] = samples
+    spectrum = np.fft.rfft(padded)
+    cutoff_bin = int(math.floor(upfactor * nfft / 2))
+    spectrum[cutoff_bin:] = 0.0
+    return np.fft.irfft(spectrum, nfft)[anti_turn_around:anti_turn_around + n]
+
+
+def _interpolate(src: np.ndarray, src_off: int, n_in: int, m0: int, m1: int,
+                 ratio: float, n_half: float) -> np.ndarray:
+    """Stage 2 for outputs ``m0..m1``: pure-sinc Hann-windowed interpolation.
+    ``src`` holds input samples ``src_off .. src_off + len(src)`` of a signal of
+    ``n_in`` samples and must cover every tap of every requested output."""
+    inv_n_half = 1.0 / n_half
+    out = np.empty(m1 - m0, dtype=np.float64)
+    for m in range(m0, m1):
+        x = (m + 0.5) * ratio - 0.5
+        low = max(0, int(math.ceil(x - n_half)))
+        high = min(n_in - 1, int(math.floor(x + n_half)))
+        if high < low:
+            out[m - m0] = 0.0
+            continue
+        k = np.arange(low, high + 1, dtype=np.float64)
+        phi = k - x
+        s = np.sinc(phi)
+        w = 0.5 + 0.5 * np.cos(np.pi * phi * inv_n_half)
+        out[m - m0] = np.dot(src[low - src_off:high + 1 - src_off], s * w)
+    return out
+
+
 def _resample(samples: np.ndarray, old_rate: float, new_rate: float,
-              precision: int = 50, anti_turn_around: int = 1000) -> np.ndarray:
+              precision: int = 50, anti_turn_around: int = 1000,
+              max_whole_nfft: int = _STAGE1_MAX_WHOLE_NFFT,
+              core: int = _STAGE1_CHUNK_CORE,
+              overlap: int = _STAGE1_CHUNK_OVERLAP) -> np.ndarray:
     """
     Two-stage resampler matching Praat's ``Sound: Resample``.
+
+    Long inputs (padded FFT above ``max_whole_nfft``) are processed in
+    overlapping blocks without a full-length filtered copy; see
+    ``resample_two_stage_with`` in rust/src/formant.rs for the error bound.
 
     Stage 1: FFT brick-wall lowpass at the source rate (cutoff at
     ``new_nyquist``). Provides the long ``1/d`` impulse-response tail that
@@ -575,39 +625,47 @@ def _resample(samples: np.ndarray, old_rate: float, new_rate: float,
         return samples.copy()
 
     n = len(samples)
-
-    # Stage 1: FFT brick-wall LPF at source rate (downsample only).
-    if new_rate < old_rate:
-        upfactor = new_rate / old_rate
-        nfft = _next_pow2(n + 2 * anti_turn_around)
-        padded = np.zeros(nfft, dtype=np.float64)
-        padded[anti_turn_around:anti_turn_around + n] = samples
-        spectrum = np.fft.rfft(padded)
-        cutoff_bin = int(math.floor(upfactor * nfft / 2))
-        spectrum[cutoff_bin:] = 0.0
-        filtered = np.fft.irfft(spectrum, nfft)[anti_turn_around:anti_turn_around + n]
-    else:
-        filtered = samples.astype(np.float64, copy=True)
-
-    # Stage 2: Pure-sinc windowed interpolation of the bandlimited signal.
     n_out = int(math.floor(n * new_rate / old_rate))
     ratio = old_rate / new_rate
     n_half = precision + 0.5
-    inv_n_half = 1.0 / n_half
+    samples = np.asarray(samples, dtype=np.float64)
 
+    # Upsampling: no stage 1.
+    if new_rate > old_rate:
+        return _interpolate(samples, 0, n, 0, n_out, ratio, n_half)
+
+    # Stage 1: FFT brick-wall LPF at source rate, whole-signal when it fits.
+    upfactor = new_rate / old_rate
+    whole_nfft = _next_pow2(n + 2 * anti_turn_around)
+    if whole_nfft <= max_whole_nfft:
+        filtered = _lowpass_block(samples, upfactor, anti_turn_around, whole_nfft)
+        return _interpolate(filtered, 0, n, 0, n_out, ratio, n_half)
+
+    # Chunked (long signals): each block lowpasses ``core`` samples plus
+    # ``overlap`` of context per side and interpolates the outputs whose
+    # positions fall in its core. Same blocks and arithmetic as
+    # ``resample_two_stage_with`` in rust/src/formant.rs.
+    if not overlap > n_half + 1.0:
+        raise ValueError("resample overlap must exceed the kernel half-width")
+    nfft = _next_pow2(core + 2 * overlap + 2 * anti_turn_around)
     out = np.empty(n_out, dtype=np.float64)
-    for m in range(n_out):
-        x = (m + 0.5) * ratio - 0.5
-        low = max(0, int(math.ceil(x - n_half)))
-        high = min(n - 1, int(math.floor(x + n_half)))
-        if high < low:
-            out[m] = 0.0
-            continue
-        k = np.arange(low, high + 1, dtype=np.float64)
-        phi = k - x
-        s = np.sinc(phi)
-        w = 0.5 + 0.5 * np.cos(np.pi * phi * inv_n_half)
-        out[m] = np.dot(filtered[low:high + 1], s * w)
+    start = 0
+    m0 = 0
+    while start < n:
+        end = min(start + core, n)
+        a = max(0, start - overlap)
+        b = min(n, end + overlap)
+        if end == n:
+            m1 = n_out
+        else:
+            m1 = m0
+            while m1 < n_out and (m1 + 0.5) * ratio - 0.5 < end:
+                m1 += 1
+        if m1 > m0:
+            block = _lowpass_block(samples[a:b], upfactor, anti_turn_around, nfft)
+            out[m0:m1] = _interpolate(block, a, n, m0, m1, ratio, n_half)
+        m0 = m1
+        start = end
     return out
 
 
