@@ -56,10 +56,15 @@ pub enum Error {
 
     /// Audio file has unsupported format.
     ///
-    /// Praatfan supports WAV, MP3, OGG Vorbis, FLAC, and AAC via symphonia.
-    /// This error is returned for formats outside this set.
+    /// Returned by the decoder when the bytes are not a container it
+    /// recognises (WAV, FLAC, MP3, OGG, NIST SPHERE), e.g. junk input.
     #[error("Unsupported audio format: {0}")]
     UnsupportedFormat(String),
+
+    /// The container was recognised but its codec cannot be decoded
+    /// (e.g. Opus). Carries the codec's short name.
+    #[error("the {0} codec is not supported (convert the file to WAV or FLAC)")]
+    UnsupportedCodec(String),
 
     /// Audio file must be mono.
     ///

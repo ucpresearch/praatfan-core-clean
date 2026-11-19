@@ -73,3 +73,42 @@ fn sphere_bytes_are_flagged() {
 fn garbage_is_an_error() {
     assert!(decode_bytes(vec![0u8; 100], None, None).is_err());
 }
+
+const DATA: &str = concat!(env!("CARGO_MANIFEST_DIR"), "/tests/data/");
+
+// tests/data/*.mp3 / *.opus: ffmpeg encodes of one_two_three_four_five.wav.
+#[test]
+fn mp3_is_gapless_by_default() {
+    use praatfan_rust::{decode_file_with, DecodeOptions};
+    let wav = decode_file(format!("{FIX}one_two_three_four_five.wav"), None).unwrap();
+    let path = format!("{DATA}one_two_three_four_five.mp3");
+    let d = decode_file(&path, None).unwrap();
+    assert_eq!((d.codec, d.lossy, d.skipped_packets), ("mp3", true, 0));
+    // Encoder delay and padding trimmed: same length, aligned with the WAV.
+    assert_eq!(d.samples.len(), wav.samples.len());
+    let lag = |y: &[f64]| {
+        (0..1300)
+            .max_by(|&a, &b| {
+                let c = |k: usize| (0..30000).map(|i| wav.samples[i] * y[k + i]).sum::<f64>();
+                c(a).total_cmp(&c(b))
+            })
+            .unwrap()
+    };
+    assert_eq!(lag(&d.samples), 0);
+    let raw = decode_file_with(&path, None, &DecodeOptions::default().gapless(false)).unwrap();
+    assert!(raw.samples.len() > wav.samples.len());
+    assert!(lag(&raw.samples) > 1000);
+}
+
+#[test]
+fn unsupported_codec_and_junk_are_named() {
+    match decode_file(format!("{DATA}one_two_three_four_five.opus"), None) {
+        Err(praatfan_rust::Error::UnsupportedCodec(c)) => assert_eq!(c, "opus"),
+        other => panic!("expected UnsupportedCodec, got {other:?}"),
+    }
+    let junk: Vec<u8> = (0..100_000u32).map(|i| (i.wrapping_mul(2654435761) >> 24) as u8).collect();
+    assert!(matches!(
+        decode_bytes(junk, None, None),
+        Err(praatfan_rust::Error::UnsupportedFormat(_))
+    ));
+}

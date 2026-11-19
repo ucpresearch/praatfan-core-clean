@@ -26,8 +26,9 @@ use std::path::Path;
 use ndarray::Array1;
 use symphonia::core::audio::{AudioBufferRef, Signal};
 use symphonia::core::codecs::{
-    DecoderOptions, CODEC_TYPE_AAC, CODEC_TYPE_MP1, CODEC_TYPE_MP2, CODEC_TYPE_MP3, CODEC_TYPE_NULL,
-    CODEC_TYPE_OPUS, CODEC_TYPE_VORBIS,
+    CodecType, DecoderOptions, CODEC_TYPE_AAC, CODEC_TYPE_ADPCM_IMA_WAV, CODEC_TYPE_ADPCM_MS,
+    CODEC_TYPE_ALAC, CODEC_TYPE_MP1, CODEC_TYPE_MP2, CODEC_TYPE_NULL, CODEC_TYPE_OPUS,
+    CODEC_TYPE_SPEEX, CODEC_TYPE_VORBIS, CODEC_TYPE_WAVPACK,
 };
 use symphonia::core::formats::FormatOptions;
 use symphonia::core::io::MediaSourceStream;
@@ -89,10 +90,42 @@ pub struct DecodedAudio {
     /// symphonia's short codec name, e.g. "pcm_s16le", "flac", "mp3".
     /// SPHERE files report the codec of the PCM WAV desphere converts them to.
     pub codec: &'static str,
-    /// True for lossy codecs (MP1/2/3, Vorbis, AAC, Opus).
+    /// False only for linear/companded PCM, FLAC, ALAC and WavPack; every
+    /// other codec (MP3, Vorbis, AAC, ADPCM, ...) counts as lossy.
     pub lossy: bool,
     /// True when the bytes were NIST SPHERE (decoded via desphere).
     pub sphere: bool,
+    /// Packets the codec could not decode and that were skipped. Non-zero
+    /// means the stream is damaged: samples are missing where they were.
+    pub skipped_packets: usize,
+}
+
+/// Options for [`decode_bytes_with`] / [`decode_file_with`].
+///
+/// Build with `DecodeOptions::default()` and the setter methods; new
+/// options may be added.
+#[derive(Debug, Clone)]
+#[non_exhaustive]
+pub struct DecodeOptions {
+    /// Trim the encoder delay and padding that lossy formats add (MP3 with
+    /// a LAME/Xing header, Ogg Vorbis), so the samples line up with the
+    /// original audio as libsndfile returns them. Default: true. Has no
+    /// effect on PCM, FLAC or SPHERE.
+    pub gapless: bool,
+}
+
+impl Default for DecodeOptions {
+    fn default() -> Self {
+        Self { gapless: true }
+    }
+}
+
+impl DecodeOptions {
+    /// Set [`DecodeOptions::gapless`].
+    pub fn gapless(mut self, on: bool) -> Self {
+        self.gapless = on;
+        self
+    }
 }
 
 impl DecodedAudio {
@@ -118,6 +151,16 @@ pub fn decode_bytes(
     ext: Option<&str>,
     channel: Option<usize>,
 ) -> Result<DecodedAudio> {
+    decode_bytes_with(bytes, ext, channel, &DecodeOptions::default())
+}
+
+/// [`decode_bytes`] with explicit [`DecodeOptions`].
+pub fn decode_bytes_with(
+    bytes: impl Into<std::sync::Arc<[u8]>>,
+    ext: Option<&str>,
+    channel: Option<usize>,
+    opts: &DecodeOptions,
+) -> Result<DecodedAudio> {
     let bytes: std::sync::Arc<[u8]> = bytes.into();
     let mut hint = Hint::new();
     if let Some(ext) = ext {
@@ -127,9 +170,9 @@ pub fn decode_bytes(
         Box::new(std::io::Cursor::new(bytes.clone())),
         Default::default(),
     );
-    match decode_audio_source(mss, hint, channel) {
+    match decode_audio_source(mss, hint, channel, opts) {
         Ok(result) => Ok(result),
-        Err(primary_err) => decode_via_desphere(&bytes, channel).unwrap_or(Err(primary_err)),
+        Err(primary_err) => decode_via_desphere(&bytes, channel, opts).unwrap_or(Err(primary_err)),
     }
 }
 
@@ -138,6 +181,16 @@ pub fn decode_bytes(
 /// filesystem: use [`decode_bytes`].
 #[cfg(not(target_arch = "wasm32"))]
 pub fn decode_file<P: AsRef<Path>>(path: P, channel: Option<usize>) -> Result<DecodedAudio> {
+    decode_file_with(path, channel, &DecodeOptions::default())
+}
+
+/// [`decode_file`] with explicit [`DecodeOptions`].
+#[cfg(not(target_arch = "wasm32"))]
+pub fn decode_file_with<P: AsRef<Path>>(
+    path: P,
+    channel: Option<usize>,
+    opts: &DecodeOptions,
+) -> Result<DecodedAudio> {
     let path = path.as_ref();
     let mut hint = Hint::new();
     if let Some(ext) = path.extension().and_then(|e| e.to_str()) {
@@ -147,10 +200,10 @@ pub fn decode_file<P: AsRef<Path>>(path: P, channel: Option<usize>) -> Result<De
         Error::AudioDecodeError(format!("Failed to open file: {}", e))
     })?;
     let mss = MediaSourceStream::new(Box::new(file), Default::default());
-    match decode_audio_source(mss, hint, channel) {
+    match decode_audio_source(mss, hint, channel, opts) {
         Ok(result) => Ok(result),
         Err(primary_err) => match std::fs::read(path) {
-            Ok(bytes) => decode_via_desphere(&bytes, channel).unwrap_or(Err(primary_err)),
+            Ok(bytes) => decode_via_desphere(&bytes, channel, opts).unwrap_or(Err(primary_err)),
             Err(_) => Err(primary_err),
         },
     }
@@ -199,13 +252,14 @@ fn decode_audio_bytes(
 fn decode_via_desphere(
     bytes: &[u8],
     channel: Option<usize>,
+    opts: &DecodeOptions,
 ) -> Option<Result<DecodedAudio>> {
     let wav = desphere::transcode(bytes).ok()?;
 
     let mss = MediaSourceStream::new(Box::new(std::io::Cursor::new(wav)), Default::default());
     let mut hint = Hint::new();
     hint.with_extension("wav");
-    Some(decode_audio_source(mss, hint, channel).map(|mut d| {
+    Some(decode_audio_source(mss, hint, channel, opts).map(|mut d| {
         d.sphere = true;
         d
     }))
@@ -219,14 +273,18 @@ fn decode_audio_source(
     mss: MediaSourceStream,
     hint: Hint,
     channel: Option<usize>,
+    opts: &DecodeOptions,
 ) -> Result<DecodedAudio> {
     // Probe the file to detect format
-    let format_opts = FormatOptions::default();
+    let format_opts = FormatOptions {
+        enable_gapless: opts.gapless,
+        ..Default::default()
+    };
     let metadata_opts = MetadataOptions::default();
 
     let probed = symphonia::default::get_probe()
         .format(&hint, mss, &format_opts, &metadata_opts)
-        .map_err(|e| Error::AudioDecodeError(format!("Failed to probe file format: {}", e)))?;
+        .map_err(|e| Error::UnsupportedFormat(format!("not a recognised audio file ({})", e)))?;
 
     let mut format = probed.format;
 
@@ -245,6 +303,7 @@ fn decode_audio_source(
         .sample_rate
         .ok_or_else(|| Error::AudioDecodeError("Unknown sample rate".to_string()))?;
     let codec_type = track.codec_params.codec;
+    let mut skipped_packets = 0usize;
 
     let n_channels = track
         .codec_params
@@ -266,7 +325,12 @@ fn decode_audio_source(
     let decoder_opts = DecoderOptions::default();
     let mut decoder = symphonia::default::get_codecs()
         .make(&track.codec_params, &decoder_opts)
-        .map_err(|e| Error::AudioDecodeError(format!("Failed to create decoder: {}", e)))?;
+        .map_err(|e| match e {
+            symphonia::core::errors::Error::Unsupported(_) => {
+                Error::UnsupportedCodec(codec_name(track.codec_params.codec).to_string())
+            }
+            e => Error::AudioDecodeError(format!("Failed to create decoder: {}", e)),
+        })?;
 
     // Decode all packets. When the container states its length (WAV, FLAC,
     // ...), allocate the buffer once at that size: growing by doubling holds
@@ -307,7 +371,8 @@ fn decode_audio_source(
         let decoded = match decoder.decode(&packet) {
             Ok(decoded) => decoded,
             Err(symphonia::core::errors::Error::DecodeError(_)) => {
-                continue; // Skip decode errors
+                skipped_packets += 1; // reported in DecodedAudio
+                continue;
             }
             Err(e) => {
                 return Err(Error::AudioDecodeError(format!("Decode error: {}", e)));
@@ -332,12 +397,8 @@ fn decode_audio_source(
     // Unknown or overstated length: drop the unused capacity.
     all_samples.shrink_to_fit();
 
-    let codec = symphonia::default::get_codecs()
-        .get_codec(codec_type)
-        .map(|d| d.short_name)
-        .unwrap_or("unknown");
-    let lossy = [CODEC_TYPE_MP1, CODEC_TYPE_MP2, CODEC_TYPE_MP3, CODEC_TYPE_VORBIS, CODEC_TYPE_AAC, CODEC_TYPE_OPUS]
-        .contains(&codec_type);
+    let codec = codec_name(codec_type);
+    let lossy = !(codec.starts_with("pcm_") || matches!(codec, "flac" | "alac" | "wavpack"));
 
     Ok(DecodedAudio {
         samples: all_samples,
@@ -346,7 +407,29 @@ fn decode_audio_source(
         codec,
         lossy,
         sphere: false,
+        skipped_packets,
     })
+}
+
+/// Short name of a codec: symphonia's for the codecs it decodes, otherwise
+/// a common name for ones it can identify but not decode.
+fn codec_name(codec: CodecType) -> &'static str {
+    if let Some(d) = symphonia::default::get_codecs().get_codec(codec) {
+        return d.short_name;
+    }
+    match codec {
+        c if c == CODEC_TYPE_OPUS => "opus",
+        c if c == CODEC_TYPE_AAC => "aac",
+        c if c == CODEC_TYPE_ALAC => "alac",
+        c if c == CODEC_TYPE_WAVPACK => "wavpack",
+        c if c == CODEC_TYPE_MP1 => "mp1",
+        c if c == CODEC_TYPE_MP2 => "mp2",
+        c if c == CODEC_TYPE_VORBIS => "vorbis",
+        c if c == CODEC_TYPE_SPEEX => "speex",
+        c if c == CODEC_TYPE_ADPCM_IMA_WAV => "adpcm_ima_wav",
+        c if c == CODEC_TYPE_ADPCM_MS => "adpcm_ms",
+        _ => "unknown",
+    }
 }
 
 /// Append samples from an audio buffer to the output vector.
