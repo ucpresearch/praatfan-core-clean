@@ -550,6 +550,37 @@ single-threaded run at any thread count.
   compared bit for bit.
 - **WebAssembly** builds are single-threaded.
 
+### Long recordings and memory
+
+Hour-long recordings work in every build, including WebAssembly in the
+browser (since 0.1.17; earlier WASM builds crashed on resampling past
+~12.7 minutes at 44.1 kHz). They need memory, though. Peak memory of a
+browser tab resampling 44.1 kHz audio, measured in Chrome and Firefox:
+
+| Recording length | Peak memory |
+|---|---|
+| up to ~12.7 min | up to ~3 GB |
+| 30 min | ~2.6-3.6 GB |
+| 60 min | ~6-7 GB |
+
+Formant analysis peaks somewhat lower (~4.5-5 GB at 60 min). Native builds
+(Python, R's `"open"` engine, the pipe binary) need less, since they avoid
+the browser's extra copies of the audio.
+
+- **Hour-long files in one piece:** use a machine with 16 GB.
+- **8 GB machines (including Chromebooks):** the operating system and the
+  browser take a good share of the 8 GB, so either split recordings into
+  pieces of about 10 minutes, or downsample first, e.g.
+  `sox in.wav -r 16000 out.wav` (16 kHz has well under half the samples of
+  44.1 kHz). Formant analysis resamples to twice the formant ceiling anyway
+  (11 kHz for the default 5500 Hz), so 16 kHz input loses nothing it uses.
+- **Splitting:** analysis frames within a few tens of milliseconds of a cut
+  lose context, so their values can differ from an unsplit run. Cut at
+  pauses, or overlap the pieces by about a second and drop the overlap.
+- **Downsampling yourself** gives formant values that differ slightly from
+  letting praatfan resample the original (a different resampler); both are
+  valid, but don't mix the two within one comparison.
+
 ### Backends and auto-selection (Python)
 
 With no `set_backend()`, `PRAATFAN_BACKEND` or config file, the first

@@ -17,6 +17,13 @@
 #' (WAV, FLAC, MP3, OGG/Vorbis, NIST SPHERE incl. shorten; not AIFF).  Mono only;
 #' pass \code{channel} to select one channel of a multi-channel file.
 #'
+#' Long recordings need memory: an hour of 44.1 kHz audio takes several GB,
+#' most with the \code{"wasm"} engine.  Use a 16 GB machine for hour-long
+#' files in one piece; on 8 GB machines, split recordings into pieces of
+#' about 10 minutes (frames next to a cut lose context: cut at pauses, or
+#' overlap the pieces and drop the overlap) or downsample first
+#' (e.g. \code{sox in.wav -r 16000 out.wav}).
+#'
 #' @author Uriel Cohen Priva
 
 # ---------------------------------------------------------------------------

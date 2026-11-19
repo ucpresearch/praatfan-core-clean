@@ -159,4 +159,13 @@ which subprocess runs; this package itself remains MIT either way.
 - The `"wasm"` engine runs one thread per call; to use more cores, analyse
   several files at once in separate R processes (PSOCK clusters,
   `future::plan(multisession)`). Each process builds its own engine.
+- Long recordings: an hour of 44.1 kHz audio needs several GB of memory,
+  most with the `"wasm"` engine (~6-7 GB peak in a browser; less in R's V8,
+  less again with `"open"`). Use a 16 GB machine for hour-long files in one
+  piece. On 8 GB machines, split recordings into ~10-minute pieces (cut at
+  pauses, or overlap by a second and drop the overlap, since frames next to
+  a cut lose context) or downsample first, e.g.
+  `sox in.wav -r 16000 out.wav`. Self-downsampled input gives slightly
+  different formants than letting praatfan resample the original, so don't
+  mix the two in one comparison.
 - `pf_uninstall()` removes the installed binary and cached sources.
