@@ -49,7 +49,8 @@ fn percentile_type7(values: &mut [f64], q: f64) -> f64 {
     if n == 1 {
         return values[0];
     }
-    values.sort_unstable_by(|a, b| a.partial_cmp(b).unwrap());
+    // total_cmp: NaN (from a NaN sample) sorts last instead of panicking.
+    values.sort_unstable_by(|a, b| a.total_cmp(b));
     let h = (n - 1) as f64 * q / 100.0;
     let l = h.floor() as usize;
     if l + 1 >= n {

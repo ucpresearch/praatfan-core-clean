@@ -1164,11 +1164,13 @@ pub fn sound_to_pitch_internal(
             0.0
         } else {
             // Element at rank floor(0.9999 * (n - 1)) is the p99.99 value.
-            // select_nth_unstable_by partitions in linear time.
+            // select_nth_unstable_by partitions in linear time. total_cmp so a
+            // NaN sample sorts last instead of panicking (frames covering it
+            // come out undefined); same order as partial_cmp for non-NaN |x|.
             let n = abs_samples.len();
             let k = ((n - 1) as f64 * 0.9999) as usize;
             let (_, pivot, _) = abs_samples
-                .select_nth_unstable_by(k, |a, b| a.partial_cmp(b).unwrap());
+                .select_nth_unstable_by(k, |a, b| a.total_cmp(b));
             *pivot
         }
     };
