@@ -568,18 +568,21 @@ Formant analysis peaks somewhat lower (~4.5-5 GB at 60 min). Native builds
 the browser's extra copies of the audio.
 
 - **Hour-long files in one piece:** use a machine with 16 GB.
-- **8 GB machines (including Chromebooks):** the operating system and the
-  browser take a good share of the 8 GB, so either split recordings into
-  pieces of about 10 minutes, or downsample first, e.g.
-  `sox in.wav -r 16000 out.wav` (16 kHz has well under half the samples of
-  44.1 kHz). Formant analysis resamples to twice the formant ceiling anyway
-  (11 kHz for the default 5500 Hz), so 16 kHz input loses nothing it uses.
-- **Splitting:** analysis frames within a few tens of milliseconds of a cut
-  lose context, so their values can differ from an unsplit run. Cut at
-  pauses, or overlap the pieces by about a second and drop the overlap.
-- **Downsampling yourself** gives formant values that differ slightly from
-  letting praatfan resample the original (a different resampler); both are
-  valid, but don't mix the two within one comparison.
+- **8 GB machines (including Chromebooks): split recordings into pieces of
+  about 10 minutes.** The operating system and the browser take a good share
+  of the 8 GB. Splitting leaves every measure as it is, except that analysis
+  frames within a few tens of milliseconds of a cut lose context and can
+  differ from an unsplit run: cut at pauses, or overlap the pieces by about
+  a second and drop the overlap.
+- **Downsampling first (e.g. `sox in.wav -r 16000 out.wav`) changes the
+  measurements.** It is safe for formants only: formant analysis resamples
+  to twice the formant ceiling anyway (11 kHz for the default 5500 Hz), so
+  16 kHz input loses nothing it uses, and values move only slightly (a
+  different resampler). Everything above the new Nyquist (8 kHz at 16 kHz)
+  is gone, though, so spectral centre of gravity and the other spectral
+  moments (fricatives such as /s/ can drop by kHz), band energies above
+  8 kHz, spectrograms, HNR and intensity all change. Never mix downsampled
+  and original-rate files in one study for those measures.
 
 ### Backends and auto-selection (Python)
 

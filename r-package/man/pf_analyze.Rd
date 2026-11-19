@@ -55,8 +55,9 @@ Long recordings need memory: an hour of 44.1 kHz audio takes several GB,
 most with the \code{"wasm"} engine.  Use a 16 GB machine for hour-long
 files in one piece; on 8 GB machines, split recordings into pieces of
 about 10 minutes (frames next to a cut lose context: cut at pauses, or
-overlap the pieces and drop the overlap) or downsample first
-(e.g. \code{sox in.wav -r 16000 out.wav}).
+overlap the pieces and drop the overlap).  Downsampling first is safe for
+formants only: it removes high frequencies, so spectral moments, band
+energies, spectrograms, HNR and intensity change.
 }
 \author{
 Uriel Cohen Priva
