@@ -25,7 +25,10 @@ use std::path::Path;
 
 use ndarray::Array1;
 use symphonia::core::audio::{AudioBufferRef, Signal};
-use symphonia::core::codecs::{DecoderOptions, CODEC_TYPE_NULL};
+use symphonia::core::codecs::{
+    DecoderOptions, CODEC_TYPE_AAC, CODEC_TYPE_MP1, CODEC_TYPE_MP2, CODEC_TYPE_MP3, CODEC_TYPE_NULL,
+    CODEC_TYPE_OPUS, CODEC_TYPE_VORBIS,
+};
 use symphonia::core::formats::FormatOptions;
 use symphonia::core::io::MediaSourceStream;
 use symphonia::core::meta::MetadataOptions;
@@ -69,6 +72,90 @@ pub struct Sound {
     sample_rate: f64,
 }
 
+/// Audio decoded by [`decode_bytes`] / [`decode_file`]: the decoder behind
+/// [`Sound::from_file`] and [`Sound::from_bytes`], for callers that need the
+/// raw samples (e.g. all channels) rather than a mono `Sound`.
+#[derive(Debug, Clone)]
+#[non_exhaustive]
+pub struct DecodedAudio {
+    /// Samples as f64, integer formats scaled to [-1, 1). Interleaved
+    /// (frame-major) when every channel was decoded; one channel's samples
+    /// when a channel was selected.
+    pub samples: Vec<f64>,
+    /// Sample rate in Hz.
+    pub sample_rate: u32,
+    /// Channels in the file (also when only one was selected).
+    pub channels: usize,
+    /// symphonia's short codec name, e.g. "pcm_s16le", "flac", "mp3".
+    /// SPHERE files report the codec of the PCM WAV desphere converts them to.
+    pub codec: &'static str,
+    /// True for lossy codecs (MP1/2/3, Vorbis, AAC, Opus).
+    pub lossy: bool,
+    /// True when the bytes were NIST SPHERE (decoded via desphere).
+    pub sphere: bool,
+}
+
+impl DecodedAudio {
+    fn into_tuple(self) -> (Vec<f64>, f64, usize) {
+        (self.samples, self.sample_rate as f64, self.channels)
+    }
+}
+
+/// Decode in-memory audio file bytes: any format [`Sound::from_file`] reads
+/// (WAV, FLAC, MP3, OGG/Vorbis, NIST SPHERE incl. shorten). Works on
+/// wasm32.
+///
+/// `ext` is a format hint as a path's extension would give it (e.g.
+/// `Some("flac")`); `None` lets the bytes be probed. `channel` `Some(c)`
+/// keeps only channel `c` (an error if the file has no such channel); `None`
+/// keeps every channel, interleaved. Pass a `Vec<u8>` or `Arc<[u8]>` to
+/// avoid holding two copies of the file bytes during decoding.
+///
+/// The sample buffer is allocated once at the length the container states;
+/// running out of memory is an error, not a panic.
+pub fn decode_bytes(
+    bytes: impl Into<std::sync::Arc<[u8]>>,
+    ext: Option<&str>,
+    channel: Option<usize>,
+) -> Result<DecodedAudio> {
+    let bytes: std::sync::Arc<[u8]> = bytes.into();
+    let mut hint = Hint::new();
+    if let Some(ext) = ext {
+        hint.with_extension(ext);
+    }
+    let mss = MediaSourceStream::new(
+        Box::new(std::io::Cursor::new(bytes.clone())),
+        Default::default(),
+    );
+    match decode_audio_source(mss, hint, channel) {
+        Ok(result) => Ok(result),
+        Err(primary_err) => decode_via_desphere(&bytes, channel).unwrap_or(Err(primary_err)),
+    }
+}
+
+/// Decode an audio file from disk, as [`decode_bytes`] decodes its bytes
+/// (the extension is the format hint). Not available on wasm32, which has no
+/// filesystem: use [`decode_bytes`].
+#[cfg(not(target_arch = "wasm32"))]
+pub fn decode_file<P: AsRef<Path>>(path: P, channel: Option<usize>) -> Result<DecodedAudio> {
+    let path = path.as_ref();
+    let mut hint = Hint::new();
+    if let Some(ext) = path.extension().and_then(|e| e.to_str()) {
+        hint.with_extension(ext);
+    }
+    let file = File::open(path).map_err(|e| {
+        Error::AudioDecodeError(format!("Failed to open file: {}", e))
+    })?;
+    let mss = MediaSourceStream::new(Box::new(file), Default::default());
+    match decode_audio_source(mss, hint, channel) {
+        Ok(result) => Ok(result),
+        Err(primary_err) => match std::fs::read(path) {
+            Ok(bytes) => decode_via_desphere(&bytes, channel).unwrap_or(Err(primary_err)),
+            Err(_) => Err(primary_err),
+        },
+    }
+}
+
 /// Decode an audio file using symphonia.
 ///
 /// Returns (samples, sample_rate, n_channels).
@@ -82,25 +169,7 @@ pub struct Sound {
 /// decode error only reaches the caller when the bytes actually were SPHERE).
 #[cfg(not(target_arch = "wasm32"))]
 fn decode_audio_file(path: &Path, channel: Option<usize>) -> Result<(Vec<f64>, f64, usize)> {
-    // Use file extension as a hint for format detection
-    let mut hint = Hint::new();
-    if let Some(ext) = path.extension().and_then(|e| e.to_str()) {
-        hint.with_extension(ext);
-    }
-
-    // Open the file and try symphonia first.
-    let file = File::open(path).map_err(|e| {
-        Error::AudioDecodeError(format!("Failed to open file: {}", e))
-    })?;
-    let mss = MediaSourceStream::new(Box::new(file), Default::default());
-
-    match decode_audio_source(mss, hint, channel) {
-        Ok(result) => Ok(result),
-        Err(primary_err) => match std::fs::read(path) {
-            Ok(bytes) => decode_via_desphere(&bytes, channel).unwrap_or(Err(primary_err)),
-            Err(_) => Err(primary_err),
-        },
-    }
+    decode_file(path, channel).map(DecodedAudio::into_tuple)
 }
 
 /// wasm32 has no filesystem: `Sound::from_bytes` is the way in there.
@@ -119,20 +188,7 @@ fn decode_audio_bytes(
     ext: Option<&str>,
     channel: Option<usize>,
 ) -> Result<(Vec<f64>, f64, usize)> {
-    let mut hint = Hint::new();
-    if let Some(ext) = ext {
-        hint.with_extension(ext);
-    }
-    // Shared, not cloned: the fallback needs the bytes again only on error.
-    let bytes: std::sync::Arc<[u8]> = bytes.into();
-    let mss = MediaSourceStream::new(
-        Box::new(std::io::Cursor::new(bytes.clone())),
-        Default::default(),
-    );
-    match decode_audio_source(mss, hint, channel) {
-        Ok(result) => Ok(result),
-        Err(primary_err) => decode_via_desphere(&bytes, channel).unwrap_or(Err(primary_err)),
-    }
+    decode_bytes(bytes, ext, channel).map(DecodedAudio::into_tuple)
 }
 
 /// Fallback decode for formats symphonia rejects: transcode SPHERE → WAV with
@@ -143,13 +199,16 @@ fn decode_audio_bytes(
 fn decode_via_desphere(
     bytes: &[u8],
     channel: Option<usize>,
-) -> Option<Result<(Vec<f64>, f64, usize)>> {
+) -> Option<Result<DecodedAudio>> {
     let wav = desphere::transcode(bytes).ok()?;
 
     let mss = MediaSourceStream::new(Box::new(std::io::Cursor::new(wav)), Default::default());
     let mut hint = Hint::new();
     hint.with_extension("wav");
-    Some(decode_audio_source(mss, hint, channel))
+    Some(decode_audio_source(mss, hint, channel).map(|mut d| {
+        d.sphere = true;
+        d
+    }))
 }
 
 /// Decode audio from a prepared media source stream using symphonia.
@@ -160,7 +219,7 @@ fn decode_audio_source(
     mss: MediaSourceStream,
     hint: Hint,
     channel: Option<usize>,
-) -> Result<(Vec<f64>, f64, usize)> {
+) -> Result<DecodedAudio> {
     // Probe the file to detect format
     let format_opts = FormatOptions::default();
     let metadata_opts = MetadataOptions::default();
@@ -184,7 +243,8 @@ fn decode_audio_source(
     let sample_rate = track
         .codec_params
         .sample_rate
-        .ok_or_else(|| Error::AudioDecodeError("Unknown sample rate".to_string()))? as f64;
+        .ok_or_else(|| Error::AudioDecodeError("Unknown sample rate".to_string()))?;
+    let codec_type = track.codec_params.codec;
 
     let n_channels = track
         .codec_params
@@ -272,7 +332,21 @@ fn decode_audio_source(
     // Unknown or overstated length: drop the unused capacity.
     all_samples.shrink_to_fit();
 
-    Ok((all_samples, sample_rate, n_channels))
+    let codec = symphonia::default::get_codecs()
+        .get_codec(codec_type)
+        .map(|d| d.short_name)
+        .unwrap_or("unknown");
+    let lossy = [CODEC_TYPE_MP1, CODEC_TYPE_MP2, CODEC_TYPE_MP3, CODEC_TYPE_VORBIS, CODEC_TYPE_AAC, CODEC_TYPE_OPUS]
+        .contains(&codec_type);
+
+    Ok(DecodedAudio {
+        samples: all_samples,
+        sample_rate,
+        channels: n_channels,
+        codec,
+        lossy,
+        sphere: false,
+    })
 }
 
 /// Append samples from an audio buffer to the output vector.

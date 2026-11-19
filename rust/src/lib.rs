@@ -140,7 +140,9 @@ pub use pitch::{
 /// Sound loading and basic operations.
 ///
 /// `Sound` is the foundation type for all acoustic analysis.
-pub use sound::Sound;
+#[cfg(not(target_arch = "wasm32"))]
+pub use sound::decode_file;
+pub use sound::{decode_bytes, DecodedAudio, Sound};
 
 /// Spectrogram (time-frequency) analysis types and functions.
 ///
